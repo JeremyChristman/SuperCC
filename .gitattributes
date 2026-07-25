@@ -1,0 +1,9 @@
+# Normalize source/text to LF; leave binaries (bytecode + image assets) alone.
+* text=auto eol=lf
+
+*.class binary
+*.png   binary
+*.gif   binary
+*.ico   binary
+*.jar   binary
+*.wav   binary

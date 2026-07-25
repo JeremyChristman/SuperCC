@@ -1,0 +1,3 @@
+# Build output (produced by build.ps1). The libs under com/ and org/ ARE
+# tracked (bytecode-only third-party deps), so only ignore the built jar.
+/SuperCC.jar
