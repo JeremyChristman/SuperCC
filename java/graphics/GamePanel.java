@@ -35,7 +35,7 @@ public abstract class GamePanel extends JPanel
     static Image[][] creatureImages;
     
     protected boolean showMonsterListNumbers = true, showSlipListNumbers = true; //Makes sure that the BG layer, the slip list, and the monster list show by default
-    protected boolean showTrapConnections, showCloneConnections, showHistory;
+    protected boolean showTrapConnections = true, showCloneConnections = true, showHistory; //MOD (Jeremy): clone/trap connections render by default
 
     // The background image
     protected BufferedImage lowerImage;

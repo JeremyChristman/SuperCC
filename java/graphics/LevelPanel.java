@@ -68,6 +68,8 @@ public class LevelPanel extends TextPanel {
         drawText(g, "Ruleset: " + level.getRuleset().prettyPrint(), 1);
         if (level.getAuthor() != null)
             drawText(g, "Author: " + level.getAuthor(), 1);
+        if (level.getHint() != null)
+            drawText(g, "Hint: " + level.getHint(), Integer.MAX_VALUE); // MOD (Jeremy): show the level's hint under Author
         drawText(g, level.getStep().toString()+" step, seed: " + level.getRngSeed(), 1);
         if (level.hasCyclicRFF())
             drawText(g, "RFF Initial Direction: "+level.getInitialRFFDirection(), 1);

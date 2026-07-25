@@ -179,7 +179,7 @@ public class SuperCC {
                 solution = new Solution(new char[] {}, 0, Step.EVEN, Solution.BASIC_MOVES, level.getRuleset(), Direction.UP);
                 if(hasGui) {
                     window.repaint(true);
-                    window.setTitle("SuperCC - " + level.getTitle());
+                    window.setTitle("SuperCC - " + dat.getLevelsetName()); // MOD (Jeremy): title shows the pack name
                 }
             }
         }

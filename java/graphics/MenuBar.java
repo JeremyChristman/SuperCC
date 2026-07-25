@@ -584,7 +584,7 @@ class MenuBar extends JMenuBar{
             String[] setterNames = new String[] {
                 "Show Monster List",
                 "Show Slip List",
-                "Show Clone connections",
+                "Show Clone Connections",
                 "Show Trap Connections",
                 "Show Move History"
             };
@@ -600,7 +600,7 @@ class MenuBar extends JMenuBar{
             for (int i = 0; i < setterNames.length; i++){
                 JToggleButton b = new JToggleButton(setterNames[i]);
                 Consumer<Boolean> setter = setters.get(i);
-                if (i == 0 || i == 1) b.setSelected(true); //These are already selected by default in the backend (GamePanel.java, at the top with all the variable declarations) so i just make the buttons default the on state
+                if (i == 0 || i == 1 || i == 2 || i == 3) b.setSelected(true); //MOD (Jeremy): Clone (2) & Trap (3) buttons default ON too, matching the backend state in GamePanel.java
                 b.addActionListener(e -> {
                     setter.accept(((AbstractButton) e.getSource()).isSelected());
                     window.repaint(true);
