@@ -179,7 +179,9 @@ public class SuperCC {
                 solution = new Solution(new char[] {}, 0, Step.EVEN, Solution.BASIC_MOVES, level.getRuleset(), Direction.UP);
                 if(hasGui) {
                     window.repaint(true);
-                    window.setTitle("SuperCC - " + dat.getLevelsetName()); // MOD (Jeremy): title shows the pack name
+                    // MOD (Jeremy): title = "SuperCC [jc-N] - <pack> - <level>". Bump the [jc-N]
+                    // build tag on each production deploy so the running build is identifiable.
+                    window.setTitle("SuperCC [jc-1] - " + dat.getLevelsetName() + " - " + level.getTitle());
                 }
             }
         }
