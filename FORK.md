@@ -28,15 +28,25 @@ Requires a **JDK 16+** (upstream targets Java 16). From this folder:
 powershell -ExecutionPolicy Bypass -File build.ps1     # -> SuperCC.jar
 ```
 
-`build.ps1` recompiles all of SuperCC's own source under `java/` with `javac --release 16`, keeps the
-bundled third-party libs (`com/intellij` annotations, `org/json`) and the `resources/` assets as-is,
-and repackages everything with the manifest — reproducing the upstream fat-jar structure (571 entries,
-193 classes). It resolves a real JDK bin automatically (the Oracle `javapath` dir on PATH exposes
-`javac` but not `jar`).
+`build.ps1` recompiles **only the hand-edited, non-form source files** (listed in `$MODIFIED`) with
+`javac --release 16` and splices them over the committed baseline of compiled classes, then repackages
+with the libs (`com/intellij` annotations, `org/json`), `resources/`, and the manifest — reproducing
+the upstream fat jar (571 entries, 193 classes). It resolves a real JDK bin automatically (the Oracle
+`javapath` dir on PATH exposes `javac` but not `jar`).
+
+**Why not a full `javac` rebuild?** SuperCC's GUI is built with the IntelliJ GUI Designer — the main
+`graphics/Gui` window and the `tools/*` dialogs each have a `.form` file, and IntelliJ's *form compiler*
+generates a hidden `$$$setupUI$$$()` method at build time that creates their Swing components. Plain
+`javac` doesn't do that, so a full rebuild yields a jar whose GUI dies on launch (`... playButton is
+null`). So the IntelliJ-built `.class` files are committed as the authoritative baseline (under
+`emulator/ game/ graphics/ io/ tools/ util/`), and only the non-form modified classes are recompiled.
+**Adding a mod to a new file?** Add it to `$MODIFIED` in `build.ps1` — and make sure it has no sibling
+`.form`.
 
 ## Note on history / source vs. bytecode
 
 Upstream ships its `.java` source *inside* the jar under `java/`. The prior hand-built mods were
 spliced in as recompiled `.class` files only — the bundled source stayed pristine. This repo
-reconstructs the mods **into the source** (from the documented changes), so source and behavior are
-finally consistent and the whole jar builds cleanly from `java/`.
+reconstructs the mods **into the source** (from the documented changes) so the source is authoritative
+for the non-form classes, while the IntelliJ-built `.class` baseline is committed for the form classes
+that `javac` can't reproduce (see the build note above).
