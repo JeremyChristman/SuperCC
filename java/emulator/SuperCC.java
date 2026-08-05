@@ -181,7 +181,7 @@ public class SuperCC {
                     window.repaint(true);
                     // MOD (Jeremy): title = "SuperCC [jc-N] - <pack> - <level>". Bump the [jc-N]
                     // build tag on each production deploy so the running build is identifiable.
-                    window.setTitle("SuperCC [jc-1] - " + dat.getLevelsetName() + " - " + level.getTitle());
+                    window.setTitle("SuperCC [jc-2] - " + dat.getLevelsetName() + " - " + level.getTitle());
                 }
             }
         }
