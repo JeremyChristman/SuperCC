@@ -23,6 +23,24 @@ public class TWSWriter{
         if (level.supportsClick()) {
             savestates.addSavestate(-1); //shouldn't be possible for a user to save a savestate to this key
             savestates.restart();
+            /* FIX (Jeremy 2026-08-05): restart()/replay() only move SavestateManager's internal
+             * cursor (currentNode / playbackIndex) -- they do NOT apply the state back to the
+             * Level. Without the two load() calls below, level.getChip().getPosition() returns
+             * the SAME position on every iteration of this loop, namely Chip's position at the
+             * END of the solution, so every click was written relative to the wrong cell.
+             *
+             * A click char encodes an offset into the 9x9 SCROLLED VIEWPORT, and the .tws stores
+             * an offset RELATIVE TO CHIP, so converting between them needs Chip's position AT
+             * THE TICK THE CLICK IS APPLIED. Measured before the fix: of the 19 click-bearing
+             * solutions in the corpus, 13 exported the wrong target cell. Usually harmless (the
+             * wrong goal still produces adequate movement), but it made BlakeE1 #118 "Technical
+             * Difficulties" unreplayable in Tile World -- both its clicks target 31,14 and the
+             * writer emitted 30,14, the cell Chip is already sliding into.
+             *
+             * playbackNodes[i] is the state BEFORE moves[i] (node 0 comes from the constructor;
+             * addRewindState appends AFTER each tick), so loading the current node at the top of
+             * each iteration puts the Level exactly where the click was made. */
+            level.load(savestates.getSavestate());
             ListIterator<Character> itr = savestates.getMoveList().listIterator(false);
             while (itr.hasNext()) {
                 char c = itr.next();
@@ -36,6 +54,7 @@ public class TWSWriter{
                     mouseMoves.add(relativeClickY);
                 }
                 savestates.replay();
+                level.load(savestates.getSavestate());
             }
             savestates.load(-1, level);
         }
