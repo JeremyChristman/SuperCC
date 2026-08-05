@@ -24,7 +24,8 @@ $MODIFIED = @(
     "emulator\SuperCC.java",
     "graphics\LevelPanel.java",
     "graphics\MenuBar.java",
-    "graphics\GamePanel.java"
+    "graphics\GamePanel.java",
+    "io\TWSWriter.java"
 )
 
 # The Oracle "javapath" dir on PATH exposes javac/java but not jar; resolve a real JDK bin.
