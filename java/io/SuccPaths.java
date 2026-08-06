@@ -151,6 +151,12 @@ public class SuccPaths {
      *
      * NOTE: switching the tag off does not make a build unidentifiable -- BUILD_TAG is still a
      * string constant inside SuperCC.jar, so unzipping it (or `strings`) still names the release.
+     *
+     * ⚠ DO NOT "fix" this getter to match its siblings. Every other getter here self-heals by
+     * calling its own setter when the key is absent (see getTWSNotation()). This one deliberately
+     * does NOT, because updateSettingsFile() calls it from inside its try-with-resources: a
+     * self-healing call would re-enter updateSettingsFile() and open a SECOND PrintWriter on the
+     * file the outer one is still mid-write on, truncating it. Absent simply means true here.
      */
     public boolean getShowBuildTag() {
         String showBuildTag = settingsMap.get("Graphics:ShowBuildTag");

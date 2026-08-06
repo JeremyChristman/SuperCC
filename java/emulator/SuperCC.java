@@ -33,8 +33,14 @@ public class SuperCC {
      * production deploy so the running build is identifiable. The tag is TOGGLEABLE -- settings.ini
      * [Graphics] ShowBuildTag = false hides it, true (or absent) shows it, and no rebuild or
      * redeploy is needed. Settings are read once at construction, so the change applies at the
-     * next launch. See SuccPaths.getShowBuildTag(). Compose titles through windowTitlePrefix(),
-     * never by concatenating TITLE and BUILD_TAG directly. */
+     * next launch. See SuccPaths.getShowBuildTag().
+     *
+     * ⚠ Compose titles through windowTitlePrefix(), NEVER by concatenating TITLE and BUILD_TAG
+     * directly. Both are compile-time String constants, so javac inlines them at every use site.
+     * build.ps1 is a SPLICE build -- it recompiles only the files in $MODIFIED and overlays them on
+     * a prebuilt class baseline -- so a reference from a class that is not recompiled (a .form
+     * class can NEVER be recompiled) would keep the OLD tag baked in, and the jar would report two
+     * different versions depending on which window you looked at. */
     public static final String TITLE = "SuperCC";
     public static final String BUILD_TAG = "[jc-3]";
 

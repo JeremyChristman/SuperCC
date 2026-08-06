@@ -28,26 +28,33 @@ so it is switched by a setting rather than by a rebuild. In the CC folder's `set
 
 ```ini
 [Graphics]
-ShowBuildTag = true      ; SuperCC [jc-N] - <pack> - <level>
-ShowBuildTag = false     ; SuperCC - <pack> - <level>
-                         ; key absent -> ON, the default
+ShowBuildTag = false
 ```
 
-Anything other than `false` or `0` counts as on, so a typo or a `settings.ini` predating the key
-keeps the tag rather than silently dropping it. Settings are parsed once at launch, so a change
-applies the **next time SuperCC starts**.
+`true` shows the tag, `false` (or `0`) hides it, and the key being **absent means ON** — anything
+other than `false`/`0` counts as on, so a typo or a `settings.ini` predating the key keeps the tag
+rather than silently dropping it. Settings are parsed once at launch, so a change applies the
+**next time SuperCC starts**.
 
-Two ways to get this wrong when hand-editing:
+> **Don't put a trailing `;` comment on that line.** `parseSettings()` only honors a `;` at the
+> *start* of a line; everything after `=` is the value. `ShowBuildTag = false ; hides it` yields the
+> value `false ; hides it`, which is not `false`, so the tag stays **on**.
 
-- **The space before `=` is load-bearing.** `SuccPaths.parseSettings()` reads the key as
+Three more ways to get this wrong by hand:
+
+- **The space before `=` is load-bearing.** `parseSettings()` reads the key as
   `substring(0, indexOf('=') - 1)`, so `ShowBuildTag=false` parses as the key `ShowBuildTa` and is
   ignored — leaving the tag on.
+- **The section matters.** Keys are stored as `<section>:<name>`, so a `ShowBuildTag` line under
+  `[Paths]` is a different key that nothing ever reads. It must be inside `[Graphics]`.
 - **Don't edit while SuperCC is running.** It keeps the whole settings file in memory and rewrites
   every line of it whenever any setting changes, so a running instance restores its own stale value
   over the edit.
 
-`set_supercc_buildtag.ps1` (in Jeremy's `Dropbox\Claude\CC Audit Scripts\`) handles both, and
-verifies the write by reading it back.
+`set_supercc_buildtag.ps1` (in Jeremy's `Dropbox\Claude\CC Audit Scripts\`) mirrors the parser on all
+three: it scopes to `[Graphics]`, reports the state SuperCC would actually see (so a no-space line
+reads as *on*, and gets repaired rather than reported as working), takes the last of any duplicates,
+writes atomically via a temp file, and verifies by reading back.
 
 Switching the tag off does **not** make a build unidentifiable — `BUILD_TAG` is still a string
 constant in the jar, so `unzip`/`javap` on `emulator/SuperCC.class` still names the release.
