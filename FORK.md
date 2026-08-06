@@ -11,14 +11,46 @@ what's mine. All mods are **display-only** — no gameplay/solution/RNG behavior
 headless replay of a known solution reproduces the exact same tick-by-tick result before and after).
 
 1. **Window title = build tag + pack + current level** (`java/emulator/SuperCC.java`).
-   Title reads `SuperCC [jc-1] - <pack> - <level>` (bump the `[jc-N]` tag per production deploy so the
+   Title reads `SuperCC [jc-N] - <pack> - <level>` (bump `BUILD_TAG` per production deploy so the
    running build is identifiable). Upstream showed only the level name; an earlier mod showed only the
    pack — this shows the version, pack, and current level together, updating as you change levels.
+   **The `[jc-N]` half is toggleable — see below.**
 2. **Hint shown in the level panel** (`java/graphics/LevelPanel.java`). The level's hint text is drawn
    under "Author:" (uncapped width so even the longest hint wraps fully); hidden on hintless levels.
 3. **Clone/Trap connections on by default** (`java/graphics/MenuBar.java`, `java/graphics/GamePanel.java`).
    The Clone- and Trap-connection overlays render by default (matching Monster/Slip list), and the
    "Show Clone Connections" menu label casing is fixed.
+
+## Toggling the build tag (no rebuild)
+
+The tag is handy while the fork is under active modification and just noise the rest of the time,
+so it is switched by a setting rather than by a rebuild. In the CC folder's `settings.ini`:
+
+```ini
+[Graphics]
+ShowBuildTag = true      ; SuperCC [jc-N] - <pack> - <level>
+ShowBuildTag = false     ; SuperCC - <pack> - <level>
+                         ; key absent -> ON, the default
+```
+
+Anything other than `false` or `0` counts as on, so a typo or a `settings.ini` predating the key
+keeps the tag rather than silently dropping it. Settings are parsed once at launch, so a change
+applies the **next time SuperCC starts**.
+
+Two ways to get this wrong when hand-editing:
+
+- **The space before `=` is load-bearing.** `SuccPaths.parseSettings()` reads the key as
+  `substring(0, indexOf('=') - 1)`, so `ShowBuildTag=false` parses as the key `ShowBuildTa` and is
+  ignored — leaving the tag on.
+- **Don't edit while SuperCC is running.** It keeps the whole settings file in memory and rewrites
+  every line of it whenever any setting changes, so a running instance restores its own stale value
+  over the edit.
+
+`set_supercc_buildtag.ps1` (in Jeremy's `Dropbox\Claude\CC Audit Scripts\`) handles both, and
+verifies the write by reading it back.
+
+Switching the tag off does **not** make a build unidentifiable — `BUILD_TAG` is still a string
+constant in the jar, so `unzip`/`javap` on `emulator/SuperCC.class` still names the release.
 
 ## Building
 
