@@ -40,7 +40,10 @@ public class SuccPaths {
             writer.printf("%s = %s\n", "LynxTilesheetNum", settingsMap.get("Graphics:LynxTilesheetNum"));
             writer.printf("%s = %s\n", "TileWidth", settingsMap.get("Graphics:TileWidth"));
             writer.printf("%s = %s\n", "TileHeight", settingsMap.get("Graphics:TileHeight"));
-            writer.printf("%s = %s", "TWSNotate", settingsMap.get("Graphics:TWSNotate"));
+            writer.printf("%s = %s\n", "TWSNotate", settingsMap.get("Graphics:TWSNotate"));
+            // MOD (Jeremy): written through the GETTER, not the raw map, so a settings.ini that
+            // predates this key can never round-trip as "ShowBuildTag = null" -- see below.
+            writer.printf("%s = %s", "ShowBuildTag", getShowBuildTag());
         }
         catch (IOException e) {
             e.printStackTrace();
@@ -130,6 +133,31 @@ public class SuccPaths {
             return false;
         }
     }
+    /* MOD (Jeremy): the "[jc-N]" build tag in the window title is TOGGLEABLE, by a setting
+     * rather than by a rebuild -- it is useful while the fork is under active modification and
+     * just noise the rest of the time:
+     *
+     *     settings.ini  [Graphics]  ShowBuildTag = true   ->  "SuperCC [jc-N] - <pack> - <level>"
+     *                               ShowBuildTag = false  ->  "SuperCC - <pack> - <level>"
+     *                               (absent)              ->  ON, the default
+     *
+     * "Anything but an explicit off is ON", so a typo or a settings.ini predating this key keeps
+     * the tag; Boolean.parseBoolean() would silently flip the default the other way instead.
+     * Settings are parsed once in the constructor, so an edit applies at the next SuperCC launch.
+     *
+     * WARNING -- hand-editing settings.ini: parseSettings() reads the key as substring(0, pivot-1),
+     * so the line MUST have the space before '='. "ShowBuildTag = false" works; "ShowBuildTag=false"
+     * parses as the key "ShowBuildTa" and is silently ignored, leaving the tag ON.
+     *
+     * NOTE: switching the tag off does not make a build unidentifiable -- BUILD_TAG is still a
+     * string constant inside SuperCC.jar, so unzipping it (or `strings`) still names the release.
+     */
+    public boolean getShowBuildTag() {
+        String showBuildTag = settingsMap.get("Graphics:ShowBuildTag");
+        if (showBuildTag == null) return true;
+        showBuildTag = showBuildTag.trim();
+        return !(showBuildTag.equalsIgnoreCase("false") || showBuildTag.equals("0"));
+    }
     public String getJSONPath(String levelsetName, int levelNumber, String levelName, String ruleset) {
         String json = getSuccPath();
         new File(Paths.get(json, levelsetName).toString()).mkdirs();
@@ -181,6 +209,10 @@ public class SuccPaths {
     }
     public void setTWSNotation(boolean twsNotation) {
         settingsMap.put("Graphics:TWSNotate", String.valueOf(twsNotation));
+        updateSettingsFile();
+    }
+    public void setShowBuildTag(boolean showBuildTag) { // MOD (Jeremy): see getShowBuildTag()
+        settingsMap.put("Graphics:ShowBuildTag", String.valueOf(showBuildTag));
         updateSettingsFile();
     }
 
@@ -252,7 +284,8 @@ public class SuccPaths {
                     "[Graphics]\n" +
                     "TilesheetNum = 0\n" +
                     "TileWidth = 20\n" +
-                    "TileHeight = 20");
+                    "TileHeight = 20\n" +
+                    "ShowBuildTag = true"); // MOD (Jeremy): see getShowBuildTag()
             fw.close();
         }
         catch(Exception g) {

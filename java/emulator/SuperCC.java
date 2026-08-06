@@ -29,6 +29,15 @@ public class SuperCC {
             DOWN_RIGHT, Direction.DOWN_RIGHT, UP_RIGHT, Direction.UP_RIGHT, WAIT, Direction.NONE);
     public static final byte CHIP_RELATIVE_CLICK = 1;
 
+    /* MOD (Jeremy): window title = "SuperCC [jc-N] - <pack> - <level>". Bump BUILD_TAG on each
+     * production deploy so the running build is identifiable. The tag is TOGGLEABLE -- settings.ini
+     * [Graphics] ShowBuildTag = false hides it, true (or absent) shows it, and no rebuild or
+     * redeploy is needed. Settings are read once at construction, so the change applies at the
+     * next launch. See SuccPaths.getShowBuildTag(). Compose titles through windowTitlePrefix(),
+     * never by concatenating TITLE and BUILD_TAG directly. */
+    public static final String TITLE = "SuperCC";
+    public static final String BUILD_TAG = "[jc-3]";
+
     private SavestateManager savestates;
 //    SavestateCompressor savestateCompressor = new SavestateCompressor();
     private Level level;
@@ -49,6 +58,15 @@ public class SuperCC {
     
     public SuccPaths getPaths() {
         return paths;
+    }
+
+    /* MOD (Jeremy): the program name, with the build tag appended when it is switched on.
+     * `paths` is null under the GUI-less test constructor (and if settings.ini could neither be
+     * read nor created), so fall back to the bare name rather than throwing -- tworld's
+     * equivalent re-title crashed every headless batch run for exactly this reason. */
+    public String windowTitlePrefix() {
+        if (paths == null || !paths.getShowBuildTag()) return TITLE;
+        return TITLE + " " + BUILD_TAG;
     }
     
     public String getJSONPath() {
@@ -179,9 +197,9 @@ public class SuperCC {
                 solution = new Solution(new char[] {}, 0, Step.EVEN, Solution.BASIC_MOVES, level.getRuleset(), Direction.UP);
                 if(hasGui) {
                     window.repaint(true);
-                    // MOD (Jeremy): title = "SuperCC [jc-N] - <pack> - <level>". Bump the [jc-N]
-                    // build tag on each production deploy so the running build is identifiable.
-                    window.setTitle("SuperCC [jc-2] - " + dat.getLevelsetName() + " - " + level.getTitle());
+                    // MOD (Jeremy): title = "SuperCC [jc-N] - <pack> - <level>", where the "[jc-N]"
+                    // half is switched on/off by settings.ini's ShowBuildTag -- see windowTitlePrefix().
+                    window.setTitle(windowTitlePrefix() + " - " + dat.getLevelsetName() + " - " + level.getTitle());
                 }
             }
         }
