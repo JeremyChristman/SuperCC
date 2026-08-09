@@ -42,7 +42,7 @@ public class SuperCC {
      * class can NEVER be recompiled) would keep the OLD tag baked in, and the jar would report two
      * different versions depending on which window you looked at. */
     public static final String TITLE = "SuperCC";
-    public static final String BUILD_TAG = "[jc-3]";
+    public static final String BUILD_TAG = "[jc-4]";
 
     private SavestateManager savestates;
 //    SavestateCompressor savestateCompressor = new SavestateCompressor();
@@ -67,12 +67,22 @@ public class SuperCC {
     }
 
     /* MOD (Jeremy): the program name, with the build tag appended when it is switched on.
-     * `paths` is null under the GUI-less test constructor (and if settings.ini could neither be
-     * read nor created), so fall back to the bare name rather than throwing -- tworld's
-     * equivalent re-title crashed every headless batch run for exactly this reason. */
+     * `paths` is null under the GUI-less test constructor SuperCC(boolean) -- which tools like
+     * SeedSearch use -- so fall back to the bare name rather than throwing; tworld's equivalent
+     * re-title crashed every headless batch run for exactly this reason. (SuccPaths.load() always
+     * returns an instance, so the GUI constructor can no longer leave it null.) */
     public String windowTitlePrefix() {
         if (paths == null || !paths.getShowBuildTag()) return TITLE;
         return TITLE + " " + BUILD_TAG;
+    }
+
+    /* MOD (Jeremy): marks a session that is running on defaults and discarding settings changes,
+     * because settings.ini could not be read. The startup dialog fires once and is then dismissed
+     * and forgotten; this keeps the state visible for as long as it lasts. Appended at the very
+     * END of the title so it stays clear of supercc_driver.ps1's "SuperCC [tag] - <set> - ..."
+     * match, which anchors on the front of the string. */
+    public String windowTitleSuffix() {
+        return (paths != null && !paths.isPersisting()) ? "  [settings read-only]" : "";
     }
     
     public String getJSONPath() {
@@ -154,22 +164,31 @@ public class SuperCC {
     }
 
     public SuperCC() {
-        try {
-            File f = new File("settings.ini");
-            paths = new SuccPaths(f);
-        }
-        catch (IOException e){
-            throwMessage("Could not find settings.ini file, creating"); //If it can't find the settings file make it with some defaults
-                SuccPaths.createSettingsFile();
-                //Now that the settings file exists we can call this again safely
-                File f = new File("settings.ini");
-            try {
-                paths = new SuccPaths(f);
-            } catch (IOException ex) {
-                ex.printStackTrace();
-            }
-        }
+        /* MOD (Jeremy): recovery policy lives in SuccPaths.load() now. This block used to treat
+         * ANY IOException as "the file is missing" and call createSettingsFile(), which truncates
+         * and writes defaults -- so a settings.ini merely LOCKED for a moment by Dropbox or
+         * antivirus was destroyed, with the reassuring dialog "Could not find settings.ini file,
+         * creating" as the only clue. load() distinguishes absent from unreadable, retries a
+         * locked file, and falls back to non-persisting defaults rather than overwriting it.
+         * It always returns an instance, so `paths` can no longer be left null either. */
+        paths = SuccPaths.load(new File("settings.ini"));
+        if (paths.getLoadWarning() != null) throwMessage(paths.getLoadWarning());
+        paths.setWriteErrorHandler(this::onSettingsWriteFailed);
         window = new Gui(this);
+    }
+
+    /* MOD (Jeremy): a settings write that failed every retry. Reported ONCE per session -- the
+     * likeliest cause is Dropbox holding settings.ini open, which affects every subsequent write
+     * too, and a dialog per setting change would be worse than useless. The file itself is never
+     * damaged (the write is atomic), so the only thing lost is the change. */
+    private boolean settingsWriteWarned;
+    private void onSettingsWriteFailed(IOException e) {
+        if (settingsWriteWarned) return;
+        settingsWriteWarned = true;
+        throwMessage("Could not save settings.ini:\n" + e + "\n\n"
+                + "It is probably held open by Dropbox or antivirus. Your settings file is intact,\n"
+                + "but this change was not written to it and will be gone at the next launch.\n"
+                + "This message is shown only once per session.");
     }
 
     // GUI-less emulator - used for tests
@@ -205,7 +224,8 @@ public class SuperCC {
                     window.repaint(true);
                     // MOD (Jeremy): title = "SuperCC [jc-N] - <pack> - <level>", where the "[jc-N]"
                     // half is switched on/off by settings.ini's ShowBuildTag -- see windowTitlePrefix().
-                    window.setTitle(windowTitlePrefix() + " - " + dat.getLevelsetName() + " - " + level.getTitle());
+                    window.setTitle(windowTitlePrefix() + " - " + dat.getLevelsetName() + " - "
+                            + level.getTitle() + windowTitleSuffix());
                 }
             }
         }
