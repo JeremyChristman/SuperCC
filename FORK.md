@@ -79,6 +79,30 @@ Two things to preserve if you touch this code:
   after section headers, bare `\n` after key lines, no trailing newline. Verified against a real
   settings.ini: 449 bytes in, 449 identical bytes out. Don't "normalize" it.
 
+## Portable paths (jc-5)
+
+`settings.ini` is Dropbox-synced between two PCs with different usernames, and `Levelset`/`TWS` held
+absolute paths — so each machine overwrote the other's and left it pointing at a folder that didn't
+exist. `succ = succsave` never had this problem because it was always stored relative, so those two
+keys now work the same way:
+
+```ini
+[Paths]
+Levelset = data
+TWS = tws\JacquesOld-MS
+succ = succsave
+```
+
+- **Callers see no change** — the getters still return absolute, usable paths. Only the stored form moved.
+- A path **outside** the CC folder stays absolute (nothing to anchor it to); so does a different drive.
+- An existing absolute value still resolves and converts the next time that folder is set — no migration step.
+- **`getSuccPath()` is deliberately excluded.** It's the one data-bearing path (it decides where
+  solution JSONs are written), it's already relative, and its callers resolve it against the working
+  directory. Changing what it returns would move where solutions are saved.
+
+`Path.startsWith` compares *name elements*, not characters, so a sibling folder sharing a name prefix
+(`<cc>Extra\data`) is correctly treated as outside. Don't "simplify" it to a string prefix test.
+
 ## Building
 
 Requires a **JDK 16+** (upstream targets Java 16). From this folder:
