@@ -59,6 +59,26 @@ writes atomically via a temp file, and verifies by reading back.
 Switching the tag off does **not** make a build unidentifiable — `BUILD_TAG` is still a string
 constant in the jar, so `unzip`/`javap` on `emulator/SuperCC.class` still names the release.
 
+## Settings-file resilience (jc-4)
+
+`java/io/SuccPaths.java` had three inherited defects that could destroy `settings.ini`. All three
+were reproduced before being fixed:
+
+| | Was | Now |
+|---|---|---|
+| **Read failure** | ANY `IOException` was treated as "file missing" → `createSettingsFile()` truncated it and wrote defaults. Windows locks are *mandatory*, so a settings.ini briefly held by Dropbox or antivirus was genuinely unreadable — and destroyed. | `SuccPaths.load()` distinguishes absent from unreadable, retries a locked file, and otherwise runs on in-memory defaults **without writing**. |
+| **Write** | `PrintWriter` straight onto the destination — truncates at open, and never throws (errors go to a flag only `checkError()` reads, which nothing called). A failure left a zero-byte file, silently. | Rendered to a String, staged to a uniquely named sibling temp file, moved into place, **retried**, and reported. |
+| **Absent keys** | Persisted as the literal text `null`, which never self-healed (`"null"` is a non-null String). `createSettingsFile()` omitted seven keys, which is how they got there. | A `DEFAULTS` table seeds missing keys at load, repairs an existing `null`, and renders the complete set. |
+
+Two things to preserve if you touch this code:
+
+- **The staging file must stay a sibling of the target.** Same directory means same volume, which
+  keeps `Files.move` on the `ATOMIC_MOVE` path. The fallback is copy-then-delete, which truncates the
+  destination and would reintroduce exactly the torn file this design prevents.
+- **The output layout is byte-for-byte compatible** with the old `PrintWriter` — platform separator
+  after section headers, bare `\n` after key lines, no trailing newline. Verified against a real
+  settings.ini: 449 bytes in, 449 identical bytes out. Don't "normalize" it.
+
 ## Building
 
 Requires a **JDK 16+** (upstream targets Java 16). From this folder:
