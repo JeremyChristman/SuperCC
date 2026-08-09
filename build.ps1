@@ -25,6 +25,7 @@ $MODIFIED = @(
     "graphics\LevelPanel.java",
     "graphics\MenuBar.java",
     "graphics\GamePanel.java",
+    "io\LevelFactory.java",
     "io\SuccPaths.java",
     "io\TWSWriter.java"
 )

@@ -54,7 +54,39 @@ public class LevelFactory {
         for (int i = 0; i < monsterPositions.length; i++){
             int x = monsterPositions[i][0];
             int y = monsterPositions[i][1];
-            int position = 32*y+x;
+            /* MOD (Jeremy): count through the SAME accessor the storing loop below uses.
+             *
+             * This loop used `layerFG.get(32*y+x)`, the raw int overload, which has no bounds check
+             * -- so a monster-list entry pointing off the 32x32 map threw ArrayIndexOutOfBounds and
+             * the level could not be opened AT ALL. The storing loop directly below already did the
+             * right thing: it builds a Position, and Layer.get(Position) returns Tile.WALL for an
+             * invalid one, which is not a monster, so the entry is skipped. The two loops are meant
+             * to agree on the count; they didn't, and only the counting one crashed.
+             *
+             * There were actually TWO failure modes, and the second is the stronger argument:
+             *   (a) 32*y+x >= 1024  -> ArrayIndexOutOfBoundsException, the level would not open.
+             *       geodave1 #146 "Ooops! Chip can't swim without flippers!" (x=160,y=160 -> 5280),
+             *       pi #9 "bugs" (24,34 and 31,32), Rock-Alpha #21 "Mustache" (88,88).
+             *   (b) x >= 32 but 32*y+x < 1024 -> NO exception. The multiply ALIASED onto an
+             *       unrelated in-bounds cell, and if that cell happened to hold a monster this loop
+             *       counted it while the storing loop (correctly) did not -- so the array was
+             *       over-allocated and left a trailing null, which then NPEs in MSLevel's
+             *       constructor. Silent until it wasn't. 10 such entries exist across 8 levels in
+             *       the current collection; all of them alias onto Wall/Water/Dirt/Floor, so none
+             *       has bitten yet.
+             *
+             * Behavior is UNCHANGED for every valid entry: Position(x,y) computes index (y<<5)|x,
+             * identical to 32*y+x for x in 0..31, so on-map entries take exactly the same path as
+             * before. Verified across the whole collection: the monster list of all 21,838 levels
+             * in 273 sets is byte-identical before and after, except the 3 levels above, which
+             * previously could not be opened and now open.
+             *
+             * This also matches the reference engine. Tile World's loader (mslogic.c) skips an
+             * out-of-range entry outright -- `if (pos < 0 || pos >= CXGRID*CYGRID) continue;` -- and
+             * then skips anything that is not a creature. It keeps no slot and does not clamp, so
+             * creature ORDER agrees with SuperCC on every one of the 14 off-map entries in the
+             * collection. MS only: getLynxMonsterList() never reads this list. */
+            Position position = new Position(x, y);
             if (layerFG.get(position).isMonster() && (layerBG.get(position) != Tile.CLONE_MACHINE)) {
                 l++;
             }

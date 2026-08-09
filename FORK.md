@@ -9,11 +9,15 @@ self-contained build. Upstream is GPLv2+; see `COPYING`.
 Each mod is its own commit on top of the pristine import, so `git log`/`git diff` show exactly
 what's mine.
 
-**No mod changes gameplay, solutions, or RNG** — verified by a headless replay of a known solution
-reproducing the exact same tick-by-tick result before and after. Mods 1–3 below are purely
-**display-only**. From jc-4 on, the fork also changes how `settings.ini` is read and written (see
-*Settings-file resilience* and *Portable paths* below) — that is disk behavior, not emulation, and
-the engine is still untouched.
+**The emulation engine is untouched** — no mod changes movement, RNG, or the outcome of an existing
+solution, verified by a headless replay reproducing the exact same tick-by-tick result before and
+after. What the fork *does* change, by release:
+
+| | Scope |
+|---|---|
+| Mods 1–3 | **Display-only** — window title, hint panel, connection overlays. |
+| jc-4, jc-5 | **Disk behavior** — how `settings.ini` is read and written. See *Settings-file resilience* and *Portable paths*. |
+| jc-7 | **Level loading** — three levels that could not be opened at all now open. See *Off-map monster-list entries*. |
 
 1. **Window title = build tag + pack + current level** (`java/emulator/SuperCC.java`).
    Title reads `SuperCC [jc-N] - <pack> - <level>` (bump `BUILD_TAG` per production deploy so the
@@ -107,6 +111,37 @@ succ = succsave
 
 `Path.startsWith` compares *name elements*, not characters, so a sibling folder sharing a name prefix
 (`<cc>Extra\data`) is correctly treated as outside. Don't "simplify" it to a string prefix test.
+
+## Off-map monster-list entries (jc-7)
+
+Three levels could not be opened **at all** — `ArrayIndexOutOfBoundsException` on load:
+
+| Set | Level | Title | Bad entry |
+|---|---|---|---|
+| `geodave1` | 146 | Ooops! Chip can't swim without flippers! | (160, 160) |
+| `pi` | 9 | bugs | (24, 34) and (31, 32) |
+| `Rock-Alpha` | 21 | Mustache | (88, 88) |
+
+Their CC1 monster-movement list (optional field 10) carries junk entries pointing off the 32×32 map.
+`LevelFactory.getMSMonsterList()` has two loops over that array — one counts, one stores. The storing
+loop was already correct: it builds a `Position`, and `Layer.get(Position)` returns `Tile.WALL` for an
+off-map one, which is not a monster, so the entry is skipped. The **counting** loop used the raw
+`int` overload, which has no bounds check. The fix is to count through the same accessor.
+
+Two failure modes existed, and the second is the better argument for the fix:
+
+- `32*y + x >= 1024` → the exception above; the level never opened.
+- `x >= 32` but `32*y + x < 1024` → **no exception**. The multiply aliased onto an unrelated in-bounds
+  cell; had it held a monster, the counting loop would have over-allocated and left a trailing `null`
+  that NPEs in `MSLevel`'s constructor. 10 such entries exist across 8 levels here — all alias onto
+  Wall/Water/Dirt/Floor, so none has bitten yet.
+
+**Verified safe across the whole collection**: the MS monster list of all **21,838 levels in 273 sets**
+is byte-identical before and after, except the 3 levels above. **And it matches the reference engine** —
+Tile World's loader skips an out-of-range entry outright (`if (pos < 0 || pos >= CXGRID*CYGRID) continue;`)
+and then skips anything that is not a creature. It keeps no slot and does not clamp, so creature *order*
+agrees with SuperCC on every one of the 14 off-map entries present. MS only — the Lynx loader never
+reads this list, so those levels always opened under Lynx.
 
 ## Building
 
