@@ -260,7 +260,14 @@ public class SuccPaths {
             // startsWith is case-insensitive on Windows, so a path stored with different casing
             // than the CC folder still matches. (No backslash-u in this comment: the Java lexer
             // decodes unicode escapes even inside comments, so "\ users" would be a compile error.)
-            if (!abs.startsWith(cc)) return path;          // outside the CC folder: leave absolute
+            // Outside the CC folder: store it absolute. Return `abs`, NOT the caller's original
+            // string -- otherwise a RELATIVE input that resolves outside the CC folder would be
+            // stored verbatim, and toUsablePath() would then re-anchor it to the CC folder, i.e. a
+            // different directory than the caller meant. Returning abs keeps the two functions
+            // exact inverses. (Unreachable today: the only caller passes absolute JFileChooser
+            // output, and the CC folder is the working directory. It goes live the moment either
+            // of those stops being true.)
+            if (!abs.startsWith(cc)) return abs.toString();
             String rel = cc.relativize(abs).toString();
             return rel.isEmpty() ? "." : rel;              // the CC folder itself
         }

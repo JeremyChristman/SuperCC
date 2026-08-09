@@ -7,8 +7,13 @@ self-contained build. Upstream is GPLv2+; see `COPYING`.
 ## What's changed vs upstream
 
 Each mod is its own commit on top of the pristine import, so `git log`/`git diff` show exactly
-what's mine. All mods are **display-only** — no gameplay/solution/RNG behavior changes (verified: a
-headless replay of a known solution reproduces the exact same tick-by-tick result before and after).
+what's mine.
+
+**No mod changes gameplay, solutions, or RNG** — verified by a headless replay of a known solution
+reproducing the exact same tick-by-tick result before and after. Mods 1–3 below are purely
+**display-only**. From jc-4 on, the fork also changes how `settings.ini` is read and written (see
+*Settings-file resilience* and *Portable paths* below) — that is disk behavior, not emulation, and
+the engine is still untouched.
 
 1. **Window title = build tag + pack + current level** (`java/emulator/SuperCC.java`).
    Title reads `SuperCC [jc-N] - <pack> - <level>` (bump `BUILD_TAG` per production deploy so the
