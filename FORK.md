@@ -137,11 +137,24 @@ Two failure modes existed, and the second is the better argument for the fix:
   Wall/Water/Dirt/Floor, so none has bitten yet.
 
 **Verified safe across the whole collection**: the MS monster list of all **21,838 levels in 273 sets**
-is byte-identical before and after, except the 3 levels above. **And it matches the reference engine** —
-Tile World's loader skips an out-of-range entry outright (`if (pos < 0 || pos >= CXGRID*CYGRID) continue;`)
-and then skips anything that is not a creature. It keeps no slot and does not clamp, so creature *order*
-agrees with SuperCC on every one of the 14 off-map entries present. MS only — the Lynx loader never
-reads this list, so those levels always opened under Lynx.
+is byte-identical before and after, except the 3 levels above.
+
+**The new rule is exactly the reference engine's.** Tile World decodes each entry as
+
+```c
+#define readpos(x, y)  (*(x) < CXGRID ? *(x) + CYGRID * *(y) : POS_INVALID)   /* encoding.c */
+                                            /* POS_INVALID = CXGRID*(CYGRID+1) = 1056 */
+if (pos < 0 || pos >= CXGRID * CYGRID) continue;                              /* mslogic.c */
+```
+
+so it discards an entry iff `x >= 32` (flagged immediately — it never aliases onto another cell) or
+`y >= 32` (`pos` lands at 1024 or beyond). That is precisely `Position.isValid()`. It keeps no slot
+and does not clamp, so creature *order* agrees with SuperCC on every off-map entry, unconditionally.
+
+**Tile World never had this bug** — it opens all three levels and just logs a warning, e.g.
+`level 146: invalid creature location (0 33)` (33 = `POS_INVALID`/32). Only SuperCC needed the fix.
+
+MS only — the Lynx loader never reads this list, so those levels always opened under Lynx.
 
 ## Building
 

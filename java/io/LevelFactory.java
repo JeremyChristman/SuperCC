@@ -81,11 +81,19 @@ public class LevelFactory {
              * in 273 sets is byte-identical before and after, except the 3 levels above, which
              * previously could not be opened and now open.
              *
-             * This also matches the reference engine. Tile World's loader (mslogic.c) skips an
-             * out-of-range entry outright -- `if (pos < 0 || pos >= CXGRID*CYGRID) continue;` -- and
-             * then skips anything that is not a creature. It keeps no slot and does not clamp, so
-             * creature ORDER agrees with SuperCC on every one of the 14 off-map entries in the
-             * collection. MS only: getLynxMonsterList() never reads this list. */
+             * The new rule is EXACTLY the reference engine's, not merely compatible with it.
+             * Tile World decodes each entry with
+             *     readpos(x,y) = (x < CXGRID ? x + CYGRID*y : POS_INVALID)   [encoding.c]
+             * where POS_INVALID = CXGRID*(CYGRID+1) = 1056, and then drops anything outside the
+             * grid: `if (pos < 0 || pos >= CXGRID*CYGRID) continue;` [mslogic.c]. So it discards an
+             * entry iff x >= 32 (flagged immediately, it never aliases onto another cell) or y >= 32
+             * (pos lands at 1024 or beyond) -- which is precisely Position.isValid(). Tile World
+             * keeps no slot and does not clamp, so creature ORDER agrees with SuperCC on every
+             * off-map entry, unconditionally. Confirmed live: Tile World opens geodave1 #146 and
+             * logs "level 146: invalid creature location (0 33)" -- 33 being POS_INVALID/32.
+             *
+             * MS only: getLynxMonsterList() never reads this list, so these levels always opened
+             * under Lynx. */
             Position position = new Position(x, y);
             if (layerFG.get(position).isMonster() && (layerBG.get(position) != Tile.CLONE_MACHINE)) {
                 l++;
