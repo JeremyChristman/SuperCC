@@ -208,9 +208,29 @@ public class SuccPaths {
         this.writeErrorHandler = handler;
     }
 
+    /* MOD (Jeremy): PORTABLE PATHS (jc-5). Levelset and TWS used to be stored as absolute paths,
+     * and settings.ini is Dropbox-synced between two PCs with different usernames -- so the desktop
+     * wrote "C:\Users\Jeremy\..." and the laptop wrote "C:\Users\jerem\...", every settings change
+     * rewrote the whole file, and whichever machine was used last left the other pointing at a
+     * folder that does not exist. Observed live: Levelset from one PC and TWS from the other, in
+     * the same file.
+     *
+     * The fix is the one already in the file: "succ = succsave" has always been stored relative and
+     * has never caused this. So a path INSIDE the Chip's Challenge folder is now stored relative to
+     * it ("data", "tws\JacquesOld-MS") and re-expanded on the way out. A path outside stays
+     * absolute -- there is nothing sensible to anchor it to.
+     *
+     * Callers see NO change: these getters still return absolute, usable paths, exactly as before.
+     * Only the on-disk representation moved. An existing absolute value still resolves (it is
+     * returned as-is) and is converted the next time that folder is set, so the migration needs no
+     * separate step.
+     *
+     * getSuccPath() is deliberately NOT routed through this. It is the one data-bearing path (it is
+     * where solution JSONs get written), it is already relative, and its callers resolve it against
+     * the working directory. Changing what it returns would move where solutions are saved. */
     public String getLevelsetFolderPath() {
         String levelsetFolder = settingsMap.get("Paths:Levelset");
-        if (levelsetFolder != null) return levelsetFolder;
+        if (levelsetFolder != null) return toUsablePath(levelsetFolder);
         else {
             setLevelsetFolderPath("");
             return "";
@@ -218,10 +238,47 @@ public class SuccPaths {
     }
     public String getTWSPath() {
         String tws = settingsMap.get("Paths:TWS");
-        if (tws != null) return tws;
+        if (tws != null) return toUsablePath(tws);
         else {
             setTWSPath("");
             return "";
+        }
+    }
+
+    /** MOD (Jeremy): the Chip's Challenge folder -- the directory settings.ini itself lives in. */
+    private Path ccFolder() {
+        File parent = settingsFile.getAbsoluteFile().getParentFile();
+        return (parent == null ? Paths.get("") : parent.toPath()).toAbsolutePath().normalize();
+    }
+
+    /** MOD (Jeremy): absolute path in -> the form stored in settings.ini (relative when it can be). */
+    private String toStoredPath(String path) {
+        if (path == null || path.isBlank()) return path;   // "" means "no folder chosen" - keep it
+        try {
+            Path abs = Paths.get(path).toAbsolutePath().normalize();
+            Path cc = ccFolder();
+            // startsWith is case-insensitive on Windows, so a path stored with different casing
+            // than the CC folder still matches. (No backslash-u in this comment: the Java lexer
+            // decodes unicode escapes even inside comments, so "\ users" would be a compile error.)
+            if (!abs.startsWith(cc)) return path;          // outside the CC folder: leave absolute
+            String rel = cc.relativize(abs).toString();
+            return rel.isEmpty() ? "." : rel;              // the CC folder itself
+        }
+        catch (RuntimeException e) {                       // InvalidPathException, or a different drive
+            return path;
+        }
+    }
+
+    /** MOD (Jeremy): the form stored in settings.ini -> an absolute path callers can use. */
+    private String toUsablePath(String path) {
+        if (path == null || path.isBlank()) return path;
+        try {
+            Path p = Paths.get(path);
+            if (p.isAbsolute()) return path;               // legacy absolute value: still works
+            return ccFolder().resolve(p).normalize().toString();
+        }
+        catch (RuntimeException e) {
+            return path;
         }
     }
     public String getSuccPath() {
@@ -339,11 +396,12 @@ public class SuccPaths {
     }
 
     public void setLevelsetFolderPath(String levelsetFolderPath) {
-        settingsMap.put("Paths:Levelset", levelsetFolderPath);
+        // MOD (Jeremy): stored relative to the CC folder when possible -- see getLevelsetFolderPath().
+        settingsMap.put("Paths:Levelset", toStoredPath(levelsetFolderPath));
         updateSettingsFile();
     }
     public void setTWSPath(String twsPath) {
-        settingsMap.put("Paths:TWS", twsPath);
+        settingsMap.put("Paths:TWS", toStoredPath(twsPath));
         updateSettingsFile();
     }
     public void setSuccPath(String succPath) {
