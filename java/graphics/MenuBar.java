@@ -438,8 +438,12 @@ class MenuBar extends JMenuBar{
                         level.getRngSeed(),
                         level.getStep(), level.getRuleset(), level.getInitialRFFDirection());
 
-                Path tws = saveNewFile(TWSWriter.write(level, solution, emulator.getSavestates()), emulator.getPaths().getTWSPath(), "tws");
-                emulator.getPaths().setTWSPath(tws.getParent().toString());
+                /* MOD (Jeremy, jc-8): the chosen folder is NOT written back to the settings file.
+                 * It used to be, which is what made the stored TWS folder drift to whichever set
+                 * was touched last -- see SuccPaths.getTWSPath(). This also removes a live NPE:
+                 * saveNewFile() returns null when the save dialog is canceled, and the old line
+                 * called tws.getParent() on it unconditionally. */
+                saveNewFile(TWSWriter.write(level, solution, emulator.getSavestates()), emulator.getPaths().getTWSPath(), "tws");
             });
             add(newTWS);
             addIcon(newTWS, "/resources/icons/new.gif");
@@ -448,7 +452,7 @@ class MenuBar extends JMenuBar{
             openTWS.addActionListener(e -> {
                 File file = openFile(emulator.getPaths().getTWSPath(), "tws");
                 if (file != null) {
-                    emulator.getPaths().setTWSPath(file.getParent());
+                    // MOD (Jeremy, jc-8): no setTWSPath() here either -- see the comment above.
                     emulator.setTWSFile(file);
                 }
             });

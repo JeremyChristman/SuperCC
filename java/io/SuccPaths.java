@@ -18,10 +18,32 @@ import java.util.regex.Pattern;
 
 public class SuccPaths {
 
+    /* MOD (Jeremy, jc-8): THE name of the settings file, in one place. It was the bare literal
+     * "settings.ini" in two of them (here and SuperCC's constructor), which is one literal too many
+     * for a name that has now changed once. The rename to "succ_settings.ini" is deliberate: Tile
+     * World lives in the same folder and is getting an initialization file of its own, and two
+     * programs sharing a directory must not both claim the generic name "settings.ini".
+     *
+     * The name is relative, so it resolves against the WORKING DIRECTORY -- i.e. SuperCC reads the
+     * settings file sitting next to it when it is launched from its own folder, which is how it has
+     * always behaved. There is no migration path from the old name on purpose: an old settings.ini
+     * is simply not read, so the file to keep gets renamed by hand, once.
+     *
+     * ⚠ Like TITLE and BUILD_TAG in SuperCC.java, these are compile-time String constants, so
+     * javac INLINES them at every use site. build.ps1 is a SPLICE build -- only the files in
+     * $MODIFIED are recompiled -- so a reference from a class that is never recompiled (any
+     * .form class) would keep the OLD value baked in and go looking for the wrong file. Reference
+     * them only from files in $MODIFIED. */
+    public static final String SETTINGS_FILE_NAME = "succ_settings.ini";
+
+    /* MOD (Jeremy, jc-8): the folder the TWS file chooser opens in, and the value the shipped
+     * settings file carries. See setTWSPath() for why nothing ever overwrites it. */
+    public static final String DEFAULT_TWS_PATH = "tws";
+
     private final File settingsFile;
     private Map<String, String> settingsMap;
 
-    /* MOD (Jeremy): false when settings.ini EXISTS but could not be read. In that state the file
+    /* MOD (Jeremy): false when the settings file EXISTS but could not be read. In that state it
      * is left strictly alone -- an unreadable file is far more likely to be a transient lock
      * (Dropbox, antivirus) than a corrupt one, and overwriting it with defaults would destroy
      * real settings to recover from a problem that fixes itself. */
@@ -52,7 +74,7 @@ public class SuccPaths {
     private static Map<String, String> buildDefaults() {
         Map<String, String> d = new LinkedHashMap<>();
         d.put("Paths:Levelset", "");
-        d.put("Paths:TWS", "");
+        d.put("Paths:TWS", DEFAULT_TWS_PATH);   // MOD (Jeremy, jc-8): was "", and was then rewritten
         d.put("Paths:succ", "succsave");
         d.put("Controls:Up", String.valueOf(KeyEvent.VK_UP));
         d.put("Controls:Left", String.valueOf(KeyEvent.VK_LEFT));
@@ -71,7 +93,7 @@ public class SuccPaths {
         d.put("Graphics:TileWidth", "20");
         d.put("Graphics:TileHeight", "20");
         d.put("Graphics:TWSNotate", "false");
-        d.put("Graphics:ShowBuildTag", "true");
+        d.put("Graphics:ShowBuildTag", "false");   // MOD (Jeremy, jc-8): OFF unless asked for
         return d;
     }
 
@@ -236,16 +258,23 @@ public class SuccPaths {
             return "";
         }
     }
+    /* MOD (Jeremy, jc-8): the TWS folder is a FIXED starting point, not a memory of the last one
+     * used. Up to jc-7 every "Open tws" and "Write solution to new tws" wrote the chosen folder
+     * back into the settings file, so the value drifted to whichever set was touched last (it was
+     * sitting at "tws\Walls_of_CCLP2-MS") and the chooser opened somewhere different every session.
+     * With one subfolder per set -- 411 of them here -- landing in the parent every time is both
+     * predictable and fewer clicks than landing in an arbitrary sibling.
+     *
+     * A value hand-written into the settings file IS still honored, and is now the only way the
+     * value ever changes; nothing in the program overwrites it. Blank counts as unset and falls
+     * back to the default, so clearing the line is a safe way to get back to "tws". */
     public String getTWSPath() {
         String tws = settingsMap.get("Paths:TWS");
-        if (tws != null) return toUsablePath(tws);
-        else {
-            setTWSPath("");
-            return "";
-        }
+        if (tws == null || tws.isBlank()) return toUsablePath(DEFAULT_TWS_PATH);
+        return toUsablePath(tws);
     }
 
-    /** MOD (Jeremy): the Chip's Challenge folder -- the directory settings.ini itself lives in. */
+    /** MOD (Jeremy): the Chip's Challenge folder -- the directory the settings file lives in. */
     private Path ccFolder() {
         File parent = settingsFile.getAbsoluteFile().getParentFile();
         return (parent == null ? Paths.get("") : parent.toPath()).toAbsolutePath().normalize();
@@ -359,17 +388,24 @@ public class SuccPaths {
      * rather than by a rebuild -- it is useful while the fork is under active modification and
      * just noise the rest of the time:
      *
-     *     settings.ini  [Graphics]  ShowBuildTag = true   ->  "SuperCC [jc-N] - <pack> - <level>"
-     *                               ShowBuildTag = false  ->  "SuperCC - <pack> - <level>"
-     *                               (absent)              ->  ON, the default
+     *   succ_settings.ini  [Graphics]  ShowBuildTag = true  ->  "SuperCC [jc-N] - <pack> - <level>"
+     *                                  ShowBuildTag = 1     ->  same
+     *                                  anything else        ->  "SuperCC - <pack> - <level>"
+     *                                  (absent)             ->  OFF, the default
      *
-     * "Anything but an explicit off is ON", so a typo or a settings.ini predating this key keeps
-     * the tag; Boolean.parseBoolean() would silently flip the default the other way instead.
+     * ⚠ THE DEFAULT WAS INVERTED IN jc-8, deliberately, and it must stay this way. Up to jc-7 the
+     * rule was "anything but an explicit off is ON", so every fresh download showed a build number
+     * in its title bar until the user found this key. Jeremy hands the GitHub link to other people
+     * and does not want them seeing one. The tag is now strictly OPT-IN: only the exact values
+     * "true" (any casing) and "1" turn it on, and a missing key, a missing settings file, a typo,
+     * or a settings file predating the key all mean OFF. Do not "restore" the lenient reading.
+     *
      * Settings are parsed once in the constructor, so an edit applies at the next SuperCC launch.
      *
-     * WARNING -- hand-editing settings.ini: parseSettings() reads the key as substring(0, pivot-1),
-     * so the line MUST have the space before '='. "ShowBuildTag = false" works; "ShowBuildTag=false"
-     * parses as the key "ShowBuildTa" and is silently ignored, leaving the tag ON.
+     * WARNING -- hand-editing the file: parseSettings() reads the key as substring(0, pivot-1),
+     * so the line MUST have the space before '='. "ShowBuildTag = true" works; "ShowBuildTag=true"
+     * parses as the key "ShowBuildTa" and is silently ignored -- which since jc-8 leaves the tag
+     * OFF rather than on, i.e. a typo now fails toward the quieter behavior.
      *
      * NOTE: switching the tag off does not make a build unidentifiable -- BUILD_TAG is still a
      * string constant inside SuperCC.jar, so unzipping it (or `strings`) still names the release.
@@ -377,7 +413,7 @@ public class SuccPaths {
      * ⚠ DO NOT "fix" this getter to match its siblings. Every other getter here self-heals by
      * calling its own setter when the key is absent (see getTWSNotation()), and each self-heal is a
      * whole-file write. This one deliberately does not: "absent" is a meaningful state here that
-     * means ON, so there is nothing to repair, and render() calls the same predicate while building
+     * means OFF, so there is nothing to repair, and render() calls the same predicate while building
      * the file -- a self-heal would make rendering re-enter the writer for no gain. After
      * seedDefaults() the key is always present anyway, so the null branch is belt-and-braces for
      * the in-memory instances.
@@ -389,9 +425,9 @@ public class SuccPaths {
     /* MOD (Jeremy): the single definition of "is the tag on", shared by the getter and by render(),
      * so the file written can never disagree with the value read back from it. */
     private static boolean showBuildTagOf(String raw) {
-        if (raw == null) return true;
+        if (raw == null) return false;
         raw = raw.trim();
-        return !(raw.equalsIgnoreCase("false") || raw.equals("0"));
+        return raw.equalsIgnoreCase("true") || raw.equals("1");
     }
     public String getJSONPath(String levelsetName, int levelNumber, String levelName, String ruleset) {
         String json = getSuccPath();
@@ -407,10 +443,12 @@ public class SuccPaths {
         settingsMap.put("Paths:Levelset", toStoredPath(levelsetFolderPath));
         updateSettingsFile();
     }
-    public void setTWSPath(String twsPath) {
-        settingsMap.put("Paths:TWS", toStoredPath(twsPath));
-        updateSettingsFile();
-    }
+    /* MOD (Jeremy, jc-8): setTWSPath() is GONE, not merely unused -- see getTWSPath(). Its two
+     * callers in MenuBar (open tws / write solution to new tws) were what made the stored folder
+     * drift, so the setter is removed rather than left lying around for someone to wire back up.
+     * Removing it also retires a live NullPointerException: the "write solution to new tws" caller
+     * did setTWSPath(tws.getParent().toString()) on the return of saveNewFile(), which is NULL
+     * when the save dialog is canceled. */
     public void setSuccPath(String succPath) {
         settingsMap.put("Paths:succ", succPath);
         updateSettingsFile();
@@ -586,11 +624,11 @@ public class SuccPaths {
         }
 
     public static void createSettingsFile() {
-        try { createSettingsFile(new File("settings.ini")); }
+        try { createSettingsFile(new File(SETTINGS_FILE_NAME)); }
         catch (IOException g) { g.printStackTrace(); }
     }
 
-    /* MOD (Jeremy): writes a COMPLETE default settings.ini, and reports failure instead of
+    /* MOD (Jeremy): writes a COMPLETE default settings file, and reports failure instead of
      * swallowing it. The old version omitted LynxTilesheetNum, TWSNotate, ShowBuildTag and the
      * four diagonal controls -- which is precisely how the literal string "null" got into a
      * settings file in the first place: the keys it skipped were absent from the map, and the

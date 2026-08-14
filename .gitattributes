@@ -1,6 +1,10 @@
 # Normalize source/text to LF; leave binaries (bytecode + image assets) alone.
 * text=auto eol=lf
 
+# ...except the README that ships in the release zip: it is read in Notepad on
+# Windows, so it gets CRLF in the working tree (and therefore in the zip).
+README.txt text eol=crlf
+
 *.class binary
 *.png   binary
 *.gif   binary

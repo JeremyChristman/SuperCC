@@ -30,10 +30,12 @@ public class SuperCC {
     public static final byte CHIP_RELATIVE_CLICK = 1;
 
     /* MOD (Jeremy): window title = "SuperCC [jc-N] - <pack> - <level>". Bump BUILD_TAG on each
-     * production deploy so the running build is identifiable. The tag is TOGGLEABLE -- settings.ini
-     * [Graphics] ShowBuildTag = false hides it, true (or absent) shows it, and no rebuild or
-     * redeploy is needed. Settings are read once at construction, so the change applies at the
-     * next launch. See SuccPaths.getShowBuildTag().
+     * production deploy so the running build is identifiable. The tag is TOGGLEABLE, and since
+     * jc-8 it is OPT-IN: succ_settings.ini [Graphics] ShowBuildTag = true (or 1) shows it, and
+     * ANYTHING else -- including the key being absent and the file not existing -- hides it. No
+     * rebuild or redeploy is needed either way. Settings are read once at construction, so the
+     * change applies at the next launch. See SuccPaths.getShowBuildTag(), which owns that rule
+     * and explains why it must not be relaxed back.
      *
      * ⚠ Compose titles through windowTitlePrefix(), NEVER by concatenating TITLE and BUILD_TAG
      * directly. Both are compile-time String constants, so javac inlines them at every use site.
@@ -42,7 +44,7 @@ public class SuperCC {
      * class can NEVER be recompiled) would keep the OLD tag baked in, and the jar would report two
      * different versions depending on which window you looked at. */
     public static final String TITLE = "SuperCC";
-    public static final String BUILD_TAG = "[jc-7]";
+    public static final String BUILD_TAG = "[jc-8]";
 
     private SavestateManager savestates;
 //    SavestateCompressor savestateCompressor = new SavestateCompressor();
@@ -166,12 +168,16 @@ public class SuperCC {
     public SuperCC() {
         /* MOD (Jeremy): recovery policy lives in SuccPaths.load() now. This block used to treat
          * ANY IOException as "the file is missing" and call createSettingsFile(), which truncates
-         * and writes defaults -- so a settings.ini merely LOCKED for a moment by Dropbox or
+         * and writes defaults -- so a settings file merely LOCKED for a moment by Dropbox or
          * antivirus was destroyed, with the reassuring dialog "Could not find settings.ini file,
          * creating" as the only clue. load() distinguishes absent from unreadable, retries a
          * locked file, and falls back to non-persisting defaults rather than overwriting it.
-         * It always returns an instance, so `paths` can no longer be left null either. */
-        paths = SuccPaths.load(new File("settings.ini"));
+         * It always returns an instance, so `paths` can no longer be left null either.
+         *
+         * MOD (Jeremy, jc-8): the name comes from SuccPaths.SETTINGS_FILE_NAME -- it is
+         * "succ_settings.ini" now, not "settings.ini", so that Tile World can have an
+         * initialization file of its own in this same folder without a collision. */
+        paths = SuccPaths.load(new File(SuccPaths.SETTINGS_FILE_NAME));
         if (paths.getLoadWarning() != null) throwMessage(paths.getLoadWarning());
         paths.setWriteErrorHandler(this::onSettingsWriteFailed);
         window = new Gui(this);
@@ -185,7 +191,7 @@ public class SuperCC {
     private void onSettingsWriteFailed(IOException e) {
         if (settingsWriteWarned) return;
         settingsWriteWarned = true;
-        throwMessage("Could not save settings.ini:\n" + e + "\n\n"
+        throwMessage("Could not save " + SuccPaths.SETTINGS_FILE_NAME + ":\n" + e + "\n\n"
                 + "It is probably held open by Dropbox or antivirus. Your settings file is intact,\n"
                 + "but this change was not written to it and will be gone at the next launch.\n"
                 + "This message is shown only once per session.");
