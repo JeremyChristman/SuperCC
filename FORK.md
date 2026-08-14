@@ -19,6 +19,7 @@ after. What the fork *does* change, by release:
 | jc-4, jc-5 | **Disk behavior** — how the settings file is read and written. See *Settings-file resilience* and *Portable paths*. |
 | jc-7 | **Level loading** — three levels that could not be opened at all now open. See *Off-map monster-list entries*. |
 | jc-8 | **Settings file + release packaging** — renamed to `succ_settings.ini`, the TWS folder stops drifting, the build tag defaults to off, and the release ships as a documented zip. See *The settings file (jc-8)*. |
+| jc-9 | **Opening ruleset** — an opt-in setting forces every set to open under MS. See *Always open under MS (jc-9)*. |
 
 > **`settings.ini` is `succ_settings.ini` from jc-8 on.** Older sections below are left in their
 > original wording where they describe historical work; read "settings.ini" in those as the same
@@ -178,6 +179,55 @@ succ = succsave
 `Path.startsWith` compares *name elements*, not characters, so a sibling folder sharing a name prefix
 (`<cc>Extra\data`) is correctly treated as outside. Don't "simplify" it to a string prefix test.
 
+## Always open under MS (jc-9)
+
+A CC1 `.dat` declares its intended ruleset in its 4-byte signature — `0x0002AAAC` / `0x0003AAAC`
+mean MS, `0x0102AAAC` means Lynx (`DatParser`). `MO3.dat` carries the Lynx signature, so it opens
+under Lynx. Correct by the format; a nuisance when working through a collection under MS.
+
+```ini
+[Emulation]
+AlwaysOpenInMS = true
+```
+
+Same strictly opt-in rule as `ShowBuildTag`, and now literally the same predicate: `optedIn()` is
+the single definition of "this switch is on", read by both getters and used by `render()`. Any
+future switch goes through it rather than growing a second, subtly different rule.
+
+**Where the override is applied, and why there.** In `SuperCC.startingRuleset()`, not in
+`DatParser`:
+
+- `DatParser` is a file reader; giving it a dependency on the settings file would be backwards.
+- `DatParser.getRuleset()` has exactly one consumer — `openLevelset()` — so this is a genuine choke
+  point, not one of several.
+- `parseLevel()` records whatever ruleset it is handed (`if (rules != Ruleset.CURRENT) this.rules =
+  rules`), so passing MS in at open time makes every later load of that set MS too. The override
+  propagates without a second special case.
+- The `paths == null` guard is load-bearing: the headless `SuperCC(boolean)` constructor never
+  builds a `SuccPaths`, and `openLevelset()` is reachable from it.
+
+**Scope is deliberately narrow — it decides only what a set OPENS in.** `Level > Change ruleset`
+(F3) still switches freely, and loading a solution still switches to that solution's own ruleset.
+Forcing MS there would break every Lynx replay, which is a far worse outcome than the convenience
+this buys.
+
+⚠️ **It does move where solutions are filed, and that is inherent, not a bug.** `getJSONPath()`
+names each solution `<n>_<title>-<ruleset>.json`, so a set opened under forced MS saves and looks
+for `-MS.json` while anything recorded earlier under Lynx sits in `-LYNX.json`. `Solution > Open`
+stops preselecting the old files and `Solution > Save` starts a parallel set beside them. Nothing is
+deleted or overwritten, and turning the setting off (or pressing F3) restores the old target — but
+it is the consequence most likely to be mistaken for lost work, so it is called out in README.txt's
+entry for the setting. The same mismatch makes `--testtws` prompt when a **Lynx-recorded** tws meets
+a forced-MS set; for an MS corpus the flag removes a mismatch that used to be there.
+
+Verified end to end by building a real `SuperCC` against a temporary settings file and reading back
+`getLevel().getRuleset()`: MO3 gives `LYNX` with the flag absent or false and `MS` with it true,
+while CCLP5 (MS signature) gives `MS` either way.
+
+`[Emulation]` is a new section. A jc-8 settings file has no such section; `seedDefaults()` supplies
+the key and it appears the next time anything is written — exactly how `ShowBuildTag` arrived in
+jc-3, and covered by `test\SettingsTest.java`.
+
 ## Off-map monster-list entries (jc-7)
 
 Three levels could not be opened **at all** — `ArrayIndexOutOfBoundsException` on load:
@@ -229,7 +279,29 @@ Requires a **JDK 16+** (upstream targets Java 16). From this folder:
 ```powershell
 powershell -ExecutionPolicy Bypass -File build.ps1              # -> SuperCC.jar
 powershell -ExecutionPolicy Bypass -File build.ps1 -Package     # -> also dist\SuperCC-<tag>.zip
+powershell -ExecutionPolicy Bypass -File run-tests.ps1          # builds, then runs test\
 ```
+
+## Tests
+
+`test\SettingsTest.java`, run by `run-tests.ps1`, covers `SuccPaths`: the settings file's name,
+its byte layout, the defaults table, path handling, and both opt-in switches — 84 assertions
+including the jc-4 protections (an unreadable file is never overwritten, `createSettingsFile()`
+refuses to clobber, a BOM is stripped) and the jc-5 relative-path round trip.
+
+Two properties it deserves a note for:
+
+- **It tests the BUILT JAR, not the source tree.** This is a splice build, so what ships is
+  recompiled classes overlaid on a prebuilt baseline — the jar is the only artifact whose behavior
+  is authoritative. `run-tests.ps1` builds first unless given `-NoBuild`.
+- **It scans every class in the jar for references to removed methods.** Reflection proves a method
+  is gone; it cannot prove nothing still *calls* it. A stale caller in a class the splice never
+  recompiles fails at runtime with a `NoSuchMethodError` on a menu click, which no other check here
+  would catch. That scan is why `setTWSPath`'s removal in jc-8 could be trusted.
+
+Two checks skip (rather than fail) without files this repo does not contain: the jar scan without
+`-Dsupercc.jar`, and the MO3 signature check without `-Mo3` (MO3 is a third-party level set, not
+ours to redistribute).
 
 `build.ps1` recompiles **only the hand-edited, non-form source files** (listed in `$MODIFIED`) with
 `javac --release 16` and splices them over the committed baseline of compiled classes, then repackages

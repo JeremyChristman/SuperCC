@@ -94,6 +94,7 @@ public class SuccPaths {
         d.put("Graphics:TileHeight", "20");
         d.put("Graphics:TWSNotate", "false");
         d.put("Graphics:ShowBuildTag", "false");   // MOD (Jeremy, jc-8): OFF unless asked for
+        d.put("Emulation:AlwaysOpenInMS", "false");// MOD (Jeremy, jc-9): see getAlwaysOpenInMS()
         return d;
     }
 
@@ -135,9 +136,15 @@ public class SuccPaths {
         for (String g : new String[]{"TilesheetNum", "LynxTilesheetNum", "TileWidth", "TileHeight", "TWSNotate"}) {
             append(sb, map, g, "Graphics:" + g);
         }
-        // Last line, no trailing newline. Rendered through the same predicate the getter uses, so
-        // the file can never disagree with what getShowBuildTag() will read back out of it.
-        sb.append("ShowBuildTag = ").append(showBuildTagOf(map.get("Graphics:ShowBuildTag")));
+        // Rendered through the same predicate the getter uses, so the file can never disagree with
+        // what getShowBuildTag() will read back out of it.
+        sb.append("ShowBuildTag = ").append(showBuildTagOf(map.get("Graphics:ShowBuildTag"))).append('\n');
+        /* MOD (Jeremy, jc-9): [Emulation] is for settings that change how a level is PLAYED rather
+         * than how it is drawn or where files live. A jc-8 file has no such section; seedDefaults()
+         * supplies the key and it appears the next time anything is written, which is exactly how
+         * ShowBuildTag arrived in jc-3. Last line, no trailing newline -- see the layout note above. */
+        sb.append('\n').append("[Emulation]").append(nl);
+        sb.append("AlwaysOpenInMS = ").append(optedIn(map.get("Emulation:AlwaysOpenInMS")));
         return sb.toString();
     }
 
@@ -425,9 +432,37 @@ public class SuccPaths {
     /* MOD (Jeremy): the single definition of "is the tag on", shared by the getter and by render(),
      * so the file written can never disagree with the value read back from it. */
     private static boolean showBuildTagOf(String raw) {
+        return optedIn(raw);
+    }
+
+    /* MOD (Jeremy, jc-9): ONE definition of "this switch is on", now that there are two of them.
+     * Strictly opt-in: only "true" (any casing) or "1". Absent, blank, missing file, a typo, and
+     * anything else all mean OFF, so a setting can never switch itself on by accident. Both
+     * getShowBuildTag() and getAlwaysOpenInMS() read through this, and render() writes through it,
+     * so the file and the getters cannot disagree. Any future switch belongs here too rather than
+     * growing a second, subtly different rule. */
+    private static boolean optedIn(String raw) {
         if (raw == null) return false;
         raw = raw.trim();
         return raw.equalsIgnoreCase("true") || raw.equals("1");
+    }
+
+    /* MOD (Jeremy, jc-9): ALWAYS OPEN A LEVEL SET UNDER MS, whatever its file says.
+     *
+     *     succ_settings.ini  [Emulation]  AlwaysOpenInMS = true  ->  every set opens under MS
+     *                                     (absent / anything else) ->  the file decides, as before
+     *
+     * A CC1 .dat declares its intended ruleset in its 4-byte signature: 0x0002AAAC and 0x0003AAAC
+     * mean MS, 0x0102AAAC means Lynx (see DatParser). MO3.dat carries the Lynx signature, so it
+     * opens under Lynx -- correct by the format, and not what Jeremy wants when he is working
+     * through sets under MS.
+     *
+     * SCOPE, deliberately narrow: this decides only the ruleset a set is OPENED in.
+     *   - "Level > Change ruleset" (F3) still switches freely afterwards.
+     *   - Loading a SOLUTION still switches to whatever ruleset that solution was recorded under.
+     *     Solutions carry their own, and forcing MS there would break every Lynx replay. */
+    public boolean getAlwaysOpenInMS() {
+        return optedIn(settingsMap.get("Emulation:AlwaysOpenInMS"));
     }
     public String getJSONPath(String levelsetName, int levelNumber, String levelName, String ruleset) {
         String json = getSuccPath();

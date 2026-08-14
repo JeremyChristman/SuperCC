@@ -44,7 +44,7 @@ public class SuperCC {
      * class can NEVER be recompiled) would keep the OLD tag baked in, and the jar would report two
      * different versions depending on which window you looked at. */
     public static final String TITLE = "SuperCC";
-    public static final String BUILD_TAG = "[jc-8]";
+    public static final String BUILD_TAG = "[jc-9]";
 
     private SavestateManager savestates;
 //    SavestateCompressor savestateCompressor = new SavestateCompressor();
@@ -209,9 +209,25 @@ public class SuperCC {
         catch (IOException e){
             throwError("Could not read file:\n"+e.getLocalizedMessage());
         }
-        loadLevel(1, 0, Step.EVEN, false, dat.getRuleset(), Direction.UP);
+        loadLevel(1, 0, Step.EVEN, false, startingRuleset(), Direction.UP);
         if (hasGui)
             window.swapRulesetTilesheet(level.getRuleset());
+    }
+
+    /* MOD (Jeremy, jc-9): the ruleset a newly opened level set starts in. Normally the .dat's own
+     * signature decides (MO3.dat is flagged Lynx, so it opens under Lynx), but
+     * [Emulation] AlwaysOpenInMS = true in succ_settings.ini overrides that to MS every time.
+     *
+     * Applied HERE rather than in DatParser on purpose. DatParser is a file reader and should not
+     * grow a dependency on the settings file; and its parseLevel() records whatever ruleset it is
+     * handed, so passing MS in at open time makes every later load of that set MS as well -- the
+     * override propagates without a second special case.
+     *
+     * The paths == null guard is not decoration: the headless SuperCC(boolean) constructor never
+     * builds a SuccPaths, and openLevelset() is reachable from it. */
+    private Ruleset startingRuleset() {
+        if (paths != null && paths.getAlwaysOpenInMS()) return Ruleset.MS;
+        return dat.getRuleset();
     }
 
     public synchronized void loadLevel(int levelNumber, int rngSeed, Step step, boolean keepMoves, Ruleset rules, Direction initialSlide){
