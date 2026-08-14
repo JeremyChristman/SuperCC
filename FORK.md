@@ -16,8 +16,13 @@ after. What the fork *does* change, by release:
 | | Scope |
 |---|---|
 | Mods 1–3 | **Display-only** — window title, hint panel, connection overlays. |
-| jc-4, jc-5 | **Disk behavior** — how `settings.ini` is read and written. See *Settings-file resilience* and *Portable paths*. |
+| jc-4, jc-5 | **Disk behavior** — how the settings file is read and written. See *Settings-file resilience* and *Portable paths*. |
 | jc-7 | **Level loading** — three levels that could not be opened at all now open. See *Off-map monster-list entries*. |
+| jc-8 | **Settings file + release packaging** — renamed to `succ_settings.ini`, the TWS folder stops drifting, the build tag defaults to off, and the release ships as a documented zip. See *The settings file (jc-8)*. |
+
+> **`settings.ini` is `succ_settings.ini` from jc-8 on.** Older sections below are left in their
+> original wording where they describe historical work; read "settings.ini" in those as the same
+> file under its old name.
 
 1. **Window title = build tag + pack + current level** (`java/emulator/SuperCC.java`).
    Title reads `SuperCC [jc-N] - <pack> - <level>` (bump `BUILD_TAG` per production deploy so the
@@ -33,27 +38,34 @@ after. What the fork *does* change, by release:
 ## Toggling the build tag (no rebuild)
 
 The tag is handy while the fork is under active modification and just noise the rest of the time,
-so it is switched by a setting rather than by a rebuild. In the CC folder's `settings.ini`:
+so it is switched by a setting rather than by a rebuild. In the CC folder's `succ_settings.ini`:
 
 ```ini
 [Graphics]
-ShowBuildTag = false
+ShowBuildTag = true
 ```
 
-`true` shows the tag, `false` (or `0`) hides it, and the key being **absent means ON** — anything
-other than `false`/`0` counts as on, so a typo or a `settings.ini` predating the key keeps the tag
-rather than silently dropping it. Settings are parsed once at launch, so a change applies the
-**next time SuperCC starts**.
+**`true` (any casing) or `1` shows the tag. Everything else hides it, including the key being
+absent and the settings file not existing at all.** Settings are parsed once at launch, so a change
+applies the **next time SuperCC starts**.
+
+> ⚠️ **The default was INVERTED in jc-8, and must stay inverted.** Up to jc-7 the rule was the
+> opposite — "anything but an explicit `false`/`0` is ON" — which meant every fresh download showed
+> a build number in its title bar until the user found this key. Jeremy hands the GitHub link to
+> other people and does not want them seeing one, so the tag is now strictly opt-in. This is the
+> same requirement Tile World has, and there it needed the same one-time source flip. Don't
+> "restore" the lenient reading; a release that shows `[jc-N]` on a clean install is a regression.
+> The acceptance test is a clean-room one: **no settings file at all → launch → no tag**.
 
 > **Don't put a trailing `;` comment on that line.** `parseSettings()` only honors a `;` at the
-> *start* of a line; everything after `=` is the value. `ShowBuildTag = false ; hides it` yields the
-> value `false ; hides it`, which is not `false`, so the tag stays **on**.
+> *start* of a line; everything after `=` is the value. `ShowBuildTag = true ; shows it` yields the
+> value `true ; shows it`, which is not `true`, so the tag stays **off**.
 
-Three more ways to get this wrong by hand:
+Three more ways to get this wrong by hand — all of which now fail toward *off*:
 
 - **The space before `=` is load-bearing.** `parseSettings()` reads the key as
-  `substring(0, indexOf('=') - 1)`, so `ShowBuildTag=false` parses as the key `ShowBuildTa` and is
-  ignored — leaving the tag on.
+  `substring(0, indexOf('=') - 1)`, so `ShowBuildTag=true` parses as the key `ShowBuildTa` and is
+  ignored — leaving the tag off.
 - **The section matters.** Keys are stored as `<section>:<name>`, so a `ShowBuildTag` line under
   `[Paths]` is a different key that nothing ever reads. It must be inside `[Graphics]`.
 - **Don't edit while SuperCC is running.** It keeps the whole settings file in memory and rewrites
@@ -62,11 +74,62 @@ Three more ways to get this wrong by hand:
 
 `set_supercc_buildtag.ps1` (in Jeremy's `Dropbox\Claude\CC Audit Scripts\`) mirrors the parser on all
 three: it scopes to `[Graphics]`, reports the state SuperCC would actually see (so a no-space line
-reads as *on*, and gets repaired rather than reported as working), takes the last of any duplicates,
-writes atomically via a temp file, and verifies by reading back.
+reads as *off*, and gets repaired rather than reported as working), takes the last of any duplicates,
+writes atomically via a temp file, and verifies by reading back. It targets `succ_settings.ini` from
+jc-8 on.
 
 Switching the tag off does **not** make a build unidentifiable — `BUILD_TAG` is still a string
 constant in the jar, so `unzip`/`javap` on `emulator/SuperCC.class` still names the release.
+
+## The settings file (jc-8)
+
+### Renamed to `succ_settings.ini`
+
+`SuccPaths.SETTINGS_FILE_NAME` is the one place the name lives; `SuperCC`'s constructor reads it
+from there instead of repeating a literal. SuperCC and Tile World share the Chip's Challenge folder
+here and Tile World is getting an initialization file of its own, so neither may claim the generic
+name `settings.ini`.
+
+**There is deliberately no migration path.** An old `settings.ini` is simply not read — it is not
+renamed, merged, or deleted, and a fresh `succ_settings.ini` is created next to it. Reading a
+legacy file "just once" would mean shipping a compatibility path forever, in the one class whose
+whole jc-4 story is about not touching files it does not own; renaming one file by hand, once, is
+cheaper and safer. Anyone upgrading renames theirs and keeps their settings.
+
+### The TWS folder is a fixed starting point, not a memory
+
+`MenuBar`'s two TWS actions (open, and write-solution-to-new) used to call `setTWSPath(...)` with
+whatever folder the chooser landed in, so the stored value drifted to whichever set was touched
+last — it was sitting at `tws\Walls_of_CCLP2-MS`. With one subfolder per set (411 here), opening in
+the parent every time is both predictable and fewer clicks than opening in an arbitrary sibling.
+
+- `DEFAULT_TWS_PATH = "tws"`, and `getTWSPath()` falls back to it when the key is absent **or
+  blank**, so clearing the line is a supported way to reset it.
+- A hand-written value is still honored — that is now the *only* way the value ever changes.
+- **`setTWSPath()` was removed, not just left uncalled.** Keeping a setter whose entire history is
+  "this is what broke it" invites someone to wire it back up. `Levelset` is untouched and still
+  remembers, because that one genuinely helps.
+- Removing the caller also retired a live NPE: `saveNewFile()` returns `null` when the save dialog
+  is canceled, and the old line called `tws.getParent()` on it unconditionally.
+
+### The release is a packaged zip
+
+`build.ps1 -Package` produces `dist\SuperCC-<tag>.zip` containing `SuperCC.jar`, a stock
+`succ_settings.ini` and `README.txt`, where:
+
+- the **tag comes from `BUILD_TAG`** in the source, so the zip cannot be named for a build it does
+  not contain;
+- the **`.ini` is generated by calling `SuccPaths.createSettingsFile()` in the jar that was just
+  built**, never hand-written, so the shipped defaults cannot drift from the program's;
+- the build **fails** if `README.txt` does not name the tag being packaged — a download whose README
+  describes a different build is worse than no README;
+- `README.txt` is converted to **CRLF** on the way in (Notepad), while `succ_settings.ini` keeps its
+  mixed layout untouched, because matching what SuperCC writes byte for byte is what stops the first
+  settings change from rewriting the whole file.
+
+`README.txt` is the user-facing document — what SuperCC is, that it needs Java 16+, every setting
+explained, and the revision history. **It is updated with every release**, including a plain-English
+entry for whatever changed and an entry for any new setting.
 
 ## Settings-file resilience (jc-4)
 
@@ -101,6 +164,9 @@ Levelset = data
 TWS = tws\JacquesOld-MS
 succ = succsave
 ```
+
+(That `TWS` value is what jc-5 produced, back when the program still rewrote it; since jc-8 it stays
+`tws` unless you edit it yourself.)
 
 - **Callers see no change** — the getters still return absolute, usable paths. Only the stored form moved.
 - A path **outside** the CC folder stays absolute (nothing to anchor it to); so does a different drive.
@@ -161,7 +227,8 @@ MS only — the Lynx loader never reads this list, so those levels always opened
 Requires a **JDK 16+** (upstream targets Java 16). From this folder:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File build.ps1     # -> SuperCC.jar
+powershell -ExecutionPolicy Bypass -File build.ps1              # -> SuperCC.jar
+powershell -ExecutionPolicy Bypass -File build.ps1 -Package     # -> also dist\SuperCC-<tag>.zip
 ```
 
 `build.ps1` recompiles **only the hand-edited, non-form source files** (listed in `$MODIFIED`) with

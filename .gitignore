@@ -1,3 +1,7 @@
 # Build output (produced by build.ps1). The libs under com/ and org/ ARE
 # tracked (bytecode-only third-party deps), so only ignore the built jar.
 /SuperCC.jar
+
+# Release packaging output (build.ps1 -Package): the zip attached to the
+# GitHub release, plus the staged folder it is built from.
+/dist/
