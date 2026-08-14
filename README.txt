@@ -1,5 +1,5 @@
 ==============================================================================
-  SuperCC  --  Jeremy Christman's fork                       build jc-8
+  SuperCC  --  Jeremy Christman's fork                       build jc-9
 ==============================================================================
 
   1. What this is
@@ -251,6 +251,9 @@ This is the complete stock file. Every key SuperCC knows is here:
     TWSNotate = false
     ShowBuildTag = false
 
+    [Emulation]
+    AlwaysOpenInMS = false
+
 
 [Paths]
 ---------
@@ -367,7 +370,7 @@ ShowBuildTag    Whether the window title shows which build of this fork you
                 Values:  true or 1 turns it ON. ANYTHING ELSE IS OFF.
                 Default: false -- off, including when the key is absent
                          entirely or the file does not exist.
-                On:   SuperCC [jc-8] - CCLP5 - Lesson Zero
+                On:   SuperCC [jc-9] - CCLP5 - Lesson Zero
                 Off:  SuperCC - CCLP5 - Lesson Zero
                 This is opt-in on purpose: a version number in the title bar
                 is useful while the fork is being worked on and just noise
@@ -379,6 +382,51 @@ ShowBuildTag    Whether the window title shows which build of this fork you
                 is still a string inside SuperCC.jar.
 
 
+[Emulation]
+------------
+
+AlwaysOpenInMS  Whether every level set opens under the MS ruleset, no matter
+                what the set itself asks for.
+                Values:  true or 1 turns it on. ANYTHING ELSE IS OFF.
+                Default: false -- off, including when the key is absent.
+
+                A CC1 .dat states its intended ruleset in the first four bytes
+                of the file, and SuperCC honors it: most sets say MS, but some
+                say Lynx and therefore open under Lynx. MO3.dat is one of them.
+                That is correct behavior, and it is a nuisance if you work
+                through sets under MS and have to switch every time.
+
+                Turn this on and every set opens under MS instead. It changes
+                only what a set OPENS in:
+
+                  * Level > Change ruleset (F3) still switches freely, both
+                    ways, exactly as before.
+                  * Loading a solution still switches to whatever ruleset that
+                    solution was recorded under. Solutions carry their own, and
+                    overriding that would break every Lynx replay.
+                  * Sets that already ask for MS are unaffected.
+
+                ONE CONSEQUENCE WORTH KNOWING, because it is easy to mistake
+                for lost work: SuperCC files its own solutions one per level
+                PER RULESET, named "<number>_<title>-<ruleset>.json". A level
+                you open under forced MS therefore saves and looks for
+                "...-MS.json", while anything you recorded for that set under
+                Lynx is in "...-LYNX.json". Solution > Open will no longer
+                preselect those older files, and Solution > Save starts a
+                second, parallel set beside them. Nothing is deleted or
+                overwritten -- the Lynx files are still there, and turning this
+                setting back off (or pressing F3) makes them the default target
+                again.
+
+                Related: if you replay a Lynx-recorded .tws against a set that
+                forced MS, SuperCC asks whether to switch rulesets, exactly as
+                it does for any other mismatch.
+
+                Leave it off if you want each set played the way its author
+                intended -- a Lynx set opened under MS is a different game, and
+                may not even be solvable.
+
+
 ------------------------------------------------------------------------------
 7. REVISION HISTORY
 ------------------------------------------------------------------------------
@@ -386,6 +434,21 @@ ShowBuildTag    Whether the window title shows which build of this fork you
 Releases from jc-2 on carry a jc-N tag in the repository. The title bar, when
 ShowBuildTag is on, shows the build tag compiled into the jar, which matches
 the tag for that release. Newest first.
+
+
+jc-9  --  Open everything under MS, if you want to
+--------------------------------------------------
+
+  * NEW SETTING: [Emulation] AlwaysOpenInMS. A .dat declares its intended
+    ruleset in its first four bytes, and some sets -- MO3 among them -- declare
+    Lynx, so they open under Lynx. Set AlwaysOpenInMS = true and every set opens
+    under MS instead. Off by default, so nothing changes unless you ask.
+    Accomplishes: no more switching the ruleset by hand on every Lynx-flagged
+    set when you are working through a collection under MS. Scoped to the
+    ruleset a set OPENS in: F3 still switches, and loading a solution still
+    follows that solution's own ruleset, so Lynx replays are untouched.
+    This is also the first setting in the new [Emulation] section -- an older
+    settings file simply gains that section the next time anything is saved.
 
 
 jc-8  --  Its own initialization file, a fixed tws folder, and a quiet title
