@@ -1,5 +1,5 @@
 ==============================================================================
-  SuperCC  --  Jeremy Christman's fork                       build jc-9
+  SuperCC  --  Jeremy Christman's fork                      build jc-10
 ==============================================================================
 
   1. What this is
@@ -108,15 +108,13 @@ not be able to save your settings or your solutions.
   |  folder, and succ = succsave.                                           |
   |                                                                         |
   |  TO KEEP YOUR SETTINGS: close SuperCC, then RENAME your existing        |
-  |  settings.ini to succ_settings.ini (replacing the stock one from this   |
-  |  zip), and then CHECK ITS "TWS =" LINE.                                 |
+  |  settings.ini to succ_settings.ini, replacing the stock one from this   |
+  |  zip. That is the whole procedure.                                      |
   |                                                                         |
-  |  That second step matters. An older file almost certainly has TWS       |
-  |  pointing at whatever per-set subfolder you touched last, because that  |
-  |  is the drift jc-8 fixes -- and jc-8 honors a value it finds there      |
-  |  FOREVER, since nothing ever rewrites it now. Left alone, your tws      |
-  |  chooser would be pinned to that one set permanently. Change the line   |
-  |  to "TWS = tws" (or clear it) to get the fixed behavior.                |
+  |  (jc-8 used to ask you to check the file's "TWS =" line as a second     |
+  |  step. jc-10 undid the change that made that necessary: the tws folder  |
+  |  is remembered again, so whatever value your old file carries is just   |
+  |  the folder the chooser opens in first, and it updates from there.)     |
   |                                                                         |
   |  Nothing is deleted either way -- your old settings.ini is left alone,  |
   |  so this is always recoverable. The one to watch is "succ": if you had  |
@@ -271,14 +269,18 @@ TWS             The folder the two .tws choosers start in -- "TWS > Open tws"
                 and "TWS > Write solution to new tws".
                 Values:  a folder path, relative to SuperCC's folder or full.
                 Default: tws
-                SUPERCC NEVER CHANGES THIS. It is a fixed starting point, and
-                editing this line is the only way it ever changes. Point it at
-                the folder that HOLDS your per-set tws folders and every
-                chooser opens there, every time. Clearing the value makes
-                SuperCC read it as "tws" again (the line stays blank in the
-                file; only what SuperCC does with it changes). Up to jc-7
-                SuperCC overwrote this line with whatever folder you last
-                picked, so it drifted; see section 7.
+                SUPERCC UPDATES THIS ITSELF -- every time you open or write
+                a .tws it stores the folder you used, so the next chooser
+                opens right back where you were. You normally never touch
+                this line. Set it by hand to choose where the first chooser
+                of a fresh install lands; after that SuperCC keeps it
+                current. Clearing the value makes SuperCC read it as "tws"
+                again, and it starts tracking again from there.
+                A folder inside SuperCC's own folder is stored relative to it
+                (for example "tws\CCLP5-MS"), which keeps the file portable
+                between machines; anywhere else is stored as a full path.
+                jc-8 and jc-9 pinned this value instead of tracking it; that
+                is what jc-10 reversed. See section 7.
 
 succ            Where SuperCC saves its own solutions -- one .json file per
                 level per ruleset, in a subfolder named after the level set.
@@ -370,7 +372,7 @@ ShowBuildTag    Whether the window title shows which build of this fork you
                 Values:  true or 1 turns it ON. ANYTHING ELSE IS OFF.
                 Default: false -- off, including when the key is absent
                          entirely or the file does not exist.
-                On:   SuperCC [jc-9] - CCLP5 - Lesson Zero
+                On:   SuperCC [jc-10] - CCLP5 - Lesson Zero
                 Off:  SuperCC - CCLP5 - Lesson Zero
                 This is opt-in on purpose: a version number in the title bar
                 is useful while the fork is being worked on and just noise
@@ -436,6 +438,31 @@ ShowBuildTag is on, shows the build tag compiled into the jar, which matches
 the tag for that release. Newest first.
 
 
+jc-10  --  The tws folder remembers where you were again
+--------------------------------------------------------
+
+  * THE TWS FOLDER TRACKS THE LAST FOLDER YOU USED, once more. Opening a .tws
+    or writing a solution to a new one stores that folder in succ_settings.ini,
+    so the next chooser opens right where you left off instead of at the top of
+    the tws tree.
+    Accomplishes: this puts back the behavior SuperCC had up to jc-7. jc-8 had
+    pinned the folder to a fixed starting point on purpose -- with one
+    subfolder per level set, always landing in the parent seemed the more
+    choice. In practice it was not: when you work in one set for a stretch, the
+    chooser having to be re-navigated every single time costs more clicks than
+    it saves. So this is a deliberate reversal of the jc-8 change, not a
+    regression.
+    WHAT THIS MEANS FOR YOUR SETTINGS FILE: the "TWS =" line is now maintained
+    by SuperCC and will change as you work. If you had hand-set it to a folder
+    you wanted to keep, it will no longer stay put. Nothing else about the file
+    changes, and the value is still stored relative to SuperCC's own folder
+    when it can be, so a settings file shared between two machines stays valid
+    on both.
+    The crash jc-8 fixed along the way STAYS fixed: exporting a solution and
+    then canceling the save dialog does not throw, and neither does writing to
+    a folder that has no parent.
+
+
 jc-9  --  Open everything under MS, if you want to
 --------------------------------------------------
 
@@ -468,6 +495,8 @@ jc-8  --  Its own initialization file, a fixed tws folder, and a quiet title
     set was touched last and the chooser opened somewhere different every
     session. Now the setting is a fixed starting point that only a hand edit
     changes; it defaults to "tws".
+    (SUPERSEDED BY jc-10, which put the remembering back at my request. The
+    crash fix noted below is the part that survived.)
     Accomplishes: with one subfolder per level set -- 411 of them in my
     collection -- always landing in the parent is both predictable and fewer
     clicks than landing in an arbitrary sibling. It also retired a real crash:

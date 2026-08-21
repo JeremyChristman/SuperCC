@@ -36,8 +36,9 @@ public class SuccPaths {
      * them only from files in $MODIFIED. */
     public static final String SETTINGS_FILE_NAME = "succ_settings.ini";
 
-    /* MOD (Jeremy, jc-8): the folder the TWS file chooser opens in, and the value the shipped
-     * settings file carries. See setTWSPath() for why nothing ever overwrites it. */
+    /* MOD (Jeremy, jc-8): the value the shipped settings file carries, and the fallback when the
+     * key is absent or blank. As of jc-10 it is only a STARTING point -- setTWSPath() overwrites
+     * it with the folder actually used, so the chooser reopens where you left off. */
     public static final String DEFAULT_TWS_PATH = "tws";
 
     private final File settingsFile;
@@ -74,7 +75,7 @@ public class SuccPaths {
     private static Map<String, String> buildDefaults() {
         Map<String, String> d = new LinkedHashMap<>();
         d.put("Paths:Levelset", "");
-        d.put("Paths:TWS", DEFAULT_TWS_PATH);   // MOD (Jeremy, jc-8): was "", and was then rewritten
+        d.put("Paths:TWS", DEFAULT_TWS_PATH);   // MOD (Jeremy, jc-8): was ""; jc-10 tracks it again
         d.put("Paths:succ", "succsave");
         d.put("Controls:Up", String.valueOf(KeyEvent.VK_UP));
         d.put("Controls:Left", String.valueOf(KeyEvent.VK_LEFT));
@@ -265,16 +266,14 @@ public class SuccPaths {
             return "";
         }
     }
-    /* MOD (Jeremy, jc-8): the TWS folder is a FIXED starting point, not a memory of the last one
-     * used. Up to jc-7 every "Open tws" and "Write solution to new tws" wrote the chosen folder
-     * back into the settings file, so the value drifted to whichever set was touched last (it was
-     * sitting at "tws\Walls_of_CCLP2-MS") and the chooser opened somewhere different every session.
-     * With one subfolder per set -- 411 of them here -- landing in the parent every time is both
-     * predictable and fewer clicks than landing in an arbitrary sibling.
+    /* MOD (Jeremy, jc-10): the TWS folder REMEMBERS the last folder used, which is the pre-jc-8
+     * behavior restored at Jeremy's request (2026-08-21) -- jc-8 had pinned it to a fixed starting
+     * point, and he found he preferred the memory. Every "Open tws" and "Write solution to new
+     * tws" writes the chosen folder back through setTWSPath(), so the chooser reopens wherever you
+     * were last time instead of at the top of the tws tree.
      *
-     * A value hand-written into the settings file IS still honored, and is now the only way the
-     * value ever changes; nothing in the program overwrites it. Blank counts as unset and falls
-     * back to the default, so clearing the line is a safe way to get back to "tws". */
+     * Blank still counts as unset and falls back to DEFAULT_TWS_PATH, so clearing the line is a
+     * safe way to get back to "tws" -- it will then start tracking again from there. */
     public String getTWSPath() {
         String tws = settingsMap.get("Paths:TWS");
         if (tws == null || tws.isBlank()) return toUsablePath(DEFAULT_TWS_PATH);
@@ -478,12 +477,20 @@ public class SuccPaths {
         settingsMap.put("Paths:Levelset", toStoredPath(levelsetFolderPath));
         updateSettingsFile();
     }
-    /* MOD (Jeremy, jc-8): setTWSPath() is GONE, not merely unused -- see getTWSPath(). Its two
-     * callers in MenuBar (open tws / write solution to new tws) were what made the stored folder
-     * drift, so the setter is removed rather than left lying around for someone to wire back up.
-     * Removing it also retires a live NullPointerException: the "write solution to new tws" caller
-     * did setTWSPath(tws.getParent().toString()) on the return of saveNewFile(), which is NULL
-     * when the save dialog is canceled. */
+    /* MOD (Jeremy, jc-10): restored -- this is what makes the TWS chooser remember where you were.
+     * Called from MenuBar by "Open tws" and "Write solution to new tws". Stored relative to the CC
+     * folder when possible, like Levelset, so the settings file stays portable between machines.
+     *
+     * ⚠ Callers must not hand this a null: the pre-jc-8 "write solution" caller passed
+     * saveNewFile()'s return value straight through, which is NULL when the save dialog is
+     * canceled, and that was a live NullPointerException. The jc-10 callers guard for it, and the
+     * guard here is a second line of defense -- a null or blank folder is ignored outright rather
+     * than blanking a good stored value. */
+    public void setTWSPath(String twsPath) {
+        if (twsPath == null || twsPath.isBlank()) return;
+        settingsMap.put("Paths:TWS", toStoredPath(twsPath));
+        updateSettingsFile();
+    }
     public void setSuccPath(String succPath) {
         settingsMap.put("Paths:succ", succPath);
         updateSettingsFile();

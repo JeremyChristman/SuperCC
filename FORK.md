@@ -20,6 +20,7 @@ after. What the fork *does* change, by release:
 | jc-7 | **Level loading** — three levels that could not be opened at all now open. See *Off-map monster-list entries*. |
 | jc-8 | **Settings file + release packaging** — renamed to `succ_settings.ini`, the TWS folder stops drifting, the build tag defaults to off, and the release ships as a documented zip. See *The settings file (jc-8)*. |
 | jc-9 | **Opening ruleset** — an opt-in setting forces every set to open under MS. See *Always open under MS (jc-9)*. |
+| jc-10 | **Settings behavior** — the TWS folder remembers the last folder used again, reversing that part of jc-8. See *The TWS folder remembers again (jc-10)*. |
 
 > **`settings.ini` is `succ_settings.ini` from jc-8 on.** Older sections below are left in their
 > original wording where they describe historical work; read "settings.ini" in those as the same
@@ -97,21 +98,52 @@ legacy file "just once" would mean shipping a compatibility path forever, in the
 whole jc-4 story is about not touching files it does not own; renaming one file by hand, once, is
 cheaper and safer. Anyone upgrading renames theirs and keeps their settings.
 
-### The TWS folder is a fixed starting point, not a memory
+### The TWS folder was made a fixed starting point (jc-8) — ⚠ REVERSED BY jc-10
+
+> **Superseded.** Read this section as history. jc-10 put the remembering back at Jeremy's
+> request; see *The TWS folder remembers again (jc-10)* below for what the code does now. The
+> only part of this section still live is the NPE fix in the last bullet.
 
 `MenuBar`'s two TWS actions (open, and write-solution-to-new) used to call `setTWSPath(...)` with
 whatever folder the chooser landed in, so the stored value drifted to whichever set was touched
 last — it was sitting at `tws\Walls_of_CCLP2-MS`. With one subfolder per set (411 here), opening in
-the parent every time is both predictable and fewer clicks than opening in an arbitrary sibling.
+the parent every time seemed both more predictable and fewer clicks than opening in an arbitrary
+sibling.
 
 - `DEFAULT_TWS_PATH = "tws"`, and `getTWSPath()` falls back to it when the key is absent **or
-  blank**, so clearing the line is a supported way to reset it.
-- A hand-written value is still honored — that is now the *only* way the value ever changes.
-- **`setTWSPath()` was removed, not just left uncalled.** Keeping a setter whose entire history is
-  "this is what broke it" invites someone to wire it back up. `Levelset` is untouched and still
-  remembers, because that one genuinely helps.
+  blank**, so clearing the line is a supported way to reset it. *(Still true in jc-10.)*
+- A hand-written value was honored, and was the only way the value ever changed. *(No longer true
+  — jc-10 writes it again.)*
+- `setTWSPath()` was removed, not just left uncalled. *(jc-10 restored it deliberately.)*
 - Removing the caller also retired a live NPE: `saveNewFile()` returns `null` when the save dialog
-  is canceled, and the old line called `tws.getParent()` on it unconditionally.
+  is canceled, and the old line called `tws.getParent()` on it unconditionally. **This fix
+  survives jc-10** — the restored callers guard for it.
+
+### The TWS folder remembers again (jc-10)
+
+Jeremy asked for the pre-jc-8 behavior back (2026-08-21): with one set open for a stretch of work,
+having to re-navigate the chooser every single time costs more clicks than landing in the parent
+saves. The jc-8 reasoning above was sound in the abstract and wrong in practice, and this is a
+deliberate reversal, not a regression.
+
+- **`setTWSPath()` is restored**, and both `MenuBar` TWS actions call it with the *parent folder*
+  of the file actually used. `getTWSPath()` and its fallbacks are unchanged from jc-8.
+- **The callers guard against null, and so does the setter.** `saveNewFile()` returns `null` on a
+  canceled dialog and `getParent()` is `null` for a parentless file; either would have been the
+  jc-8-era crash. `setTWSPath()` additionally ignores a null or blank argument rather than blanking
+  a good stored value — a caller bug must not destroy the setting.
+- **The value is stored relative to the CC folder** via `toStoredPath()`, exactly like `Levelset`,
+  so a settings file shared between two machines stays valid on both.
+- ⚠ **Choosing a folder OUTSIDE the CC folder stores an absolute path** (that is what
+  `toStoredPath()` does, and it is right — there is no portable way to express it). On a
+  Dropbox-shared settings file that path may not exist on the other machine. It degrades
+  gracefully: `JFileChooser` falls back to a default directory rather than throwing, and the next
+  use on that machine overwrites it. Restoring the memory makes this path materially more likely
+  to be hit than it was under jc-8, which is why it is called out here.
+- Tested by `SettingsTest` section 4 (round trip inside and outside the CC folder, plus the
+  null/blank guard) and section 10 (the built jar really does call it from `MenuBar`), and by a
+  real GUI run: the chooser opened at the stored folder, selecting a file elsewhere rewrote the
+  setting to that file's folder, and reopening the chooser landed there.
 
 ### The release is a packaged zip
 
@@ -285,7 +317,7 @@ powershell -ExecutionPolicy Bypass -File run-tests.ps1          # builds, then r
 ## Tests
 
 `test\SettingsTest.java`, run by `run-tests.ps1`, covers `SuccPaths`: the settings file's name,
-its byte layout, the defaults table, path handling, and both opt-in switches — 84 assertions
+its byte layout, the defaults table, path handling, and both opt-in switches — 90 assertions
 including the jc-4 protections (an unreadable file is never overwritten, `createSettingsFile()`
 refuses to clobber, a BOM is stripped) and the jc-5 relative-path round trip.
 
@@ -294,10 +326,13 @@ Two properties it deserves a note for:
 - **It tests the BUILT JAR, not the source tree.** This is a splice build, so what ships is
   recompiled classes overlaid on a prebuilt baseline — the jar is the only artifact whose behavior
   is authoritative. `run-tests.ps1` builds first unless given `-NoBuild`.
-- **It scans every class in the jar for references to removed methods.** Reflection proves a method
-  is gone; it cannot prove nothing still *calls* it. A stale caller in a class the splice never
-  recompiles fails at runtime with a `NoSuchMethodError` on a menu click, which no other check here
-  would catch. That scan is why `setTWSPath`'s removal in jc-8 could be trusted.
+- **It scans every class in the jar for references to a method by name.** Reflection on one class
+  proves a method exists or not; it cannot prove anything about the *callers*, which live in
+  classes the splice may or may not have recompiled. Either direction fails silently: a stale
+  caller of a removed method throws `NoSuchMethodError` on a menu click, and a stale class that
+  never got the *new* call simply does nothing, with no error at all. That scan is why
+  `setTWSPath`'s removal could be trusted in jc-8 — and, with the assertion inverted, why its
+  restoration can be trusted in jc-10.
 
 Two checks skip (rather than fail) without files this repo does not contain: the jar scan without
 `-Dsupercc.jar`, and the MO3 signature check without `-Mo3` (MO3 is a third-party level set, not

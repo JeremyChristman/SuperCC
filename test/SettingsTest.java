@@ -101,9 +101,39 @@ public class SettingsTest {
         eq("OFF when the key sits under [Paths]",
            SuccPaths.load(settingsWith(d3c, "[Paths]", "ShowBuildTag = true")).getShowBuildTag(), false);
 
-        System.out.println("\n== 4. the TWS folder never drifts ==");
-        check("setTWSPath() no longer exists on SuccPaths", !hasMethod("setTWSPath"));
+        System.out.println("\n== 4. the TWS folder remembers where you were (jc-10) ==");
+        /* jc-8 pinned this to a fixed folder; jc-10 restores the pre-jc-8 memory at Jeremy's
+         * request. The setter is back, and the fallbacks below are unchanged from jc-8. */
+        check("setTWSPath() exists again on SuccPaths", hasMethod("setTWSPath"));
         check("setLevelsetFolderPath() is still there", hasMethod("setLevelsetFolderPath"));
+
+        Path d4r = freshDir("twsroundtrip");
+        SuccPaths p4r = SuccPaths.load(d4r.resolve(SuccPaths.SETTINGS_FILE_NAME).toFile());
+        Path chosen = d4r.resolve("tws").resolve("CCLP5-MS");
+        p4r.setTWSPath(chosen.toString());
+        eq("the folder just used is read back", p4r.getTWSPath(), chosen.toString());
+        eq("and survives a reload from disk",
+           SuccPaths.load(d4r.resolve(SuccPaths.SETTINGS_FILE_NAME).toFile()).getTWSPath(),
+           chosen.toString());
+        check("it is stored RELATIVE to the CC folder, so the file stays portable",
+              Files.readString(d4r.resolve(SuccPaths.SETTINGS_FILE_NAME), StandardCharsets.UTF_8)
+                   .contains("TWS = tws\\CCLP5-MS\n"));
+        /* The canceled-dialog crash jc-8 retired must stay retired: MenuBar guards its callers,
+         * and the setter refuses null/blank rather than blanking a good stored value. */
+        p4r.setTWSPath(null);
+        eq("setTWSPath(null) is ignored, not destructive", p4r.getTWSPath(), chosen.toString());
+        p4r.setTWSPath("   ");
+        eq("setTWSPath(blank) is ignored too", p4r.getTWSPath(), chosen.toString());
+        /* Picking a folder OUTSIDE the CC folder has to be stored absolute -- there is no portable
+         * way to express it. Restoring the memory makes this reachable in normal use (jc-8's fixed
+         * folder never went there), so it is tested rather than assumed. */
+        Path outside = freshDir("twsoutside").resolve("SomeOtherPlace");
+        Files.createDirectories(outside);
+        p4r.setTWSPath(outside.toString());
+        eq("a folder outside the CC folder round-trips", p4r.getTWSPath(), outside.toString());
+        check("and is stored as an absolute path, not a broken relative one",
+              Files.readString(d4r.resolve(SuccPaths.SETTINGS_FILE_NAME), StandardCharsets.UTF_8)
+                   .contains("TWS = " + outside));
         Path d4 = freshDir("tws");
         SuccPaths p4 = SuccPaths.load(settingsWith(d4, "[Paths]", "TWS = tws\\Walls_of_CCLP2-MS"));
         eq("a hand-written subfolder IS honored",
@@ -202,11 +232,12 @@ public class SettingsTest {
               stock9.contains("TWS = tws\n") && !stock9.contains("TWS = tws\r\n"));
         check("no BOM", before9.length > 0 && before9[0] != (byte) 0xEF);
 
-        System.out.println("\n== 10. no compiled class anywhere still calls setTWSPath ==");
-        /* Reflection on SuccPaths (test 4) only proves the method is gone. The real risk is a
-         * CALLER in a class that build.ps1 never recompiles: that fails at runtime with a
-         * NoSuchMethodError on a menu click, not at class load, so nothing else here would catch
-         * it. Scan every .class in the built jar for the method-name constant. */
+        System.out.println("\n== 10. the shipped jar really does call setTWSPath again (jc-10) ==");
+        /* Reflection on SuccPaths (test 4) only proves the method exists. The thing that actually
+         * delivers the behavior is the CALLER in MenuBar -- and build.ps1 is a SPLICE build, so if
+         * MenuBar were not recompiled the jar would keep the jc-9 class that never calls it and
+         * the feature would silently not work. Nothing else here would catch that. Scan every
+         * .class in the built jar for the method-name constant. */
         String jarPath = System.getProperty("supercc.jar");
         if (jarPath == null || !new File(jarPath).exists()) { skip("no -Dsupercc.jar given"); }
         else {
@@ -223,8 +254,10 @@ public class SettingsTest {
                 }
             }
             check("scanned every class in the jar (" + scanned + " classes)", scanned > 150);
-            check("zero classes reference setTWSPath" + (hits.isEmpty() ? "" : " -- FOUND IN " + hits),
-                  hits.isEmpty());
+            check("at least one class references setTWSPath -- found in " + hits, !hits.isEmpty());
+            boolean menuBar = false;
+            for (String h : hits) if (h.startsWith("graphics/MenuBar")) menuBar = true;
+            check("and MenuBar is one of them, so the spliced jar carries the new callers", menuBar);
         }
 
         System.out.println("\n== 11. AlwaysOpenInMS (jc-9) ==");

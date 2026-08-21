@@ -438,12 +438,15 @@ class MenuBar extends JMenuBar{
                         level.getRngSeed(),
                         level.getStep(), level.getRuleset(), level.getInitialRFFDirection());
 
-                /* MOD (Jeremy, jc-8): the chosen folder is NOT written back to the settings file.
-                 * It used to be, which is what made the stored TWS folder drift to whichever set
-                 * was touched last -- see SuccPaths.getTWSPath(). This also removes a live NPE:
-                 * saveNewFile() returns null when the save dialog is canceled, and the old line
-                 * called tws.getParent() on it unconditionally. */
-                saveNewFile(TWSWriter.write(level, solution, emulator.getSavestates()), emulator.getPaths().getTWSPath(), "tws");
+                /* MOD (Jeremy, jc-10): remember the folder actually written to, so the next tws
+                 * chooser opens there -- see SuccPaths.getTWSPath().
+                 * ⚠ saveNewFile() returns NULL when the save dialog is canceled, and getParent()
+                 * is null for a file with no parent. The pre-jc-8 code dereferenced the first of
+                 * those unconditionally and crashed; both are checked here. */
+                Path tws = saveNewFile(TWSWriter.write(level, solution, emulator.getSavestates()), emulator.getPaths().getTWSPath(), "tws");
+                if (tws != null && tws.getParent() != null) {
+                    emulator.getPaths().setTWSPath(tws.getParent().toString());
+                }
             });
             add(newTWS);
             addIcon(newTWS, "/resources/icons/new.gif");
@@ -452,7 +455,9 @@ class MenuBar extends JMenuBar{
             openTWS.addActionListener(e -> {
                 File file = openFile(emulator.getPaths().getTWSPath(), "tws");
                 if (file != null) {
-                    // MOD (Jeremy, jc-8): no setTWSPath() here either -- see the comment above.
+                    // MOD (Jeremy, jc-10): remember this folder too -- see the comment above.
+                    // getParent() is null for a file with no parent directory, so check it.
+                    if (file.getParent() != null) emulator.getPaths().setTWSPath(file.getParent());
                     emulator.setTWSFile(file);
                 }
             });
