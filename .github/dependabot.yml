@@ -1,0 +1,22 @@
+version: 2
+
+updates:
+  # The workflows pin every action to a commit SHA rather than a tag, because this repo's output is
+  # a binary that strangers download and run, and RELEASING.md has the maintainer publish CI's zip.
+  # SHA pinning without this file would be WORSE than tags -- it would silently freeze those actions
+  # at a fixed version forever. The two go together.
+  #
+  # Dependabot rewrites the SHA and keeps the `# v4` comment accurate.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: 'ci'
+    labels:
+      - dependencies
+
+# There is deliberately no entry for Java. This project has no package manager: its third-party
+# libraries are committed as bytecode under com/ and org/, so Dependabot has no manifest to read
+# and cannot see them. That gap is real and is documented in docs/THIRD_PARTY.md, which is the
+# inventory that stands in for one.

@@ -1,0 +1,379 @@
+# SuperCC — agent brief
+
+You are working in **Jeremy Christman's fork of SuperCC**, a Java 16 Swing desktop application:
+an emulator and tool-assisted-solution workbench for the original *Chip's Challenge* (CC1).
+
+Upstream is [SicklySilverMoon/SuperCC](https://github.com/SicklySilverMoon/SuperCC); this fork is
+public at <https://github.com/JeremyChristman/SuperCC> and is **GPLv2-or-later**. Builds are tagged
+`jc-N` and published as GitHub releases that real people download.
+
+Read this file completely before you change anything. Everything below is load-bearing.
+
+---
+
+## 🔴 1. The one thing that will break your build: this is a SPLICE build
+
+**Do not run a full `javac` rebuild of this project. It produces a jar that compiles cleanly, passes
+a smoke check, and then dies on launch.**
+
+SuperCC's GUI is built with the **IntelliJ GUI Designer**. Fifteen classes have a sibling `.form`
+file (`java/graphics/Gui.form` and the fourteen `java/tools/*.form`). IntelliJ's *form compiler* —
+not `javac` — generates a hidden `$$$setupUI$$$()` method into those classes that constructs their
+Swing components. `javac` has no idea the `.form` files exist. Recompile a form class with `javac`
+and its components are never created, so the app throws `NullPointerException: playButton is null`
+at startup. Under `javaw` (double-click) stderr goes nowhere, so the symptom a user reports is
+**"nothing happens."**
+
+The repo therefore works like this:
+
+| What | Where | Role |
+|---|---|---|
+| IntelliJ-built `.class` baseline | `emulator/ game/ graphics/ io/ tools/ util/` at the repo **root** | **Committed on purpose.** The authoritative bytecode for the form classes. |
+| Java source | `java/**` | Authoritative for the *non-form* classes only. Also shipped inside the jar, as upstream does. |
+| Third-party libs | `com/`, `org/` | Committed bytecode only (IntelliJ annotations, `org.json`). No package manager, no manifest. |
+
+`build.ps1` recompiles **only** the files in the `$SPLICE_MODIFIED` list — which lives in
+`build-config.ps1`, not in `build.ps1` — and splices the results over that committed baseline.
+
+> **If you modify a source file that is not already in `$SPLICE_MODIFIED`, add it to that list in
+> `build-config.ps1`, or your edit silently does nothing.** The build will succeed and ship the old
+> behavior. Before adding it, confirm the file has no sibling `.form` — if it does, you cannot
+> modify it from here at all without IntelliJ.
+
+**You do not have to take this on trust — run the check:**
+
+```powershell
+powershell -ExecutionPolicy Bypass -File verify-splice.ps1
+```
+
+It covers the two ways an edit can fail to ship, by two different mechanisms:
+
+- **Unspliced ordinary files** (70 of them) are recompiled and compared against the bytecode the
+  jar would actually contain. An edit the build ignores fails and names the file.
+- **Form-based files** — the 15 `.form` files *and their sibling `.java`* — cannot be recompiled
+  here at all, so they are hashed against `docs/form-baseline.sha256`. `graphics/Gui.java` is
+  ordinary hand-written Java and is the likeliest of these to be edited; an edit there is flagged,
+  and the only correct response is to rebuild it in IntelliJ, commit the new `.class`, and re-run
+  with `-UpdateFormBaseline`.
+
+Run it after touching anything under `java/**`, before calling the change done. CI runs it too.
+Its header lists the narrow cases it still cannot see (annotations, a literal swapped between two
+concatenations, line-number-only edits) — read that before trusting a green run absolutely.
+
+**Corollary that shapes every test in this repo: the built jar is the only authoritative artifact.**
+The source tree can disagree with what ships. Tests run against `SuperCC.jar`, never against
+freshly compiled sources. See §4.
+
+---
+
+## 2. Commands
+
+Everything is PowerShell. There is no Maven, no Gradle, no `package.json`, no dependency manifest.
+Requires a **JDK 16 or newer** (`--release 16` keeps bytecode compatible with the baseline).
+
+```powershell
+powershell -ExecutionPolicy Bypass -File verify-splice.ps1         # will my edit actually ship?
+powershell -ExecutionPolicy Bypass -File build.ps1                 # -> SuperCC.jar
+powershell -ExecutionPolicy Bypass -File build.ps1 -Package        # -> also dist\SuperCC-<tag>.zip
+powershell -ExecutionPolicy Bypass -File run-tests.ps1             # builds, then runs test\
+powershell -ExecutionPolicy Bypass -File run-tests.ps1 -NoBuild    # reuse the existing jar
+powershell -ExecutionPolicy Bypass -File run-tests.ps1 -ResultsPath test-results   # JUnit XML + JSON
+powershell -ExecutionPolicy Bypass -File run-tests.ps1 -Isolated   # private temp jar (see §9)
+powershell -ExecutionPolicy Bypass -File verify-splice.ps1 -UpdateFormBaseline     # after an IntelliJ rebuild
+```
+
+Extra switches worth knowing:
+
+- `build.ps1 -ExpectTag jc-N` fails unless `BUILD_TAG` matches (the release workflow passes the
+  pushed git tag), and `-Manifest <path>` writes a JSON record of the build — tag, jar SHA-256,
+  size, entry count, and the exact compiler used.
+- `verify-splice.ps1 -UpdateFormBaseline` regenerates `docs/form-baseline.sha256`. It is the *only*
+  correct response to a flagged form file, and only after the class has genuinely been rebuilt in
+  IntelliJ and committed — running it to silence a warning defeats the check entirely.
+- `-Isolated` and `-NoBuild` are mutually exclusive and the script rejects the pair: `-Isolated`
+  names a jar it is about to build, so there is nothing for `-NoBuild` to reuse.
+
+`build.ps1` resolves a real JDK `bin` by itself — the Oracle `javapath` directory that lands on
+`PATH` exposes `javac` and `java` but **not** `jar`, so `$env:JAVA_HOME` or a real JDK under
+`C:\Program Files\Java` is what it looks for.
+
+### Running it
+
+```powershell
+java -jar SuperCC.jar
+```
+
+Always from a console, **never** `javaw` or a double-click — those swallow the stack trace you need,
+and a GUI failure then presents as "nothing happens". A benign `getSavestates()` startup init-race
+NPE on stderr is expected and pre-existing; the app runs fine after it. `emulator.SuperCC.main`
+hands its arguments to `ArgumentParser`, so a level set path can be passed on the command line.
+Playtesting is a required gate before any release, so being able to launch it matters.
+
+**Target platform is Windows.** Both of Jeremy's machines run **Windows PowerShell 5.1**, and CI
+deliberately runs 5.1 too rather than PowerShell 7, so that CI fails the same way his machine does.
+See `docs/adr/0006-ci-runs-windows-powershell-5-1.md`. Do not introduce PowerShell 7 syntax — no
+`&&`, `||`, ternary, or `??`.
+
+If you edit a workflow: GitHub Actions wraps every `run:` with `$ErrorActionPreference='stop'` and
+appends `exit $LASTEXITCODE`, so **the last native command in a step decides whether the step
+passes**. Never end one with `robocopy`, `git diff`, or `findstr`.
+
+---
+
+## 3. Repo map
+
+```
+CLAUDE.md              this file
+AGENTS.md              the same essentials for non-Claude agents
+README.txt             ships in the release zip; section 7 is the user-facing revision history
+FORK.md                deep engineering notes, per change, with the reasoning
+CHANGELOG.md           Keep a Changelog view of the same history
+COPYING                GPLv2 — ships with the binary, as the license requires
+build-config.ps1       THE splice list, the JDK finder, the robocopy wrapper — one source of truth
+build.ps1              the splice build + the release packager (-Package)
+verify-splice.ps1      proves an edit will actually ship (§1)
+run-tests.ps1          builds, then compiles and runs everything in test\
+java/**                source (authoritative for non-form classes)
+emulator/ game/ graphics/ io/ tools/ util/    committed .class baseline — DO NOT DELETE
+com/ org/              third-party bytecode (inventory: docs/THIRD_PARTY.md)
+resources/             tilesets, icons, sounds
+test/**                the regression suite (see §4)
+docs/adr/**            Architecture Decision Records — read before "fixing" anything odd
+docs/THIRD_PARTY.md    what is vendored, and under which license
+docs/form-baseline.sha256   hashes of the 15 .form files and their sibling .java (see §1)
+.claude/settings.json  agent command allowlist — a prompt-reducer, NOT a security boundary
+.github/workflows/**   CI, release, CodeQL
+.github/dependabot.yml keeps the SHA-pinned actions current
+.github/CONTRIBUTING.md  the contributor loop
+.github/RELEASING.md     the full release checklist
+.github/PULL_REQUEST_TEMPLATE.md, .github/ISSUE_TEMPLATE/
+```
+
+Key source files, by what they own:
+
+| File | Owns |
+|---|---|
+| `java/emulator/SuperCC.java` | app entry, `BUILD_TAG`, window title, `openLevelset`, `startingRuleset()` |
+| `java/io/SuccPaths.java` | the whole `succ_settings.ini` contract — parsing, defaults, atomic write, opt-in switches |
+| `java/io/DatParser.java` | CC1 `.dat` reading. A file reader; it must not learn about settings. |
+| `java/io/LevelFactory.java` | turns parsed fields into a `Level`; owns the MS and Lynx monster lists |
+| `java/io/TWSWriter.java`, `TWSReader.java` | Tile World solution files |
+| `java/game/**` | the emulator itself — MS and Lynx rulesets, `RNG`, `Level`, creatures |
+| `java/graphics/**` | Swing UI. `Gui.java` is form-based; the others are not. |
+
+---
+
+## 4. Tests
+
+`run-tests.ps1` compiles every `test\*.java` against the **built jar** and runs each class that has
+a `main`. Adding a test file is all it takes — there is no registry to update.
+
+```
+test/Harness.java        shared PASS/FAIL/SKIP counters + JUnit-XML and JSON emitters
+test/SettingsTest.java   the settings contract (SuccPaths) — 90 assertions
+test/DatBuilder.java     synthesizes a valid CC1 .dat in a temp dir — no level set needed
+test/EngineTest.java     .dat parsing and headless emulator behavior — 32 assertions
+```
+
+A class counts as a test if it declares a `main()`, so `Harness` and `DatBuilder` are helpers
+without needing a naming convention. Two checks skip when their optional local files are absent:
+`-Mo3` (the Lynx-signature set behind jc-9) and `-Collection` (a folder of real level sets, for the
+wide open-every-level check that synthesized fixtures cannot replace).
+
+Rules that are not negotiable here:
+
+- **Test through the jar.** Never add a test that compiles a source file and asserts on it — that
+  tests code which may not be what ships. `run-tests.ps1` puts the jar on the classpath for you.
+- **No level set may ever be committed.** `.dat` and `.ccl` files are third-party content. Engine
+  tests synthesize their own fixtures with `DatBuilder`. Anything needing a real set must **skip**,
+  not fail, when the file is absent — see the `-Mo3` switch for the established pattern.
+- **A jar-wide class scan is a real test.** Reflection proves a *method* exists or is gone; it
+  proves nothing about *callers*, which live in classes the splice may or may not have recompiled.
+  Both directions fail silently — a stale caller of a removed method throws `NoSuchMethodError` on
+  a menu click, and a stale class that never got a *new* call simply does nothing at all, with no
+  error. `SettingsTest` section 10 scans every class in the jar for exactly this. Keep that habit.
+- **Machine-readable output exists — use it.** `-ResultsPath <dir>` writes `<Class>.xml` (JUnit XML,
+  which CI turns into annotations) and `<Class>.json` (easier to diff between runs) per test class.
+  The exit code is 0 only if every assertion passed.
+- **Assert through `Harness`**, not with your own counters, or your results never reach the report.
+  `Harness.run(name, Body)` also catches a thrown exception, records it as a failure, and still
+  writes the report — the run that dies halfway is exactly when you most want to know how far it
+  got.
+
+Coverage today is honest about its gaps: the settings contract is thorough, engine coverage is a
+foundation rather than a full suite, and the Swing UI is untested. Widening engine coverage is the
+highest-value test work available.
+
+---
+
+## 5. `succ_settings.ini` — a hand-rolled parser with four sharp edges
+
+Every one of these has drawn blood. `SuccPaths.parseSettings()` is not an INI library.
+
+1. **The space before `=` is load-bearing.** The key is read as `substring(0, indexOf('=') - 1)`,
+   so `ShowBuildTag=false` parses as the key `ShowBuildTa` and is silently ignored. Always write
+   `Key = value`.
+2. **`;` only starts a comment at the beginning of a line.** `ShowBuildTag = false ; hides it`
+   has the *value* `false ; hides it`, which is not `false`.
+3. **Sections are scoped.** Keys are stored `<section>:<name>`. A key under the wrong `[Section]`
+   is a different key that nothing reads. Duplicates: the last one wins.
+4. **The whole file is rewritten from a fixed template on any settings change**, so a key the
+   template does not know about is erased the next time anything changes. Add a new setting to the
+   template, not just to a getter.
+
+Also: the file is written **atomically** (render → unique sibling temp → `ATOMIC_MOVE`, retried).
+The staging temp **must stay a sibling** of the target — same directory means same volume means the
+atomic path is available; the fallback is copy-then-delete, which truncates the destination and
+reintroduces the torn-file bug this replaced. Never "tidy" it into `%TEMP%`.
+
+Opt-in switches (`ShowBuildTag`, `AlwaysOpenInMS`) all go through the single `optedIn()` predicate.
+Put any new switch through it too. **Every switch defaults OFF for downloaders** — see §6.
+
+### Adding a setting: three places, and missing one fails quietly
+
+This is the most likely change anyone is asked to make here, so the procedure is worth spelling out.
+All three are in `java/io/SuccPaths.java`:
+
+1. **`buildDefaults()`** — add the key to the `DEFAULTS` map, in file order. Skip this and a boolean
+   still works (because `render()` calls `optedIn()` regardless), but a String or int key renders
+   **empty**, via `DEFAULTS.getOrDefault(key, "")`. No test currently catches that.
+2. **`render()`** — add the line to the template. ⚠ `render()` has **two different mechanisms**, and
+   picking the wrong one is silent: the `[Graphics]` block loops over a `String[]` of key names and
+   appends the **raw map value**, while `ShowBuildTag` is a separate hand-written line routed through
+   `showBuildTagOf()`. A new switch dropped into the loop array **bypasses `optedIn()`**, so the file
+   would echo back `ShowFrameRate = yes` while the getter reads OFF — breaking the invariant that the
+   file and the getter can never disagree. Copy `ShowBuildTag`'s hand-written form, not the loop.
+3. **The getter** — route it through `optedIn()`.
+
+Then: add it to `README.txt` section 6 (a shipped setting nobody can find out about is not shipped;
+nothing enforces this mechanically), and add a test — `SettingsTest` section 11 is the pattern,
+covering on, off, the wrong section, and the no-space typo.
+
+---
+
+## 6. Do not "fix" these — they are deliberate
+
+Each of these looks like a bug or an oversight and is not. The ADRs carry the full reasoning.
+
+- **The committed `.class` baseline.** It is not build output that escaped `.gitignore`. See §1.
+- **`build.ps1` builds zip entries by hand instead of using `Compress-Archive`.** On PowerShell 5.1
+  both `Compress-Archive` and `ZipFile::CreateFromDirectory` emit **backslash** entry names —
+  measured here, not assumed. Explorer tolerates it; Info-ZIP `unzip` and Java's `ZipInputStream`
+  do not, and produce files with literal backslashes in their names. This is a public download, so
+  it has to open correctly off Windows.
+- **`ShowBuildTag` defaults OFF.** Downloaders should not see a private build number. Jeremy turns
+  it on locally. Absent key, absent file, typo, and garbage all mean OFF.
+- **The TWS folder remembers the last folder used.** jc-8 pinned it to a fixed `tws`; jc-10
+  deliberately **reversed that** at Jeremy's explicit request after he lived with it. Do not
+  restore the jc-8 behavior. The jc-8 null guards survive and must stay.
+- **Stored paths are relative to the Chip's Challenge folder**, not absolute. The settings file is
+  Dropbox-synced between two machines whose user directories differ (`C:\Users\Jeremy` and
+  `C:\Users\jerem`); absolute paths made the last machine used win. `Path.startsWith` compares name
+  elements, not characters — never "simplify" it to a string prefix test.
+- **`getSuccPath()` is deliberately not converted to relative.** It is the one data-bearing path
+  and its callers resolve it against the working directory.
+- **`AlwaysOpenInMS` is scoped to opening only.** F3 still switches ruleset, and loading a solution
+  still follows the *solution's* ruleset — forcing MS there would break every Lynx replay.
+- **`startingRuleset()` lives in `SuperCC`, not `DatParser`.** A file reader must not grow a
+  dependency on the settings file.
+- **The `paths == null` guards are not decoration.** The headless `SuperCC(boolean)` constructor
+  never builds a `SuccPaths`, and both `openLevelset()` and the window title are reachable from it.
+  Tile World's equivalent re-title crashed every headless batch run for exactly this reason.
+
+Two language-level traps:
+
+- **No `\u` sequences in Java comments.** The lexer decodes unicode escapes *inside comments*, so a
+  Windows path in a comment is a compile error. This has cost a build here before.
+- **`-encoding UTF-8` is required** — `SuperCC.java` contains Unicode arrow characters.
+
+---
+
+## 7. Conventions
+
+- **Design:** SOLID and GoF patterns where they genuinely make the code cleaner, never for
+  vocabulary's sake. Small functions, one composable guard helper over a special case, delete a
+  special case rather than handle it. A pattern that is not paying for itself is a defect.
+- **Comments:** this codebase comments *why*, not *what*, and fork-specific edits are marked
+  `/* MOD (Jeremy, jc-N): ... */` with the reasoning and the trap that motivated them. Match that.
+  When you change behavior that a comment explains, update the comment in the same edit.
+- **American English** in code, comments, identifiers, strings, and documentation: `color`,
+  `behavior`, `gray`, `analyze`, `center`, `-ize`.
+- **Line endings:** `.gitattributes` normalizes text to LF, except `README.txt`, which is CRLF
+  because it is read in Notepad. `build.ps1` re-normalizes it at package time anyway, because
+  `eol=crlf` only applies at checkout.
+- **Never edit `succ_settings.ini` while SuperCC is running.** It holds the file in memory and
+  rewrites it on any settings change, silently reverting your edit.
+
+---
+
+## 8. Shipping a release
+
+Assume any behavior change ships publicly. The full checklist is `.github/RELEASING.md`; in short:
+
+1. Bump `BUILD_TAG` in `java/emulator/SuperCC.java`. **Two jars must never report the same tag.**
+2. Add the entry to `README.txt` section 7 *and* update its header line to name the new build —
+   `build.ps1 -Package` **fails** if the header does not name the tag being packaged. Add any new
+   or changed setting to README section 6; a shipped setting nobody can find out about is not
+   shipped.
+3. Update `CHANGELOG.md` and `FORK.md`.
+4. `powershell -File verify-splice.ps1` **and** `powershell -File run-tests.ps1` — both all green.
+   The splice check is not optional here: it is what proves the change you are shipping is the
+   change that will actually be in the jar.
+5. `powershell -File build.ps1 -Package -ExpectTag jc-N`, then actually launch the jar **from the
+   built zip**, not the one in the repo root.
+6. Commit, push `main`, create and push the tag `jc-N`.
+7. The tag push runs the release workflow, which re-verifies, re-packages, and creates a **draft**
+   release with the zip attached. **It does not publish.** Download that asset, launch it once, and
+   publish by hand — the playtest gate is a human act and CI cannot perform it.
+
+⚠ `BUILD_TAG`, `TITLE` and `SETTINGS_FILE_NAME` are `static final String`s, so javac **inlines them
+at every use site**. A class that is not recompiled keeps the old value baked in permanently. Today
+only `SuperCC.java` and `SuccPaths.java` reference them and both are spliced, but if a form-based
+class ever reads one, it would report a stale build tag forever — which is the "two jars must never
+report the same tag" invariant broken from the inside.
+
+The release zip is exactly four files: `SuperCC.jar`, a **generated** stock `succ_settings.ini`
+(produced by calling `SuccPaths.createSettingsFile()` in the jar just built — never hand-written,
+so the shipped defaults cannot drift from the program's), `README.txt`, and `COPYING`.
+
+---
+
+## 9. Working alongside other agents
+
+- **Announce your file set.** Editing `SuccPaths.java`, `build.ps1`, or `README.txt` conflicts with
+  almost everything; those are the contended files.
+- **One agent owns `BUILD_TAG` per release.** It is a single line that every other change depends
+  on, and a duplicate tag is unrecoverable once published.
+- **`build.ps1` writes `.\SuperCC.jar`, and `-Package` wipes all of `dist/`.** Those are shared
+  mutable paths, and two agents in one checkout will produce confusing, non-reproducible failures.
+  Either use `run-tests.ps1 -Isolated` (builds to a private temp jar and deletes it afterward), or
+  give each agent its own checkout:
+  ```powershell
+  git status --short          # 🔴 COMMIT OR STASH FIRST -- see below
+  git worktree add ..\SuperCC-agent-a -b feature/agent-a
+  ```
+  🔴 **`git worktree add` branches from HEAD, not from your working tree.** Uncommitted work does
+  not come with it, so an agent handed a worktree while this scaffolding was uncommitted would get
+  a checkout with no `CLAUDE.md`, no `build-config.ps1`, no `verify-splice.ps1`, and an older
+  `build.ps1` carrying its own inline splice list — two agents running two different build systems
+  with two divergent lists, which is precisely the drift `build-config.ps1` exists to prevent.
+  Commit or stash before creating one.
+
+  A worktree is the cleaner answer when an agent needs to build, commit, or package.
+- **`-Isolated` covers `run-tests.ps1` only.** `verify-splice.ps1` and a bare `build.ps1` still
+  write shared paths, and the mandatory splice check is the common case, not the exotic one. A
+  worktree is the real fix for concurrent agents.
+- **`-ResultsPath` is not isolated either.** Two agents in one checkout both write
+  `test-results\EngineTest.xml` and the last writer wins. Give each a distinct directory.
+- **Never leave a stray `java.exe` running.** A live JVM holds the jar open, and the next build's
+  delete fails with a lock error that reads like a permissions problem.
+- Do not commit `SuperCC.jar` or `dist/` — both are ignored, deliberately.
+
+---
+
+## 10. When you are stuck
+
+`FORK.md` is the engineering log: every fork change, why it exists, what broke first, and what was
+measured. `docs/adr/` holds the decisions. `README.txt` section 7 is the plain-English history.
+If a behavior looks wrong, check those three before changing it — in this repo, the surprising
+choice is usually the deliberate one.

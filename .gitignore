@@ -5,3 +5,24 @@
 # Release packaging output (build.ps1 -Package): the zip attached to the
 # GitHub release, plus the staged folder it is built from.
 /dist/
+
+# Third-party content that must never be committed: CC1 level sets, Tile World solution files,
+# and the solution store. These are not ours to redistribute, and tests synthesize their own
+# fixtures instead (test\DatBuilder.java, docs\adr\0007-synthesize-dat-fixtures.md).
+# CI also fails on any TRACKED file with these extensions, because .gitignore does nothing
+# about `git add -f`.
+*.dat
+*.tws
+*.ccl
+*.dac
+/succsave/
+
+# Machine-readable test output (run-tests.ps1 -ResultsPath).
+/test-results/
+
+# Per-machine agent settings. The shared allowlist in .claude/settings.json IS committed.
+.claude/settings.local.json
+
+# Created by SuperCC itself when the jar is launched from the repo root during a playtest.
+# It holds personal paths and settings and must never be committed to a public repo.
+/succ_settings.ini

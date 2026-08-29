@@ -1,0 +1,59 @@
+name: Bug report
+description: Something in SuperCC does not work
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: if the program does not start at all, the usual cause is **Java older than
+        16**. The error is `UnsupportedClassVersionError`, which does not say "your Java is old."
+        Run `java -version` and check.
+
+  - type: input
+    id: build
+    attributes:
+      label: Which build
+      description: >
+        The `jc-N` from the release you downloaded. The window title shows it only if
+        `ShowBuildTag = true` in `succ_settings.ini` — it is off by default — so the release name
+        or the jar's SHA-256 is fine.
+      placeholder: jc-10
+    validations:
+      required: true
+
+  - type: input
+    id: java
+    attributes:
+      label: Java version
+      description: The output of `java -version`.
+      placeholder: openjdk version "16.0.2" 2021-07-20
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: console
+    attributes:
+      label: Console output
+      description: >
+        Launch it with `java -jar SuperCC.jar` from a terminal and paste everything. This matters
+        more than usual here: double-clicking runs it under `javaw`, which discards stderr
+        entirely, so a crash leaves no trace at all. A `getSavestates()` NPE at startup is
+        pre-existing and harmless.
+      render: text
+
+  - type: input
+    id: levelset
+    attributes:
+      label: Level set and level
+      description: >
+        Which set and level number, if it is specific to one. **Please do not attach the .dat** —
+        level sets are third-party content and are not redistributed here. Naming it is enough.
+      placeholder: CCLP5, level 138

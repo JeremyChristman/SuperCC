@@ -1,0 +1,41 @@
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly, so that NEW CodeQL QUERIES get run against existing first-party code without waiting
+    # for the next commit. This is not dependency scanning and must not be mistaken for it: CodeQL
+    # cannot see the vendored bytecode under com/ and org/ at all, so no advisory about those
+    # libraries will ever surface here. docs/THIRD_PARTY.md is the honest answer to that gap.
+    - cron: '31 4 * * 1'
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  analyze:
+    name: Analyze Java
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@6f5948dfacef28e207b48d0905cf90c03365536d # v3
+        with:
+          languages: java-kotlin
+          # build-mode: none is required here, not a shortcut. There is no Maven, Gradle or Ant, so
+          # autobuild has nothing to drive and fails. Wrapping build.ps1 instead would be worse than
+          # failing: the splice build recompiles only the seven files in $SPLICE_MODIFIED, so
+          # CodeQL would quietly analyze 7 of 93 sources and report a clean bill of health for code
+          # it never looked at. Buildless extraction reads all 93.
+          build-mode: none
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@6f5948dfacef28e207b48d0905cf90c03365536d # v3
+        with:
+          category: '/language:java-kotlin'

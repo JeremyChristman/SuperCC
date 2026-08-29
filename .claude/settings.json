@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(powershell -ExecutionPolicy Bypass -File verify-splice.ps1)",
+      "Bash(powershell -ExecutionPolicy Bypass -File build.ps1)",
+      "Bash(powershell -ExecutionPolicy Bypass -File run-tests.ps1)",
+      "Bash(powershell -ExecutionPolicy Bypass -File run-tests.ps1 -NoBuild)",
+      "Bash(powershell -ExecutionPolicy Bypass -File run-tests.ps1 -Isolated)",
+      "Bash(powershell -ExecutionPolicy Bypass -File run-tests.ps1 -ResultsPath test-results)",
+      "Bash(powershell -ExecutionPolicy Bypass -File run-tests.ps1 -NoBuild -ResultsPath test-results)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(git ls-files:*)",
+      "Bash(git check-attr:*)",
+      "Bash(git worktree list)",
+      "Bash(javap:*)",
+      "Bash(java -version)",
+      "Bash(javac -version)"
+    ],
+    "deny": [
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git push --force-with-lease:*)",
+      "Bash(git tag -d:*)",
+      "Bash(git update-ref -d:*)",
+      "Bash(git push origin --delete:*)"
+    ]
+  }
+}

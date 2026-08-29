@@ -8,10 +8,13 @@ NOT produce it, so a full javac rebuild yields a jar whose GUI dies on launch
 ("... playButton is null"). So the compiled classes shipped in the jar are the
 authoritative IntelliJ-built baseline (committed under emulator/ game/ graphics/
 io/ tools/ util/), and this build only RECOMPILES the hand-edited, non-form
-source files listed below and splices them over that baseline.
+source files in $SPLICE_MODIFIED and splices them over that baseline.
 
-  --> If you mod a NEW source file, add it to $MODIFIED (and make sure it has no
-      sibling .form file, or you'll break its GUI).
+  --> The list lives in build-config.ps1, NOT here. If you mod a NEW source file,
+      add it to $SPLICE_MODIFIED there (and make sure it has no sibling .form
+      file, or you'll break its GUI). Editing a file that is not in that list
+      ships the OLD bytecode with no error -- run verify-splice.ps1, which
+      exists to catch exactly that.
 
 Requires a JDK 16+. Usage:  powershell -ExecutionPolicy Bypass -File build.ps1 [-Out SuperCC.jar]
 
@@ -22,42 +25,70 @@ Requires a JDK 16+. Usage:  powershell -ExecutionPolicy Bypass -File build.ps1 [
             SuccPaths.createSettingsFile() in the jar that was just built --
             never hand-written -- so the shipped file is exactly the file
             SuperCC itself would create, defaults and layout included.
+
+  -ExpectTag <tag>
+            fails unless BUILD_TAG is exactly this (e.g. "jc-11"). The release
+            workflow passes the pushed git tag, which is the only thing that
+            stops a tag and the jar it contains from disagreeing. See below.
+
+  -Manifest <path>
+            writes a JSON record of what was built: tag, jar SHA-256, size,
+            entry count, and the exact compiler and --release used. Machine
+            readable, so a build can be identified and two builds diffed
+            without anyone having to remember what produced them.
 #>
-param([string]$Out = "SuperCC.jar", [switch]$Package)
+param([string]$Out = "SuperCC.jar", [switch]$Package, [string]$ExpectTag, [string]$Manifest)
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 
-# Hand-edited source files to recompile & splice (relative to java/). None are .form-based.
-$MODIFIED = @(
-    "emulator\SuperCC.java",
-    "graphics\LevelPanel.java",
-    "graphics\MenuBar.java",
-    "graphics\GamePanel.java",
-    "io\LevelFactory.java",
-    "io\SuccPaths.java",
-    "io\TWSWriter.java"
-)
+# $SPLICE_MODIFIED, $SPLICE_STAGE_DIRS, Find-JdkBin and Invoke-Robocopy all live in one place so
+# that build.ps1 and verify-splice.ps1 cannot disagree about what gets recompiled.
+. (Join-Path $root "build-config.ps1")
 
-# The Oracle "javapath" dir on PATH exposes javac/java but not jar; resolve a real JDK bin.
-function Find-JdkBin {
-    if ($env:JAVA_HOME -and (Test-Path (Join-Path $env:JAVA_HOME "bin\jar.exe"))) { return (Join-Path $env:JAVA_HOME "bin") }
-    $cand = Get-ChildItem "C:\Program Files\Java" -Directory -ErrorAction SilentlyContinue |
-            Where-Object { Test-Path (Join-Path $_.FullName "bin\jar.exe") } |
-            Sort-Object Name -Descending | Select-Object -First 1
-    if ($cand) { return (Join-Path $cand.FullName "bin") }
-    throw "No JDK with jar.exe found. Set JAVA_HOME to a JDK 16+."
-}
-$jdkBin = Find-JdkBin
+$MODIFIED = $SPLICE_MODIFIED
+$jdkBin = Find-JdkBin -Requires "jar.exe"
 $javac  = Join-Path $jdkBin "javac.exe"
 $jar    = Join-Path $jdkBin "jar.exe"
+
+# The build tag is the single source of truth for the release name, and it lives in the source
+# rather than anywhere in the build. Read BEFORE anything is compiled or written.
+$sccSrc = Get-Content (Join-Path $root "java\emulator\SuperCC.java") -Raw
+if ($sccSrc -notmatch 'BUILD_TAG\s*=\s*"\[(?<tag>[^\]]+)\]"') { throw "Could not read BUILD_TAG out of SuperCC.java" }
+$tag = $Matches['tag']
+
+# A git tag and the tag baked into the jar are two independent facts, and nothing else compares
+# them. Push jc-11 while BUILD_TAG still says [jc-10] and every other gate here passes happily:
+# the README check looks for jc-10 and finds it, the zip is named SuperCC-jc-10.zip, and release
+# jc-11 publishes a jar that titles itself jc-10. That breaks the one rule this project cannot
+# walk back -- two jars must never report the same build tag -- using the automation meant to
+# protect it. The release workflow passes the pushed tag here.
+#
+# Checked up FRONT, before the jar is written: this needs nothing from the build, and failing
+# afterwards would leave the developer's SuperCC.jar overwritten by a wrong-tagged build.
+if ($ExpectTag) {
+    $want = $ExpectTag.Trim()
+    if ($tag -ne $want) {
+        throw ("BUILD_TAG is [$tag] but the expected tag is $want. " +
+               "Bump BUILD_TAG in java\emulator\SuperCC.java (and update README.txt's header) " +
+               "before tagging, or tag the commit that matches.")
+    }
+    Write-Host "BUILD_TAG matches the expected tag ($want)"
+}
 
 $stage = Join-Path $env:TEMP ("scc-build-" + [Guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
 try {
     # Stage the FULL jar content: pristine compiled classes + libs + resources + source + manifest.
-    foreach ($d in "com","org","emulator","game","graphics","io","tools","util","resources","java","META-INF") {
+    # Invoke-Robocopy throws on exit >= 8. robocopy's 0-7 all mean success, so the old unchecked
+    # call was right about those -- but it ignored genuine failures too, and a partial stage yields
+    # a jar with classes missing that still builds and still passes the settings tests.
+    # A MISSING stage directory is fatal, not skippable. All eleven are tracked and all eleven are
+    # required; lose resources\ (221 files) and the build still succeeds, the jar still opens, and
+    # no test notices, because the suites only reach io, game and emulator.
+    foreach ($d in $SPLICE_STAGE_DIRS) {
         $src = Join-Path $root $d
-        if (Test-Path $src) { robocopy $src (Join-Path $stage $d) /E /NFL /NDL /NJH /NJS /NP | Out-Null }
+        if (-not (Test-Path $src)) { throw "stage directory '$d' is missing -- the jar would be built without it" }
+        Invoke-Robocopy -Source $src -Destination (Join-Path $stage $d)
     }
     # For each modified class, drop its baseline .class (incl. inner classes) so the recompile is clean.
     $srcFiles = @()
@@ -75,22 +106,27 @@ try {
     # Recompile ONLY those files; -implicit:none + empty sourcepath so javac never touches the
     # form-based classes (their pristine .class on -cp are used for references).
     $empty = Join-Path $stage "__empty"; New-Item -ItemType Directory -Force $empty | Out-Null
-    & $javac --release 16 -encoding UTF-8 -cp $stage -sourcepath $empty -implicit:none -d $stage @srcFiles
+    # $SPLICE_RELEASE / $SPLICE_ENCODING rather than literals: the manifest REPORTS those variables,
+    # so hardcoding them here would let a bumped $SPLICE_RELEASE produce a manifest that claims a
+    # target the build did not use -- a lie in the one artifact whose entire job is explaining a
+    # surprising build.
+    & $javac --release $SPLICE_RELEASE -encoding $SPLICE_ENCODING -cp $stage -sourcepath $empty -implicit:none -d $stage @srcFiles
     if ($LASTEXITCODE -ne 0) { throw "javac failed (exit $LASTEXITCODE)" }
     [IO.Directory]::Delete($empty, $true)
     # Package.
-    $outPath = Join-Path $root $Out
+    # IsPathRooted guard, not just Join-Path: on PowerShell 5.1 Join-Path does NOT resolve a rooted
+    # child, so Join-Path "C:\repo" "C:\Temp\x.jar" yields "C:\repo\C:\Temp\x.jar" and jar.exe dies
+    # with an InvalidPathException about a stray colon. That is what -Out has to accept for
+    # run-tests.ps1 -Isolated to work at all.
+    $outPath = if ([IO.Path]::IsPathRooted($Out)) { $Out } else { Join-Path $root $Out }
+    $outDir = Split-Path $outPath
+    if ($outDir -and -not (Test-Path $outDir)) { New-Item -ItemType Directory -Force -Path $outDir | Out-Null }
     if ([IO.File]::Exists($outPath)) { [IO.File]::Delete($outPath) }
     & $jar cfm $outPath (Join-Path $stage "META-INF\MANIFEST.MF") -C $stage .
     if ($LASTEXITCODE -ne 0) { throw "jar failed (exit $LASTEXITCODE)" }
     Write-Host ("Built {0} ({1:N0} bytes)" -f $outPath, (Get-Item $outPath).Length)
 
     if ($Package) {
-        # The build tag is the single source of truth for the release name.
-        $sccSrc = Get-Content (Join-Path $root "java\emulator\SuperCC.java") -Raw
-        if ($sccSrc -notmatch 'BUILD_TAG\s*=\s*"\[(?<tag>[^\]]+)\]"') { throw "Could not read BUILD_TAG out of SuperCC.java" }
-        $tag = $Matches['tag']
-
         # Wipe the whole dist folder, not just this tag's staging dir. Two reasons: a package run
         # that fails partway used to leave the PREVIOUS zip sitting next to a half-built staging
         # folder under the same name, looking current; and dist\ otherwise accumulates every old tag.
@@ -166,6 +202,13 @@ public class MakeStockSettings {
         # and it is the last thing to go wrong. Three gates: conformant entry names, the exact
         # expected file set, and every entry byte-identical to its source (so the zip can never
         # ship a jar or an ini that disagrees with the build that just ran).
+        # The zip loop and this verification table are both built from a NON-recursive -File listing,
+        # so a subdirectory in the staged folder would be omitted from the archive AND from the check
+        # that would have caught the omission. The package is four flat files today; fail loudly if
+        # that ever stops being true rather than silently shipping less than was staged.
+        if (Get-ChildItem -LiteralPath $pkgDir -Directory) {
+            throw "the staged package contains a subdirectory; the packager only handles flat files"
+        }
         $expected = @{}
         foreach ($f in (Get-ChildItem -LiteralPath $pkgDir -File)) {
             $expected["SuperCC-$tag/$($f.Name)"] = (Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash
@@ -187,6 +230,39 @@ public class MakeStockSettings {
         } finally { $check.Dispose() }
         Write-Host ("Packaged {0} ({1:N0} bytes)" -f $zip, (Get-Item $zip).Length)
         Get-ChildItem $pkgDir | ForEach-Object { Write-Host ("    {0,-20} {1,10:N0} bytes" -f $_.Name, $_.Length) }
+    }
+
+    # Written LAST, deliberately. -Package wipes the whole dist\ folder, so a manifest emitted
+    # before packaging is silently deleted by the very run that reported writing it.
+    if ($Manifest) {
+        # Records the COMPILER, not just the JDK: --release 16 on a JDK 17 compiles fine but does
+        # not emit the same bytecode as a JDK 16 compiler, and that difference is invisible in the
+        # jar. If a build is ever surprising, this is the field that explains it.
+        $javacVersion = (& $javac -version 2>&1 | Out-String).Trim()
+        $jarItem = Get-Item $outPath
+        $entryCount = 0
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        Add-Type -AssemblyName System.IO.Compression
+        $probe = [IO.Compression.ZipFile]::OpenRead($outPath)
+        try { $entryCount = $probe.Entries.Count } finally { $probe.Dispose() }
+        $record = [ordered]@{
+            tag           = $tag
+            builtUtc      = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+            jar           = [IO.Path]::GetFileName($outPath)
+            jarSha256     = (Get-FileHash -LiteralPath $outPath -Algorithm SHA256).Hash
+            jarBytes      = $jarItem.Length
+            jarEntries    = $entryCount
+            javac         = $javacVersion
+            releaseTarget = $SPLICE_RELEASE
+            splicedFiles  = @($MODIFIED)
+        }
+        $manifestPath = if ([IO.Path]::IsPathRooted($Manifest)) { $Manifest } else { Join-Path $root $Manifest }
+        $manifestDir = Split-Path $manifestPath
+        if ($manifestDir -and -not (Test-Path $manifestDir)) { New-Item -ItemType Directory -Force -Path $manifestDir | Out-Null }
+        # UTF8Encoding($false) because PowerShell 5.1's -Encoding utf8 writes a BOM, which trips up
+        # every JSON reader that is not .NET.
+        [IO.File]::WriteAllText($manifestPath, ($record | ConvertTo-Json -Depth 4), (New-Object Text.UTF8Encoding $false))
+        Write-Host ("Wrote build manifest {0}" -f $manifestPath)
     }
 } finally {
     [IO.Directory]::Delete($stage, $true)

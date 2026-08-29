@@ -20,28 +20,22 @@ import java.nio.file.Path;
  */
 public class SettingsTest {
 
-    private static int pass = 0, fail = 0, skipped = 0;
+    /* Counting, printing and reporting moved to Harness so that every test file reports the same
+     * way and CI gets one result format. These delegate rather than being replaced at every call
+     * site: 90 assertions read better as check(...) than as Harness.check(...), and a wrapper is
+     * cheaper to review than 90 edited lines. */
+    private static void skip(String why) { Harness.skip(why); }
 
-    private static void skip(String why) {
-        skipped++; System.out.println("  SKIP  " + why);
-    }
+    private static void check(String what, boolean ok) { Harness.check(what, ok); }
 
-    private static void check(String what, boolean ok) {
-        if (ok) { pass++; System.out.println("  PASS  " + what); }
-        else    { fail++; System.out.println("  FAIL  " + what); }
-    }
+    private static void eq(String what, Object actual, Object expected) { Harness.eq(what, actual, expected); }
 
-    private static void eq(String what, Object actual, Object expected) {
-        boolean ok = (expected == null) ? actual == null : expected.equals(actual);
-        if (ok) { pass++; System.out.println("  PASS  " + what); }
-        else    { fail++; System.out.println("  FAIL  " + what + "\n          expected: " + expected
-                                            + "\n          actual:   " + actual); }
-    }
-
+    /* Scratch space that is really cleaned up on exit. The old deleteOnExit() form could not
+     * remove these, because File.deleteOnExit deletes a DIRECTORY and one a test has written a
+     * settings file into is never empty -- which had quietly left 1,482 populated jc8-* folders
+     * in %TEMP%. Harness.tempDir walks the tree in a shutdown hook instead. */
     private static Path freshDir(String name) throws IOException {
-        Path d = Files.createTempDirectory("jc8-" + name + "-");
-        d.toFile().deleteOnExit();
-        return d;
+        return Harness.tempDir("jc8-" + name + "-");
     }
 
     /** Writes a settings file containing exactly the given lines. */
@@ -51,13 +45,17 @@ public class SettingsTest {
         return f;
     }
 
-    public static void main(String[] args) throws Exception {
+    public static void main(String[] args) {
+        System.exit(Harness.run("SettingsTest", SettingsTest::body));
+    }
 
-        System.out.println("\n== 1. the settings file is named succ_settings.ini ==");
+    private static void body() throws Exception {
+
+        Harness.section("1. the settings file is named succ_settings.ini");
         eq("SETTINGS_FILE_NAME", SuccPaths.SETTINGS_FILE_NAME, "succ_settings.ini");
         eq("DEFAULT_TWS_PATH", SuccPaths.DEFAULT_TWS_PATH, "tws");
 
-        System.out.println("\n== 2. a fresh install creates a complete stock file ==");
+        Harness.section("2. a fresh install creates a complete stock file");
         Path d2 = freshDir("fresh");
         File f2 = d2.resolve(SuccPaths.SETTINGS_FILE_NAME).toFile();
         SuccPaths p2 = SuccPaths.load(f2);
@@ -77,7 +75,7 @@ public class SettingsTest {
         eq("build tag OFF on a fresh install", p2.getShowBuildTag(), false);
         eq("TWS resolves to <dir>\\tws", p2.getTWSPath(), d2.resolve("tws").toString());
 
-        System.out.println("\n== 3. ShowBuildTag is strictly opt-in ==");
+        Harness.section("3. ShowBuildTag is strictly opt-in");
         String[] on  = {"true", "TRUE", "True", "1", " true ", "true "};
         String[] off = {"false", "FALSE", "0", "yes", "on", "y", "-1", "2", "true!", "",
                         "true ; my comment", "null"};
@@ -101,7 +99,7 @@ public class SettingsTest {
         eq("OFF when the key sits under [Paths]",
            SuccPaths.load(settingsWith(d3c, "[Paths]", "ShowBuildTag = true")).getShowBuildTag(), false);
 
-        System.out.println("\n== 4. the TWS folder remembers where you were (jc-10) ==");
+        Harness.section("4. the TWS folder remembers where you were (jc-10)");
         /* jc-8 pinned this to a fixed folder; jc-10 restores the pre-jc-8 memory at Jeremy's
          * request. The setter is back, and the fallbacks below are unchanged from jc-8. */
         check("setTWSPath() exists again on SuccPaths", hasMethod("setTWSPath"));
@@ -151,7 +149,7 @@ public class SettingsTest {
            SuccPaths.load(settingsWith(d4d, "[Paths]", "TWS = C:\\somewhere\\else")).getTWSPath(),
            "C:\\somewhere\\else");
 
-        System.out.println("\n== 5. an unrelated setting change preserves TWS and ShowBuildTag ==");
+        Harness.section("5. an unrelated setting change preserves TWS and ShowBuildTag");
         /* The TWS value here is deliberately a NON-DEFAULT subfolder. Using "tws" would let a bug
          * that resets TWS to the default pass silently, and "a hand-written value survives a
          * program-triggered whole-file rewrite" IS the requirement. */
@@ -170,7 +168,7 @@ public class SettingsTest {
         check("the new tile size was written", after.contains("TileWidth = 22"));
         eq("and re-reads as ON", SuccPaths.load(f5).getShowBuildTag(), true);
 
-        System.out.println("\n== 6. '1' is normalized to 'true' on the next write, staying ON ==");
+        Harness.section("6. '1' is normalized to 'true' on the next write, staying ON");
         Path d6 = freshDir("normalize");
         File f6 = settingsWith(d6, "[Graphics]", "ShowBuildTag = 1");
         SuccPaths p6 = SuccPaths.load(f6);
@@ -180,7 +178,7 @@ public class SettingsTest {
               Files.readString(f6.toPath(), StandardCharsets.UTF_8).contains("ShowBuildTag = true"));
         eq("still ON after the rewrite", SuccPaths.load(f6).getShowBuildTag(), true);
 
-        System.out.println("\n== 7. an old settings.ini is ignored, not read ==");
+        Harness.section("7. an old settings.ini is ignored, not read");
         Path d7 = freshDir("legacy");
         Files.writeString(d7.resolve("settings.ini"),
                 "[Graphics]\nShowBuildTag = true\nTilesheetNum = 7", StandardCharsets.UTF_8);
@@ -189,7 +187,7 @@ public class SettingsTest {
         eq("nor its tilesheet", p7.getMSTilesetNum(), 0);
         check("the legacy file is left untouched on disk", Files.exists(d7.resolve("settings.ini")));
 
-        System.out.println("\n== 8. the jc-4/jc-5 protections still hold ==");
+        Harness.section("8. the jc-4/jc-5 protections still hold");
         Path d8 = freshDir("damaged");
         File f8 = d8.resolve(SuccPaths.SETTINGS_FILE_NAME).toFile();
         Files.writeString(f8.toPath(), "this is not an ini file at all", StandardCharsets.UTF_8);
@@ -213,7 +211,7 @@ public class SettingsTest {
         Files.writeString(f8c.toPath(), "\uFEFF[Graphics]\nShowBuildTag = true", StandardCharsets.UTF_8);
         eq("a UTF-8 BOM is still stripped", SuccPaths.load(f8c).getShowBuildTag(), true);
 
-        System.out.println("\n== 9. byte-for-byte stability of the settings file ==");
+        Harness.section("9. byte-for-byte stability of the settings file");
         /* The jc-4 constraint: the rendered layout must stay byte-compatible, so upgrading does not
          * rewrite anyone's file gratuitously. Every other assertion here uses contains(); this one
          * uses equality, which is the only way that constraint can actually be tested. */
@@ -232,7 +230,7 @@ public class SettingsTest {
               stock9.contains("TWS = tws\n") && !stock9.contains("TWS = tws\r\n"));
         check("no BOM", before9.length > 0 && before9[0] != (byte) 0xEF);
 
-        System.out.println("\n== 10. the shipped jar really does call setTWSPath again (jc-10) ==");
+        Harness.section("10. the shipped jar really does call setTWSPath again (jc-10)");
         /* Reflection on SuccPaths (test 4) only proves the method exists. The thing that actually
          * delivers the behavior is the CALLER in MenuBar -- and build.ps1 is a SPLICE build, so if
          * MenuBar were not recompiled the jar would keep the jc-9 class that never calls it and
@@ -260,7 +258,7 @@ public class SettingsTest {
             check("and MenuBar is one of them, so the spliced jar carries the new callers", menuBar);
         }
 
-        System.out.println("\n== 11. AlwaysOpenInMS (jc-9) ==");
+        Harness.section("11. AlwaysOpenInMS (jc-9)");
         Path d11 = freshDir("ms");
         SuccPaths p11 = SuccPaths.load(d11.resolve(SuccPaths.SETTINGS_FILE_NAME).toFile());
         eq("OFF on a fresh install", p11.getAlwaysOpenInMS(), false);
@@ -297,7 +295,7 @@ public class SettingsTest {
         check("without disturbing the older settings",
               up.contains("TWS = tws\n") && up.contains("ShowBuildTag = true"));
 
-        System.out.println("\n== 12. the .dat signature MO3 actually carries ==");
+        Harness.section("12. the .dat signature MO3 actually carries");
         String mo3 = System.getProperty("supercc.mo3");
         if (mo3 == null || !new File(mo3).exists()) { skip("no -Dsupercc.mo3 given (MO3.dat is not in this repo)"); }
         else {
@@ -310,9 +308,6 @@ public class SettingsTest {
             eq("DatParser reports LYNX for it", parser.getRuleset(), game.Ruleset.LYNX);
         }
 
-        System.out.println("\n== results ==");
-        System.out.println("  " + pass + " passed, " + fail + " failed, " + skipped + " skipped");
-        if (fail > 0) System.exit(1);
     }
 
     private static boolean hasMethod(String name) {

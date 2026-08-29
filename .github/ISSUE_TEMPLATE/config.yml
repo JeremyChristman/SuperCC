@@ -1,0 +1,10 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Upstream SuperCC
+    url: https://github.com/SicklySilverMoon/SuperCC
+    about: >
+      This is a fork. If the behavior also happens in upstream SuperCC, it probably belongs there —
+      this repo's own changes are listed in README.txt section 7 and in FORK.md.
+  - name: How this fork differs
+    url: https://github.com/JeremyChristman/SuperCC/blob/main/FORK.md
+    about: Every change in this fork, why it exists, and what was measured.
