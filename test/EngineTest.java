@@ -19,10 +19,10 @@ import java.nio.file.Path;
  * Two headless traps are load-bearing in how these tests are written, and both were found the hard
  * way rather than reasoned about:
  *
- *   * SuperCC.openLevelset() reports a bad file through throwError() and then FALLS THROUGH to
- *     loadLevel(). Under the GUI-less SuperCC(boolean) constructor that means an invalid .dat
- *     produces a message and then an NPE, not an IOException. So every error-path assertion here
- *     goes through `new DatParser(file)` directly, which does throw.
+ *   * SuperCC.openLevelset() reports a bad file through throwError() and RETURNS -- it does not
+ *     throw. (Before jc-11 it fell through to loadLevel() with no level set open and produced a
+ *     NullPointerException instead.) Either way it never surfaces the IOException, so every
+ *     error-path assertion here goes through `new DatParser(file)` directly, which does throw.
  *   * The GUI-less emulator has a null window, so anything that repaints dereferences null. These
  *     tests parse and inspect levels rather than driving the game loop.
  *
@@ -217,6 +217,41 @@ public class EngineTest {
         Harness.eq("it is level 1", loaded.getLevelNumber(), 1);
         Harness.eq("with the expected title", loaded.getTitle(), "Headless");
         Harness.eq("under the ruleset the file declares", loaded.getRuleset(), Ruleset.MS);
+
+        Harness.section("6b. a levelset that cannot be read leaves the previous one alone");
+        /* jc-11: openLevelset used to report the IOException and then fall THROUGH to loadLevel()
+         * with dat still null, producing a NullPointerException out of startingRuleset() right
+         * behind a perfectly clear "Could not read file" message. Opening the wrong file is one of
+         * the commonest things a stranger does, and now that errors are recorded, a spurious NPE
+         * at the top of a fresh log teaches people to ignore the log. */
+        Path d6b = tempDir("badopen");
+        DatBuilder good = new DatBuilder().signature(DatBuilder.SIG_MS);
+        good.level().title("Still Here").chips(0).end();
+        File goodSet = good.writeTo(d6b, "good.dat").toFile();
+
+        File notALevelset = d6b.resolve("bogus.dat").toFile();
+        Files.write(notALevelset.toPath(), "this is not a level set at all".getBytes());
+
+        /* The case that ACTUALLY threw before the fix: nothing open yet, and the very first set a
+         * user opens is invalid. dat stays null, so the old fall-through hit startingRuleset(). */
+        SuperCC fresh = new SuperCC(false);
+        fresh.openLevelset(notALevelset);
+        Harness.check("a failed FIRST open leaves no level loaded, and does not throw",
+                      !fresh.isLevelLoaded());
+        Harness.check("and getLevel() is null rather than half-built", fresh.getLevel() == null);
+        /* loadLevel is guarded too, because ArgumentParser and SeedSearch both call openLevelset
+         * and then loadLevel unconditionally -- on the command-line path that NPE used to escape
+         * startup entirely and leave the window half-built. */
+        fresh.loadLevel(1, 0, Step.EVEN, false, Ruleset.MS, Direction.UP);
+        Harness.check("loadLevel with no set open is a no-op, not an NPE", !fresh.isLevelLoaded());
+
+        // And with a set already open, a bad file must not silently reset you to level 1.
+        SuperCC emu2 = new SuperCC(false);
+        emu2.openLevelset(goodSet);
+        Harness.eq("the good set is open", emu2.getLevel().getTitle(), "Still Here");
+        emu2.openLevelset(notALevelset);
+        Harness.eq("the previously loaded level is still there",
+                   emu2.getLevel().getTitle(), "Still Here");
 
         Harness.section("7. the full collection fingerprint (local only)");
         /* Synthesized fixtures catch format and edge-case regressions. They cannot speak for the

@@ -104,10 +104,18 @@ java -jar SuperCC.jar
 ```
 
 Always from a console, **never** `javaw` or a double-click — those swallow the stack trace you need,
-and a GUI failure then presents as "nothing happens". A benign `getSavestates()` startup init-race
-NPE on stderr is expected and pre-existing; the app runs fine after it. `emulator.SuperCC.main`
-hands its arguments to `ArgumentParser`, so a level set path can be passed on the command line.
-Playtesting is a required gate before any release, so being able to launch it matters.
+and a GUI failure then presents as "nothing happens". `emulator.SuperCC.main` hands its arguments to
+`ArgumentParser`, so a level set path can be passed on the command line. Playtesting is a required
+gate before any release, so being able to launch it matters.
+
+**A clean launch prints nothing to stderr.** That is new in jc-11: a `getSavestates()` NPE used to
+fire on every startup (harmless, and invisible because `javaw` discarded it). If you see stderr
+output on startup now, it is real — investigate it.
+
+**Errors also land in a file now.** jc-11 tees `System.err` to `succ_error-<MACHINE>.log` next to
+`succ_settings.ini`, created lazily, capped at 512 KB with one rotation. It is gitignored, and CI
+fails if one is ever committed — it contains local paths. See
+`docs/adr/0009-the-error-log-is-not-a-setting.md` for why it is always on and has no setting.
 
 **Target platform is Windows.** Both of Jeremy's machines run **Windows PowerShell 5.1**, and CI
 deliberately runs 5.1 too rather than PowerShell 7, so that CI fails the same way his machine does.

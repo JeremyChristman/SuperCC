@@ -1,5 +1,5 @@
 ==============================================================================
-  SuperCC  --  Jeremy Christman's fork                      build jc-10
+  SuperCC  --  Jeremy Christman's fork                      build jc-11
 ==============================================================================
 
   1. What this is
@@ -214,6 +214,43 @@ another program has it locked for a moment -- SuperCC tells you so, runs on
 defaults for that session, and leaves your file strictly alone rather than
 overwriting it. In that state nothing you change is saved, and once you open a
 level the title bar ends in "[settings read-only]".
+
+
+THE ERROR LOG  (new in jc-11)
+-----------------------------
+
+If SuperCC ever hits an internal error, it writes the details to a file next to
+succ_settings.ini:
+
+    succ_error-YOURPCNAME.log
+
+You will usually never see this file. It is created only when there is
+something to record -- a clean session leaves no log at all -- so if it exists,
+something went wrong, even if the program carried on working.
+
+Why it exists: double-clicking a .jar runs it under javaw, which throws away
+everything a program prints to its error stream. Before jc-11 an error simply
+vanished, and "it just closed" was all anyone could report. Now there is a file
+to look at, and to quote in a bug report.
+
+  * It is capped at about 512 KB. When it fills up, the old one is renamed to
+    succ_error-YOURPCNAME.prev.log and a fresh one is started, so it can never
+    grow without limit.
+  * The name includes your PC name on purpose. The Chip's Challenge folder is
+    often kept in Dropbox and shared between two computers, and a single shared
+    log would collide and turn into a "conflicted copy".
+  * The first time anything is written, SuperCC tells you once, and names the
+    file. It will not nag you again in that session.
+  * PASTE ITS CONTENTS, DON'T ATTACH THE FILE. The file name has your PC's
+    name in it, and attaching preserves that; pasting does not. The contents
+    hold full paths from your own machine -- which means your Windows user
+    name, and the folders your level sets live in. Read through it before
+    posting it anywhere public.
+  * The one failure it CANNOT record is Java being too old to start the program
+    at all -- see section 2. That error happens before SuperCC runs, so if the
+    program will not start and there is no log, check your Java version first.
+
+You can delete it whenever you like; it is re-created when needed.
 
 
 ------------------------------------------------------------------------------
@@ -436,6 +473,50 @@ AlwaysOpenInMS  Whether every level set opens under the MS ruleset, no matter
 Releases from jc-2 on carry a jc-N tag in the repository. The title bar, when
 ShowBuildTag is on, shows the build tag compiled into the jar, which matches
 the tag for that release. Newest first.
+
+
+jc-11  --  Errors stop disappearing
+--------------------------------------------------------
+
+  * WHEN SOMETHING GOES WRONG, THERE IS NOW A FILE THAT SAYS SO. SuperCC
+    writes the details to succ_error-YOURPCNAME.log next to succ_settings.ini,
+    and tells you once, naming the file. Section 5 explains it in full.
+
+    What this fixes is not a bug so much as a blind spot. Double-clicking a
+    .jar runs it under javaw, and javaw discards everything the program prints
+    to its error stream -- so every internal error this program has ever
+    reported went nowhere at all. "It just closed" was the most anyone could
+    say, and there was nothing to send to anybody. Now there is.
+
+    The file is created only when there is something to write, so a normal
+    session leaves nothing behind. It is capped at about 512 KB and rotates
+    once, and it carries your PC name so that two computers sharing a Dropbox
+    folder cannot collide over it.
+
+  * A HARMLESS ERROR ON EVERY SINGLE LAUNCH IS GONE. Starting SuperCC without
+    a level open had always thrown a NullPointerException internally, in the
+    code that redraws the window. Nothing broke -- the window had already been
+    drawn, and all that was skipped was the play-button icon refresh and one
+    panel redraw after it -- and nobody ever saw it, because javaw was throwing
+    the message away.
+
+    It had to go before the log could be useful: an error recorded every time
+    you started the program would have taught everybody to ignore the log, and
+    a log everybody ignores is not worth having.
+
+  * OPENING THE WRONG FILE IS TIDIER. Picking a file that is not a level set
+    told you so clearly and then threw an internal error immediately behind the
+    message. Now it just tells you, and -- if you already had a set open --
+    leaves you where you were instead of jumping you back to its level 1.
+    Passing a bad file on the command line no longer leaves the window
+    half-built either.
+
+  * THE EMULATOR IS UNTOUCHED, and this was proved rather than assumed. Every
+    level of all 286 sets was re-read and every one of the 23,322 saved
+    solutions was re-played under jc-11, and the results were compared against
+    the same run under jc-10: 45,641 recorded outcomes, identical to the byte.
+    Separately, every compiled class in the jar was compared between the two
+    builds -- not one file under game/ differs.
 
 
 jc-10  --  The tws folder remembers where you were again

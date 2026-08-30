@@ -12,7 +12,42 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
-## Unreleased
+## jc-11 — 2026-08-30
+
+### Added
+- **An error log.** `java/io/ErrorLog.java` tees `System.err` to `succ_error-<MACHINE>.log` beside
+  `succ_settings.ini`, so the 27 existing `printStackTrace` calls and every uncaught exception now
+  land somewhere — without editing a single call site. Under `javaw`, which is how a double-clicked
+  jar runs, all of that previously went nowhere at all, and "it just closed" was the most anyone
+  could report. Created lazily, so a clean session leaves no file; capped at 512 KB with one
+  rotation; named per machine because the Chip's Challenge folder is Dropbox-synced between two PCs
+  and a shared log would come back as a conflicted copy. The user is told once, and named the file.
+  No setting, deliberately — see `docs/adr/0009-the-error-log-is-not-a-setting.md`.
+- `test/ErrorLogTest.java`.
+
+### Fixed
+- **A `NullPointerException` on every single launch.** `Gui.repaint(boolean)` dereferences
+  `getSavestates()` unguarded, so starting with no level open always threw. It was harmless — the
+  panels above it had already repainted and only the play-button refresh was skipped — and nobody
+  saw it, because `javaw` discarded it. It had to go before the log was worth having: an error
+  recorded on every startup teaches everyone to ignore the artifact. `Gui` is form-based and cannot
+  be recompiled here, so the fix is at the call site in `SuperCC`.
+- **Opening a file that is not a level set no longer throws behind the error message.**
+  `openLevelset` reported the problem clearly and then fell through to `loadLevel` with nothing
+  open, producing a `NullPointerException` immediately after the dialog. `loadLevel` is guarded too,
+  because passing a bad file on the command line (or via a file association) let that NPE escape
+  startup entirely and leave the window half-built. Same reasoning as the launch NPE above: an
+  error recorded for an ordinary mistake teaches people to ignore the log.
+- **A file that fails to open no longer resets you to level 1 of the set you already had open.**
+
+### Verified
+- **The emulator is untouched, proven twice.** Every level of all 286 sets re-parsed and all 23,322
+  stored solutions re-played under both builds: 45,641 recorded outcomes, byte-identical, same
+  SHA-256. Independently, a jar-entry diff shows **zero `game/**` classes changed** — the only
+  changed class is `emulator/SuperCC.class`, plus three new `io/ErrorLog*` classes.
+- Clean launch produces empty stderr and no log file.
+
+## Unreleased (tooling, shipped alongside jc-11)
 
 ### Added
 - `CLAUDE.md` and `AGENTS.md`: a zero-context brief for humans and coding agents, leading with the

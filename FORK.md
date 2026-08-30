@@ -21,6 +21,7 @@ after. What the fork *does* change, by release:
 | jc-8 | **Settings file + release packaging** — renamed to `succ_settings.ini`, the TWS folder stops drifting, the build tag defaults to off, and the release ships as a documented zip. See *The settings file (jc-8)*. |
 | jc-9 | **Opening ruleset** — an opt-in setting forces every set to open under MS. See *Always open under MS (jc-9)*. |
 | jc-10 | **Settings behavior** — the TWS folder remembers the last folder used again, reversing that part of jc-8. See *The TWS folder remembers again (jc-10)*. |
+| jc-11 | **Diagnostics** — errors are written to a log file instead of vanishing under `javaw`, and the NPE that fired on every launch is gone. The emulator is untouched: all 286 sets re-parsed and all 23,322 stored solutions re-played, byte-identical. See *The error log (jc-11)*. |
 
 > **`settings.ini` is `succ_settings.ini` from jc-8 on.** Older sections below are left in their
 > original wording where they describe historical work; read "settings.ini" in those as the same
@@ -36,6 +37,111 @@ after. What the fork *does* change, by release:
 3. **Clone/Trap connections on by default** (`java/graphics/MenuBar.java`, `java/graphics/GamePanel.java`).
    The Clone- and Trap-connection overlays render by default (matching Monster/Slip list), and the
    "Show Clone Connections" menu label casing is fixed.
+
+## The error log (jc-11)
+
+`java/io/ErrorLog.java`, installed from the static launch path in `SuperCC` before anything else
+runs.
+
+**The problem.** Double-clicking a `.jar` runs it under `javaw`, which discards stderr. So all 27
+`printStackTrace` calls in this program and every uncaught exception went nowhere. A user reporting
+"it just closed" had nothing to send, and nobody had anything to read. For a fork whose entire
+debugging culture is measurement, that was the largest hole in it.
+
+**The fix.** Tee `System.err`. That one move captures every existing call site without editing any
+of them.
+
+Four details are load-bearing, and each of them is the answer to something that went wrong in
+review rather than a preference:
+
+- **The console keeps its stack traces.** On Java 9+, AWT's `EventDispatchThread.processException`
+  hands EDT exceptions to the default uncaught-exception handler, and `ThreadGroup` prints to
+  `System.err` *only when no handler is installed*. So simply installing a handler would have made
+  jc-11 **quieter** than jc-10 — the exact opposite of the goal. The handler prints through
+  `System.err`, which is the tee, so the console keeps what it had and the file gets exactly one
+  copy. `CLAUDE.md` mandates launching from a console for that trace; it would have silently stopped
+  being there.
+- **The file name carries `COMPUTERNAME`.** The Chip's Challenge folder is Dropbox-synced between
+  two PCs (the reason for ADR 0004). One shared log would be appended by both machines and return as
+  a conflicted copy — and rotation could not work anyway, because Windows refuses to move or delete
+  a file another process holds open. Measured: `Files.move` on an open log throws
+  `FileSystemException`, while a second append-mode stream succeeds, so two instances would silently
+  interleave into one file with the cap no longer enforced.
+- **The size cap is counted per write, not checked at startup.** The failure this exists to record
+  can be a repaint loop throwing every frame, which produces megabytes in seconds; a check that only
+  ran at launch would cap nothing within the session.
+- **The charset is explicit.** The two-argument `PrintStream` constructor uses the *platform default*
+  charset, not the console's — they differ on Windows, and this program prints Unicode arrows and
+  level titles.
+
+`ErrorLog` must never throw and never print: it sits underneath `System.err`, so an escaping
+exception surfaces inside code that was merely reporting a problem, and a `println` on a failure
+path recurses into itself. Every path catches `Throwable`, and a failed open disables it permanently
+rather than retrying on every write.
+
+Rationale for it having no on/off setting is ADR 0009. Short version: an opt-in crash log is close
+to useless, because to benefit you must already know it is crashing and then reproduce it.
+
+### The startup NPE this forced us to fix
+
+`Gui.repaint(boolean)` ends with `changePlayButton(emulator.getSavestates().isPaused())`, which is
+**not** guarded even though the two statements above it already sit behind `isLevelLoaded()`. Every
+launch with no level open threw there. It was harmless — the panels above had already repainted, and
+only `repaintRightContainer()` and the play-button icon were skipped — and invisible, because
+`javaw` ate it.
+
+With a log, that becomes an error recorded on every single startup, which would train everybody to
+ignore the file. `Gui` is form-based and cannot be recompiled from this repo, so the call site in
+`SuperCC` is the only fixable end:
+
+```java
+if (isLevelLoaded() && getSavestates() != null) window.repaint(true);
+else window.repaint();
+```
+
+`getSavestates() != null` is the belt to that braces: what actually throws is the savestates
+dereference, and `level` and `savestates` are not assigned atomically — if the `SavestateManager`
+constructor fails, `loadLevel`'s catch leaves `level` set and `savestates` null.
+
+When a level set *was* passed on the command line, `ArgumentParser` has already run and `savestates`
+is non-null, so behavior is identical to jc-10. Otherwise `Component.repaint()` covers everything
+that actually survived the NPE.
+
+⚠ This kills the every-launch instance, not the bug class. `MenuBar` (four call sites) and the
+form-based `tools/ChooseTileSize` / `ChooseWindowSize` also call `window.repaint(true)` and are
+reachable with no level open. If one of those fires, the log firing is **correct** — that is a real
+defect worth seeing.
+
+### Opening a file that is not a level set
+
+Same argument as the startup NPE, found by review once the log existed. `openLevelset` caught the
+`IOException`, showed a perfectly clear *"Could not read file: Invalid signature"*, and then **fell
+through** to `loadLevel` with `dat` still null — so a brand-new log's first entry was a
+`NullPointerException` out of `startingRuleset()`, for one of the commonest things a stranger does
+wrong. It now returns instead.
+
+Two knock-on details, both real:
+
+- **`loadLevel` is guarded too** (`if (dat == null) return;`). Its two `lastLevelNumber()` calls sit
+  *outside* its own try block and dereference `dat`, and `ArgumentParser` and `SeedSearch` both call
+  `openLevelset` and then `loadLevel` unconditionally. On the command-line path — `SuperCC.jar
+  bogus.dat`, or a file association — that NPE escaped startup entirely (the try there catches only
+  `IllegalArgumentException`), so the tilesheet setup never ran and the window was left half-built.
+  Guarding `loadLevel` covers every caller, present and future, inside a file that is already
+  spliced.
+- **A bad file no longer resets an open set.** Previously the fall-through reloaded level 1 of
+  whatever was already open, because the failed `dat = new DatParser(...)` never assigns.
+
+### Verification
+
+- **Corpus, both builds:** every level of all 286 sets re-parsed (title, chips, timer, password,
+  ruleset, the MS monster list **in order**, and SHA-256 of both tile layers) and all 23,322 stored
+  solutions re-played (solved state, Chip position, timer, chips left). 45,641 lines, **byte
+  identical**, same SHA-256. Creature order drives MS behavior, so an ordering change would be a
+  desync and would show here.
+- **Jar diff jc-10 → jc-11:** zero `game/**` classes differ. The only changed class is
+  `emulator/SuperCC.class`; the rest is three new `io/ErrorLog*` classes and its bundled source.
+- **Playtest:** clean launch, stderr empty, no log file created.
 
 ## Toggling the build tag (no rebuild)
 

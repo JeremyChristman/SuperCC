@@ -39,14 +39,30 @@ body:
       required: true
 
   - type: textarea
+    id: errorlog
+    attributes:
+      label: The error log
+      description: >
+        Paste the contents of `succ_error-<YOURPCNAME>.log`, which sits next to
+        `succ_settings.ini`. Since jc-11 SuperCC writes internal errors there, and it tells you once
+        when it does. **If a `succ_error-<YOURPCNAME>.prev.log` is also there, include it** — the
+        log rotates when it fills up, so an older crash may only be in that one.
+        **If neither file exists, say so** — that is itself useful: it means nothing was recorded,
+        and for a program that will not start at all the usual cause is Java older than 16 (see
+        above), which happens before SuperCC can log anything.
+        These files contain paths from your own machine — typically your Windows user name and the
+        folders your level sets live in — so read through before posting them publicly.
+      render: text
+
+  - type: textarea
     id: console
     attributes:
       label: Console output
       description: >
         Launch it with `java -jar SuperCC.jar` from a terminal and paste everything. This matters
         more than usual here: double-clicking runs it under `javaw`, which discards stderr
-        entirely, so a crash leaves no trace at all. A `getSavestates()` NPE at startup is
-        pre-existing and harmless.
+        entirely. As of jc-11 a clean startup prints nothing at all, so anything you see here is
+        real.
       render: text
 
   - type: input

@@ -17,6 +17,7 @@ wrong. Read the relevant record before changing the behavior it describes.
 | [0006](0006-ci-runs-windows-powershell-5-1.md) | CI runs Windows PowerShell 5.1, not PowerShell 7 | Accepted |
 | [0007](0007-synthesize-dat-fixtures.md) | Engine tests synthesize `.dat` fixtures instead of committing level sets | Accepted |
 | [0008](0008-tws-folder-remembers-again.md) | The TWS folder remembers the last folder used (reverses jc-8) | Accepted |
+| [0009](0009-the-error-log-is-not-a-setting.md) | The error log is always on, and is not a setting (carve-out from 0005) | Accepted |
 
 ## Writing a new one
 

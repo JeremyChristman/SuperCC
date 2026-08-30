@@ -26,3 +26,7 @@
 # Created by SuperCC itself when the jar is launched from the repo root during a playtest.
 # It holds personal paths and settings and must never be committed to a public repo.
 /succ_settings.ini
+
+# Created by SuperCC at runtime (jc-11) when anything is written to stderr. It contains stack
+# traces with personal paths and level set names. Same reason as succ_settings.ini above.
+/succ_error*.log

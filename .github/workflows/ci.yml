@@ -49,12 +49,15 @@ jobs:
           # .dat/.tws files are third-party content and are not ours to redistribute. .gitignore
           # covers this, but .gitignore does nothing about a file added with `git add -f`, and this
           # is exactly what gets committed by accident while reproducing a bug.
-          $tracked = git ls-files '*.dat' '*.tws' '*.ccl' '*.dac'
+          # succ_error*.log and succ_settings.ini are added here for the same reason: both are
+          # written by the program into whatever directory it was launched from, both contain
+          # personal paths, and .gitignore does nothing about `git add -f`.
+          $tracked = git ls-files '*.dat' '*.tws' '*.ccl' '*.dac' 'succ_error*.log' 'succ_settings.ini'
           if ($tracked) {
-            Write-Host "::error::level set / solution files are committed: $($tracked -join ', ')"
+            Write-Host "::error::files that must never be committed are tracked: $($tracked -join ', ')"
             exit 1
           }
-          Write-Host "no level set or solution files are tracked"
+          Write-Host "no level set, solution, settings or log files are tracked"
 
       - name: Verify the splice invariants
         shell: powershell
