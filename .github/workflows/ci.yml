@@ -33,6 +33,14 @@ jobs:
         uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6
         with:
           distribution: temurin
+          # setup-java v6 turns verify-signature ON by default, and Temurin never published a
+          # signature for 16.0.2+7 -- an old release predating that practice -- so the step fails
+          # with "no signature URL was found". The JDK version is not negotiable: the committed
+          # .class baseline was built against Java 16 and javac 17 does not emit identical bytecode
+          # (ADR 0001/0002), so the check is declined rather than the version moved. This is not a
+          # regression: setup-java v4 performed no signature check at all, and the download is still
+          # an exact pinned build fetched over HTTPS from Adoptium's own release.
+          verify-signature: false
           java-version: '16.0.2+7'
 
       # Windows PowerShell 5.1, not pwsh 7 -- see docs/adr/0006-ci-runs-windows-powershell-5-1.md.
