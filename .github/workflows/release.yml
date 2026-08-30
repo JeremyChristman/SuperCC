@@ -112,12 +112,21 @@ jobs:
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Explicit exit-code checks rather than PowerShell's error handling, matching the repo's
+          # own scripts. On PowerShell 5.1 REDIRECTING a native command's stderr wraps every line
+          # in a NativeCommandError, which the Actions wrapper's $ErrorActionPreference='stop' then
+          # treats as terminating -- so `gh release view ... *> $null` turned the CORRECT answer
+          # ("release not found", i.e. safe to proceed) into a failed step. Never redirect a native
+          # command's stderr here; let it print and read $LASTEXITCODE instead.
+          $ErrorActionPreference = 'Continue'
+
           if ($env:TAG -notmatch '^jc-\d+$') { throw "refusing to release a tag that is not jc-N: $env:TAG" }
           $zip = Get-ChildItem dist -Filter "SuperCC-$($env:TAG).zip" -File
           if (-not $zip) { throw "no dist\SuperCC-$($env:TAG).zip was produced" }
 
-          gh release view $env:TAG *> $null
+          gh release view $env:TAG | Out-Null
           if ($LASTEXITCODE -eq 0) { throw "a release for $($env:TAG) already exists -- delete it first, or use a new tag" }
+          Write-Host "no existing release for $($env:TAG); creating the draft"
 
           $notes = @"
           Built from ``$($env:TAG)`` by the release workflow.
