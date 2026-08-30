@@ -47,7 +47,7 @@ $root = $PSScriptRoot
 $jdkBin = Find-JdkBin -Requires "javap.exe"
 $javac  = Join-Path $jdkBin "javac.exe"
 $javap  = Join-Path $jdkBin "javap.exe"
-$srcRoot = Join-Path $root "java"
+$srcRoot = (Get-Item -LiteralPath (Join-Path $root "java")).FullName.TrimEnd([char]92)
 
 $problems = New-Object System.Collections.ArrayList
 $checked = 0; $skipped = 0
@@ -56,6 +56,44 @@ function Add-Problem { param([string]$Text) [void]$problems.Add($Text); Write-Ho
 function Report-Ok   { param([string]$Text) Write-Host "  PASS  $Text" }
 
 function Get-FormSibling { param([string]$JavaPath) return [IO.Path]::ChangeExtension($JavaPath, ".form") }
+
+<#
+Hashes a TEXT file with line endings normalized, so the result does not depend on how git happened
+to check the file out.
+
+This is not tidiness. .gitattributes declares `* text=auto eol=lf`, so a fresh clone -- CI, or any
+new contributor -- gets LF, while this working tree holds CRLF for blobs committed before that
+attribute existed. Measured on graphics\Gui.form: 11,330 bytes here, 11,116 on checkout. A raw-byte
+hash therefore flags all 15 form files as EDITED on every machine except the one that generated the
+baseline, which is exactly what CI's first run did.
+
+CR bytes are stripped rather than the text being decoded, which keeps this binary-safe and
+independent of encoding and BOM.
+#>
+function Get-TextHash {
+    param([string]$Path)
+
+    $bytes = [IO.File]::ReadAllBytes($Path)
+    $out = New-Object byte[] $bytes.Length
+    $n = 0
+    foreach ($b in $bytes) { if ($b -ne 13) { $out[$n] = $b; $n++ } }
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { return [BitConverter]::ToString($sha.ComputeHash($out, 0, $n)).Replace('-', '') }
+    finally { $sha.Dispose() }
+}
+
+<#
+Returns a directory's canonical full path, for use as a substring base.
+
+GitHub's Windows runners set TEMP to an 8.3 short path (C:\Users\RUNNER~1\AppData\Local\Temp), while
+Get-ChildItem reports FullName in long form. Subtracting the short length from a long path cuts in
+the wrong place -- CI reported paths like "87\emulator\ArgumentParser.class", the tail of a GUID
+directory name leaking into what should have been a package-relative path.
+#>
+function Get-CanonicalDir {
+    param([string]$Path)
+    return (Get-Item -LiteralPath $Path).FullName.TrimEnd('\')
+}
 
 <#
 Builds the comparison key for one class: its disassembly, plus the SORTED SET of String constants.
@@ -139,7 +177,7 @@ foreach ($f in $forms) {
 }
 if ($UpdateFormBaseline) {
     $lines = foreach ($p in $formTracked) {
-        "{0}  {1}" -f (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash,
+        "{0}  {1}" -f (Get-TextHash $p),
                       $p.Substring($srcRoot.Length + 1)
     }
     [IO.File]::WriteAllText($baselineFile, (($lines -join "`n") + "`n"), (New-Object Text.UTF8Encoding $false))
@@ -155,7 +193,7 @@ else {
     }
     foreach ($p in $formTracked) {
         $rel = $p.Substring($srcRoot.Length + 1)
-        $got = (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash
+        $got = Get-TextHash $p
         if (-not $expected.ContainsKey($rel)) {
             Add-Problem "$rel is NEW and form-based -- build it in IntelliJ, commit its .class, then re-run with -UpdateFormBaseline"
         }
@@ -208,6 +246,10 @@ try {
 
         $fresh = Join-Path $out ([Guid]::NewGuid().ToString("N"))
         New-Item -ItemType Directory -Force -Path $fresh | Out-Null
+        # Canonical form before it is used as a substring base: the runner's TEMP is an 8.3 short
+        # path while Get-ChildItem reports FullName in long form, and mixing the two cuts the
+        # relative path in the wrong place.
+        $fresh = Get-CanonicalDir $fresh
         & $javac $SPLICE_VERIFY_DEBUG --release $SPLICE_RELEASE -encoding $SPLICE_ENCODING -cp $stage `
                  -sourcepath $empty -implicit:none -d $fresh $f.FullName 2>&1 | Out-Null
         if ($LASTEXITCODE -ne 0) {
