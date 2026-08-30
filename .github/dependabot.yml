@@ -15,6 +15,22 @@ updates:
       prefix: 'ci'
     labels:
       - dependencies
+    groups:
+      # codeql-action/init and codeql-action/analyze MUST move together. They are one action
+      # published as several entry points, and the analysis step refuses to run against a bundle
+      # initialized by a different major version. Ungrouped, Dependabot raised them as two separate
+      # PRs, and EACH ONE FAILED on its own: bumping init to v4 while analyze stayed at v3 gave
+      # "Initialize CodeQL" success followed by "Perform CodeQL analysis" failure. Neither PR could
+      # ever go green alone, so neither could be merged, so the pair would sit open forever.
+      codeql:
+        patterns:
+          - 'github/codeql-action*'
+      # Everything else from the same publisher moves as one PR too. These are all Node-runtime
+      # bumps that land together anyway, and one green CI run for the set is a better signal than
+      # three runs that each say nothing about the others.
+      actions:
+        patterns:
+          - 'actions/*'
 
 # There is deliberately no entry for Java. This project has no package manager: its third-party
 # libraries are committed as bytecode under com/ and org/, so Dependabot has no manifest to read
