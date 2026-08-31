@@ -187,6 +187,7 @@ test/RngTest.java          the shared TW generator — and that it is NOT MSCC's
 test/ButtonTest.java       the four button types: what a press does, and what it must NOT touch
 test/CreatureMoveTest.java move ORDER per creature, transcribed from TW's choosecreaturemove()
 test/CanEnterTest.java     which tiles admit whom, from which direction — TW's movelaws[] table
+test/SlideAndLeaveTest.java  where a slide sends you, and whether you may leave a square
 test/ErrorLogTest.java     the jc-11 error log
 ```
 
