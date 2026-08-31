@@ -184,6 +184,7 @@ test/EngineTest.java       .dat parsing and headless emulator behavior
 test/MonsterListTest.java  creature-list ORDER under both rulesets — the desync surface
 test/ConnectionTest.java   trap/clone wiring (fields 4 and 5) — the stride arithmetic
 test/RngTest.java          the shared TW generator — and that it is NOT MSCC's
+test/ButtonTest.java       the four button types: what a press does, and what it must NOT touch
 test/ErrorLogTest.java     the jc-11 error log
 ```
 
