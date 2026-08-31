@@ -177,11 +177,22 @@ Key source files, by what they own:
 a `main`. Adding a test file is all it takes — there is no registry to update.
 
 ```
-test/Harness.java        shared PASS/FAIL/SKIP counters + JUnit-XML and JSON emitters
-test/SettingsTest.java   the settings contract (SuccPaths) — 90 assertions
-test/DatBuilder.java     synthesizes a valid CC1 .dat in a temp dir — no level set needed
-test/EngineTest.java     .dat parsing and headless emulator behavior — 32 assertions
+test/Harness.java          shared PASS/FAIL/SKIP counters + JUnit-XML and JSON emitters
+test/DatBuilder.java       synthesizes a valid CC1 .dat in a temp dir — no level set needed
+test/SettingsTest.java     the settings contract (SuccPaths)
+test/EngineTest.java       .dat parsing and headless emulator behavior
+test/MonsterListTest.java  creature-list ORDER under both rulesets — the desync surface
+test/ErrorLogTest.java     the jc-11 error log
 ```
+
+**`MonsterListTest` is written against the SPEC, not against this code, and that distinction is the
+whole point.** Creature order drives MS behavior, so two engines that agree on every tile but
+disagree on list order will desync — which is why this fork exists. An assertion written by
+observing what SuperCC currently prints would freeze today's behavior and report green forever.
+Every expectation there is derived from Tile World's `readpos()`/`mslogic.c` rules instead. Hold any
+new emulator test to the same standard: **cite the reference behavior, never the observed output.**
+Proven to bite — restoring the pre-jc-7 aliasing, or dropping Lynx's Chip-to-slot-0 swap, each fail
+it immediately.
 
 A class counts as a test if it declares a `main()`, so `Harness` and `DatBuilder` are helpers
 without needing a naming convention. Two checks skip when their optional local files are absent:
