@@ -62,6 +62,8 @@ public final class DatBuilder {
         private final byte[] bg = new byte[MAP_CELLS];
         private String title, password, hint, author;
         private final List<int[]> monsters = new ArrayList<>();
+        private final List<int[]> traps = new ArrayList<>();
+        private final List<int[]> cloners = new ArrayList<>();
 
         private Level(int number) { this.number = number; }
 
@@ -84,6 +86,30 @@ public final class DatBuilder {
          * contains entries off the 32x32 map, and how an engine handles those is the jc-7 bug.
          */
         public Level monster(int x, int y) { monsters.add(new int[]{x, y}); return this; }
+
+        /**
+         * Adds a record to optional field 4, trap controls: brown button -> trap.
+         *
+         * Per the format, each record is TEN bytes -- button x, button y, trap x, trap y, and a
+         * trailing unused word. Coordinates are 16-bit words, NOT the single bytes field 10 uses.
+         * Both of those are easy to get wrong and impossible to notice with only one record in the
+         * fixture, which is why the tests always write two.
+         */
+        public Level trap(int buttonX, int buttonY, int trapX, int trapY) {
+            traps.add(new int[]{buttonX, buttonY, trapX, trapY});
+            return this;
+        }
+
+        /**
+         * Adds a record to optional field 5, clone machine controls: red button -> cloner.
+         *
+         * EIGHT bytes per record, not ten -- the same four words as a trap, without the trailing
+         * unused one. The two strides differing by exactly one word is the whole hazard here.
+         */
+        public Level cloner(int buttonX, int buttonY, int cloneX, int cloneY) {
+            cloners.add(new int[]{buttonX, buttonY, cloneX, cloneY});
+            return this;
+        }
 
         public DatBuilder end() { return DatBuilder.this; }
 
@@ -112,6 +138,25 @@ public final class DatBuilder {
         private byte[] optionalFields() throws IOException {
             ByteArrayOutputStream fields = new ByteArrayOutputStream();
             if (title != null)    field(fields, 3, nullTerminated(title));
+            if (!traps.isEmpty()) {
+                // Field 4: 10 bytes per record. The fifth word is unused and written as zero --
+                // the reader must SKIP it, and a reader that does not will read the next record
+                // two bytes early and get every field after it wrong.
+                ByteArrayOutputStream t = new ByteArrayOutputStream();
+                for (int[] r : traps) {
+                    word(t, r[0]); word(t, r[1]); word(t, r[2]); word(t, r[3]);
+                    word(t, 0);
+                }
+                field(fields, 4, t.toByteArray());
+            }
+            if (!cloners.isEmpty()) {
+                // Field 5: 8 bytes per record -- the same four words, with no trailing one.
+                ByteArrayOutputStream c = new ByteArrayOutputStream();
+                for (int[] r : cloners) {
+                    word(c, r[0]); word(c, r[1]); word(c, r[2]); word(c, r[3]);
+                }
+                field(fields, 5, c.toByteArray());
+            }
             if (password != null) field(fields, 6, xor(nullTerminated(password)));
             if (hint != null)     field(fields, 7, nullTerminated(hint));
             if (author != null)   field(fields, 9, nullTerminated(author));
