@@ -30,3 +30,7 @@
 # Created by SuperCC at runtime (jc-11) when anything is written to stderr. It contains stack
 # traces with personal paths and level set names. Same reason as succ_settings.ini above.
 /succ_error*.log
+
+# Differential trace output (trace.ps1). These are per-level dumps of a real solution replay --
+# large, machine-specific, and regenerated on demand.
+/trace-*.txt

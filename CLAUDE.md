@@ -188,6 +188,36 @@ test/ButtonTest.java       the four button types: what a press does, and what it
 test/CreatureMoveTest.java move ORDER per creature, transcribed from TW's choosecreaturemove()
 test/CanEnterTest.java     which tiles admit whom, from which direction — TW's movelaws[] table
 test/SlideAndLeaveTest.java  where a slide sends you, and whether you may leave a square
+```
+
+### The differential trace — the one oracle that is not a transcription
+
+Everything in `test/` compares SuperCC against a *transcription* of Tile World's rules.
+`trace.ps1` + `trace/TraceLevel.java` compare the two **engines**, replaying one real solution and
+pinning the first tick where they disagree. It is the instrument that took the desync count from
+135 to 0.
+
+```powershell
+powershell -File trace.ps1 -Dat <set>.dat -Level <n> -Solution <succsave>.json
+powershell -File trace.ps1 -Dat ... -Level ... -Solution ... -TWTrace tw.txt   # and diff
+powershell -File trace.ps1 -Compare -SccTrace scc.txt -TWTrace tw.txt -Level <n>
+```
+
+It needs a level set and a solution, neither of which may live here, so it is **local and
+on-demand — never CI**, following the same skip-when-absent shape as `-Collection`. The Tile World
+half is already in `mslogic.c` behind `-DTRACE_DESYNC`, selected with `TW_TRACE_LEVEL`; run it over
+the set and capture stderr. Both sides emit the same tab-separated lines:
+
+```
+T <lvl> <tick> <rng> chip=<x>,<y>,<slip>  C:<letter>,<x>,<y>,<dir> ...  B:<x>,<y> ...
+Q <lvl> <tick> Q:<letter>,<x>,<y>,<dir> ...
+```
+
+🔴 **The format is a contract with `mslogic.c` — do not change one side of it.** Positions are
+grid `x,y` and directions are `N/W/S/E` because the engines encode both differently; without that,
+the diff is blind to a creature in the right place facing the wrong way. The `Q` line exists
+because `T` shows only positions, and block-versus-block divergences on random force floors turn
+on *which* block the slip pass reaches first.
 test/ErrorLogTest.java     the jc-11 error log
 ```
 
