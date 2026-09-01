@@ -196,6 +196,7 @@ test/CreatureMoveTest.java move ORDER per creature, transcribed from TW's choose
 test/CanEnterTest.java     which tiles admit whom, from which direction — TW's movelaws[] table
 test/SlideAndLeaveTest.java  where a slide sends you, and whether you may leave a square
 test/LynxCreatureMoveTest.java  the LYNX preference table, from lxlogic.c -- a different oracle
+test/LynxCanEnterTest.java   the LYNX movelaws[] entry table, all three entity columns
 ```
 
 ### Coverage — what the suite actually reaches
@@ -206,20 +207,20 @@ taken. JaCoCo is a test-time tool cached under `%LOCALAPPDATA%\jacoco\<version>\
 dependency**, never committed, never shipped. Output goes to `coverage-report\` (gitignored);
 `coverage.csv` is the evidence behind every percentage below.
 
-As of jc-11, with all 606 assertions passing, **measured on JDK 16.0.2** (what CI pins):
+As of jc-11, with all 1,521 assertions passing, **measured on JDK 16.0.2** (what CI pins):
 
 | scope | branch | line | branches |
 |---|---|---|---|
-| **`game\**` + `io\**` — THE TARGET** | **20.6%** | 35.0% | 547/2654 |
-| &nbsp;&nbsp;`game\**` (the emulator) | 14.5% | 28.6% | 327/2249 |
+| **`game\**` + `io\**` — THE TARGET** | **24.3%** | 36.3% | 646/2654 |
+| &nbsp;&nbsp;`game\**` (the emulator) | 18.9% | 30.3% | 426/2249 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\MS\**` | 17.0% | 23.4% | 199/1174 |
-| &nbsp;&nbsp;&nbsp;&nbsp;`game\Lynx\**` | 4.8% | 12.0% | 35/732 |
+| &nbsp;&nbsp;&nbsp;&nbsp;`game\Lynx\**` | 18.3% | 17.7% | 134/732 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 27.1% | 55.6% | 93/343 |
 | &nbsp;&nbsp;`io\**` (file formats) | 54.3% | 53.7% | 220/405 |
 | `emulator\**` | 3.9% | 8.6% | 15/380 |
 | `tools\**` + `graphics\**` — *not a target* | 0.0% | 0.0% | 0/1885 |
 
-**Read this correctly.** Whole-project branch coverage is 9.6% (564/5885), and that number is
+**Read this correctly.** Whole-project branch coverage is 11.3% (663/5885), and that number is
 meaningless: 15 form-based classes cannot be compiled from this repo at all (ADR 0001), `tools\**`
 is 35 files of upstream code this fork does not modify, `graphics\**` is Swing with no headless test
 story, and the rest is vendored `org.json` / `com.intellij`. What this fork can break is the engine
@@ -232,15 +233,17 @@ javac 16. The other 2355 branches — including all 2249 of `game\**` — come f
 baseline and are byte-identical on every machine. So an `io\**` figure that differs slightly on
 another JDK is not a bug.
 
-**20.6% is a floor to build on, not a passing grade**, and the split says where the work is:
+**24.3% is a floor to build on, not a passing grade**, and the split says where the work is:
 
-- `game\Lynx\**` at **4.8%** is still the largest single gap — 697 uncovered branches. Lynx work has
-  started (`LynxCreatureMoveTest`, the move-preference table against `lxlogic.c`), but the bulk of
-  `LynxCreature` is its 217-line `tick()` and its `canMakeMove`/`canEnter`/`canLeave`, none of which
-  is touched yet. ⚠ Note that `lxlogic.c` carries **no** `MOD (Jeremy)` comments, unlike
-  `mslogic.c`'s 79 — so it is unmodified upstream, and a Lynx divergence would never have been
-  looked for by the (MS-only) desync project. A failure in a Lynx test is a finding, not a bug in
-  the test.
+- `game\Lynx\**` reached **18.3%** and has now passed MS — two files did that, the move-preference
+  table (`LynxCreatureMoveTest`) and the entry rules (`LynxCanEnterTest`), both against `lxlogic.c`.
+  What is left in Lynx is concentrated: `LynxLevel` at **1.7%** (2/118) and `LynxCreatureList` at
+  **6.1%** (9/148), plus `LynxCreature`'s 217-line `tick()`. ⚠ Note that `lxlogic.c` carries **no**
+  `MOD (Jeremy)` comments, unlike `mslogic.c`'s 79 — so it is unmodified upstream, and a Lynx
+  divergence would never have been looked for by the (MS-only) desync project. A failure in a Lynx
+  test is a finding, not a bug in the test.
+- `game\MS\**` at **17.0%** is now the *lower* of the two rulesets. The MS tests are dense where the
+  desyncs were and thin elsewhere; the Lynx entry table simply covers more surface per assertion.
 - `game.Cheats`, `game.CreatureList`, `game.SavestateReader` and both `io.TWS*` stream classes sit
   at a flat **0%**. TWS read/write is the format behind every exported solution, which makes it the
   highest-value uncovered code in the repo.

@@ -80,6 +80,16 @@ measured. All three are updated together — see [`.github/RELEASING.md`](.githu
   fails on a red suite, on a stale or undeletable exec/CSV, on a jacococli class mismatch, and when
   run from outside the repo. Each of those guards was verified by reproducing the failure it
   prevents.
+- `test/LynxCanEnterTest.java`: 915 assertions covering the LYNX entry rules, transcribed from
+  `lxlogic.c`'s `movelaws[]` table plus the three checks that live in `canmakemove()` rather than
+  in the table (fire, doors, socket). Tile World asks a different question per entity class --
+  chip, block, creature -- where SuperCC folds all three into one `canEnter`, so the test keeps
+  the columns separate and lets the assertions do the folding. Covers the two rows where the
+  columns genuinely disagree (gravel admits a block but no creature; dirt admits neither), the
+  fire rule that sits in TW's creature branch only (a block may be pushed into fire, a bug may
+  not walk in), and doors and the socket in both states -- which the MS test skips entirely
+  because they consult level state. Eight planted defects, all caught.
+  `game\Lynx\**` 4.8% -> 18.3%, now ahead of `game\MS\**`; target scope 20.6% -> 24.3%.
 - `test/LynxCreatureMoveTest.java`: 98 assertions covering the LYNX creature move-preference
   table, transcribed from Tile World's `lxlogic.c` `choosecreaturemove()` -- a different oracle
   from the MS tests, and one that carries **no** `MOD (Jeremy)` comments, so it is unmodified
