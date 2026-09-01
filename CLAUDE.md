@@ -195,6 +195,7 @@ test/ButtonTest.java       the four button types: what a press does, and what it
 test/CreatureMoveTest.java move ORDER per creature, transcribed from TW's choosecreaturemove()
 test/CanEnterTest.java     which tiles admit whom, from which direction — TW's movelaws[] table
 test/SlideAndLeaveTest.java  where a slide sends you, and whether you may leave a square
+test/LynxCreatureMoveTest.java  the LYNX preference table, from lxlogic.c -- a different oracle
 ```
 
 ### Coverage — what the suite actually reaches
@@ -205,20 +206,20 @@ taken. JaCoCo is a test-time tool cached under `%LOCALAPPDATA%\jacoco\<version>\
 dependency**, never committed, never shipped. Output goes to `coverage-report\` (gitignored);
 `coverage.csv` is the evidence behind every percentage below.
 
-As of jc-11, with all 508 assertions passing, **measured on JDK 16.0.2** (what CI pins):
+As of jc-11, with all 606 assertions passing, **measured on JDK 16.0.2** (what CI pins):
 
 | scope | branch | line | branches |
 |---|---|---|---|
-| **`game\**` + `io\**` — THE TARGET** | **19.5%** | 33.8% | 518/2654 |
-| &nbsp;&nbsp;`game\**` (the emulator) | 13.3% | 27.0% | 298/2249 |
+| **`game\**` + `io\**` — THE TARGET** | **20.6%** | 35.0% | 547/2654 |
+| &nbsp;&nbsp;`game\**` (the emulator) | 14.5% | 28.6% | 327/2249 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\MS\**` | 17.0% | 23.4% | 199/1174 |
-| &nbsp;&nbsp;&nbsp;&nbsp;`game\Lynx\**` | 2.0% | 7.8% | 15/732 |
-| &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 24.5% | 54.4% | 84/343 |
+| &nbsp;&nbsp;&nbsp;&nbsp;`game\Lynx\**` | 4.8% | 12.0% | 35/732 |
+| &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 27.1% | 55.6% | 93/343 |
 | &nbsp;&nbsp;`io\**` (file formats) | 54.3% | 53.7% | 220/405 |
 | `emulator\**` | 3.9% | 8.6% | 15/380 |
 | `tools\**` + `graphics\**` — *not a target* | 0.0% | 0.0% | 0/1885 |
 
-**Read this correctly.** Whole-project branch coverage is 9.1% (535/5885), and that number is
+**Read this correctly.** Whole-project branch coverage is 9.6% (564/5885), and that number is
 meaningless: 15 form-based classes cannot be compiled from this repo at all (ADR 0001), `tools\**`
 is 35 files of upstream code this fork does not modify, `graphics\**` is Swing with no headless test
 story, and the rest is vendored `org.json` / `com.intellij`. What this fork can break is the engine
@@ -231,10 +232,15 @@ javac 16. The other 2355 branches — including all 2249 of `game\**` — come f
 baseline and are byte-identical on every machine. So an `io\**` figure that differs slightly on
 another JDK is not a bug.
 
-**19.5% is a floor to build on, not a passing grade**, and the split says where the work is:
+**20.6% is a floor to build on, not a passing grade**, and the split says where the work is:
 
-- `game\Lynx\**` at **2.0%** is the largest single gap — 717 uncovered branches, essentially the
-  whole ruleset. Every engine test written so far targets MS.
+- `game\Lynx\**` at **4.8%** is still the largest single gap — 697 uncovered branches. Lynx work has
+  started (`LynxCreatureMoveTest`, the move-preference table against `lxlogic.c`), but the bulk of
+  `LynxCreature` is its 217-line `tick()` and its `canMakeMove`/`canEnter`/`canLeave`, none of which
+  is touched yet. ⚠ Note that `lxlogic.c` carries **no** `MOD (Jeremy)` comments, unlike
+  `mslogic.c`'s 79 — so it is unmodified upstream, and a Lynx divergence would never have been
+  looked for by the (MS-only) desync project. A failure in a Lynx test is a finding, not a bug in
+  the test.
 - `game.Cheats`, `game.CreatureList`, `game.SavestateReader` and both `io.TWS*` stream classes sit
   at a flat **0%**. TWS read/write is the format behind every exported solution, which makes it the
   highest-value uncovered code in the repo.

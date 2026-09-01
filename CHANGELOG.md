@@ -80,6 +80,14 @@ measured. All three are updated together — see [`.github/RELEASING.md`](.githu
   fails on a red suite, on a stale or undeletable exec/CSV, on a jacococli class mismatch, and when
   run from outside the repo. Each of those guards was verified by reproducing the failure it
   prevents.
+- `test/LynxCreatureMoveTest.java`: 98 assertions covering the LYNX creature move-preference
+  table, transcribed from Tile World's `lxlogic.c` `choosecreaturemove()` -- a different oracle
+  from the MS tests, and one that carries **no** `MOD (Jeremy)` comments, so it is unmodified
+  upstream. Covers all eight creature types across every facing, the Walker/Blob shapes where
+  Lynx genuinely diverges from MS, the committed-move gate, the teeth-step tick offset, the
+  seek tie-break, and the RNG draws a cheated blob or walker must still make. Every assertion
+  mutation-proven: seven planted defects, all caught. `gameynx**` branch coverage 2.0% ->
+  4.8%, and the target scope 19.5% -> 20.6%.
 - `coverage.ps1 -CheckBaseline` / `-UpdateBaseline` and `docs/coverage-baseline.tsv`: the coverage
   figures documented in `CLAUDE.md` are now enforced. The release workflow fails if the measurement
   has drifted from the documented table, or if `CLAUDE.md` no longer states the headline figure, so
