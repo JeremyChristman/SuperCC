@@ -29,6 +29,10 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -Package # -> dist\SuperCC-<t
 java -jar SuperCC.jar                                       # run it (never javaw -- it eats stderr)
 ```
 
+Coverage numbers in CLAUDE.md are enforced at RELEASE time by `coverage.ps1 -CheckBaseline` against
+`docs/coverage-baseline.tsv`. If you move the number: run `coverage.ps1 -UpdateBaseline`, update the
+CLAUDE.md section 4 table, commit both. Not gated in CI.
+
 Coverage: `coverage.ps1` (JaCoCo; test-time only, never committed, not a dependency). Branch
 coverage of `game\**` + `io\**` is **19.5%** — a floor, not a grade. `game\Lynx\**` (2.0%) and the
 `io.TWS*` streams (0%) are the biggest gaps. No CI gate; see CLAUDE.md §4.

@@ -59,6 +59,9 @@ jobs:
         shell: powershell
         run: powershell -ExecutionPolicy Bypass -File verify-splice.ps1
 
+      # Leave this building the default .\SuperCC.jar. The coverage step below runs with -NoBuild
+      # and measures that path, so adding -Isolated or -Jar here would move the jar out from under
+      # it and fail the release with "no SuperCC.jar".
       - name: Test
         shell: powershell
         run: powershell -ExecutionPolicy Bypass -File run-tests.ps1 -ResultsPath test-results
@@ -81,6 +84,33 @@ jobs:
         run: |
           if ($env:TAG -notmatch '^jc-\d+$') { throw "refusing to build a tag that is not jc-N: $env:TAG" }
           powershell -ExecutionPolicy Bypass -File build.ps1 -Package -ExpectTag $env:TAG -Manifest dist/build-manifest.json
+
+      # Fails the release if CLAUDE.md's coverage table no longer describes the code.
+      #
+      # A percentage in a document is a claim, and it stops being true the moment somebody adds a
+      # test or adds untested code -- silently, because the doc and the measurement are otherwise
+      # unconnected. docs\coverage-baseline.tsv is that connection, and a release is exactly when
+      # the documentation should be true. Fixing a failure is two commands and the error says so.
+      #
+      # AFTER Package, deliberately, for two reasons. Package carries the -ExpectTag check that
+      # this workflow mainly exists for, and putting a second full suite run plus a JaCoCo download
+      # in front of it would make the commonest release mistake -- forgetting to bump BUILD_TAG --
+      # take minutes longer to surface. And build.ps1 -Package rebuilds SuperCC.jar, so measuring
+      # here measures the bytes that actually ship rather than the Test step's jar. It still runs
+      # before the draft is created, which is what the gate needs.
+      #
+      # Deliberately NOT in ci.yml. It asserts nothing about correctness, it re-runs the whole
+      # suite a second time under the agent, and adding a test is SUPPOSED to move the number --
+      # gating every push on a stale doc would train people to ignore a red X. Once per tag is
+      # where the cost is amortized and the timing lines up with writing the changelog.
+      #
+      # -Download is unconditional and uncached on purpose: the runner has no %LOCALAPPDATA% cache,
+      # the archive is ~4 MB once per release, the script no-ops when the jars are already present,
+      # and it retries. Caching it would mean pinning another third-party action into the workflow
+      # that produces the published bytes, which is a worse trade than one small download.
+      - name: Coverage must still match the documented numbers
+        shell: powershell
+        run: powershell -ExecutionPolicy Bypass -File coverage.ps1 -NoBuild -Download -CheckBaseline
 
       - name: Publish test results
         if: always()

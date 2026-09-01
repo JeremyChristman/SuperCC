@@ -37,9 +37,21 @@ copy you already have.
   powershell -ExecutionPolicy Bypass -File coverage.ps1              # thereafter
   powershell -ExecutionPolicy Bypass -File coverage.ps1 -Html        # also write an HTML report
   powershell -ExecutionPolicy Bypass -File coverage.ps1 -NoBuild     # reuse the jar already there
+  powershell -ExecutionPolicy Bypass -File coverage.ps1 -CheckBaseline   # do the docs still hold?
+  powershell -ExecutionPolicy Bypass -File coverage.ps1 -UpdateBaseline  # after moving the number
 
 Output goes to coverage-report\ (gitignored): jacoco.exec, coverage.csv, and with -Html an
 html\index.html. The CSV is the evidence behind every percentage printed.
+
+THE DOCUMENTED-NUMBER GATE
+--------------------------
+CLAUDE.md section 4 prints this table for a reader with no context, and a percentage in a document
+is a claim that silently stops being true the moment somebody adds a test or adds untested code.
+docs\coverage-baseline.tsv records what the docs claim; -CheckBaseline fails when the measurement
+has moved away from it, and -UpdateBaseline rewrites it (the same shape as verify-splice.ps1's
+-UpdateFormBaseline). The RELEASE workflow runs the check, so a release cannot ship documentation
+that no longer describes the code. CI deliberately does not: adding a test is supposed to move the
+number, and everyday work should not be blocked by a stale doc.
 
 Coverage is measured against the BUILT JAR, like every test here (docs\adr\0003) -- the jar is the
 only artifact whose behavior is authoritative under a splice build. Note that 299 of the target
@@ -52,6 +64,8 @@ param(
     [switch]$Download,
     [switch]$Html,
     [switch]$NoBuild,
+    [switch]$CheckBaseline,
+    [switch]$UpdateBaseline,
     [string]$JacocoDir,
     [string]$Version = "0.8.15"
 )
@@ -74,6 +88,11 @@ function Fail($msg) { Write-Host "  ERROR  $msg"; exit 1 }
    deletion of unrelated data, confirmed in review. Under $ErrorActionPreference = "Continue" a
    failed dot-source is only a printed error, and execution would otherwise reach the delete fifty
    lines later regardless. Refusing to run outside the repo is the guard. #>
+if ($UpdateBaseline -and $CheckBaseline) {
+    Write-Host "  ERROR  -UpdateBaseline and -CheckBaseline do the opposite things; pass one."
+    exit 1
+}
+
 $configPath = Join-Path $root "build-config.ps1"
 if (-not (Test-Path $configPath)) {
     Fail "no build-config.ps1 beside this script. coverage.ps1 must run from inside the SuperCC repo -- it deletes files under its own directory, so it refuses to run anywhere else."
@@ -107,11 +126,34 @@ if (-not (Test-Path $agent) -or -not (Test-Path $cli)) {
        falls through to the hash check and Expand-Archive, and the user is shown an empty-SHA
        "stop and check" supply-chain warning when the actual problem is that the network is down.
        That points the reader at entirely the wrong thing. #>
-    try {
-        Invoke-WebRequest -Uri "https://github.com/jacoco/jacoco/releases/download/v$Version/jacoco-$Version.zip" `
-                          -OutFile $zip -UseBasicParsing -ErrorAction Stop
-    } catch {
-        Fail ("could not download JaCoCo {0}: {1}`n         Check your network or proxy, or download the zip yourself and pass -JacocoDir <path>." -f $Version, $_.Exception.Message)
+    <# Retried, because this sits on the RELEASE critical path. The release workflow runs with a
+       cold cache every time, so a single CDN blip or a 429 would fail a release for a reason that
+       has nothing to do with the release. Three attempts with a short backoff; still fails loudly
+       rather than proceeding without the agent.
+
+       $ProgressPreference is silenced because Invoke-WebRequest's progress bar is measurably slow
+       in a non-interactive host, which is the only kind this ever runs in. #>
+    $savedProgress = $ProgressPreference
+    $ProgressPreference = 'SilentlyContinue'
+    $downloaded = $false
+    $lastError = ""
+    foreach ($attempt in 1..3) {
+        try {
+            Invoke-WebRequest -Uri "https://github.com/jacoco/jacoco/releases/download/v$Version/jacoco-$Version.zip" `
+                              -OutFile $zip -UseBasicParsing -ErrorAction Stop
+            $downloaded = $true
+            break
+        } catch {
+            $lastError = $_.Exception.Message
+            if ($attempt -lt 3) {
+                Write-Host ("  attempt {0} failed ({1}); retrying ..." -f $attempt, $lastError)
+                Start-Sleep -Seconds (3 * $attempt)
+            }
+        }
+    }
+    $ProgressPreference = $savedProgress
+    if (-not $downloaded) {
+        Fail ("could not download JaCoCo {0} after 3 attempts: {1}`n         Check your network or proxy, or download the zip yourself and pass -JacocoDir <path>." -f $Version, $lastError)
     }
     if ($Version -eq $PINNED_VERSION) {
         $sha = (Get-FileHash $zip -Algorithm SHA256).Hash
@@ -264,13 +306,17 @@ if ($rows.Count -eq 0) { Fail "$csv has no rows -- jacococli wrote a header and 
 $inv = [cultureinfo]::InvariantCulture
 
 function Sum-Group {
-    param([string]$Label, [scriptblock]$Filter)
+    # Key is a stable identifier for the baseline file. The Label is a display string full of
+    # backslashes and em-dashes and is expected to be re-worded; keying the baseline off it would
+    # turn a cosmetic edit into a release-blocking mismatch.
+    param([string]$Key, [string]$Label, [scriptblock]$Filter)
     $g = @($rows | Where-Object $Filter)
     # Same property set on both paths, including Branches. A missing property formats as an empty
     # string, so an empty group used to print a BLANK branches column -- reading as "not measured"
     # rather than "no classes matched."
     if ($g.Count -eq 0) {
-        return [pscustomobject]@{ Label=$Label; Classes=0; BranchPct="  n/a"; LinePct="  n/a"; Branches="n/a" }
+        return [pscustomobject]@{ Key=$Key; Label=$Label; Classes=0; BranchPct="  n/a"; LinePct="  n/a";
+                                  Branches="n/a"; BranchCovered=0; BranchTotal=0 }
     }
     $bc = ($g | Measure-Object BRANCH_COVERED -Sum).Sum
     $bm = ($g | Measure-Object BRANCH_MISSED  -Sum).Sum
@@ -278,21 +324,23 @@ function Sum-Group {
     $lm = ($g | Measure-Object LINE_MISSED    -Sum).Sum
     $bp = if (($bc + $bm) -gt 0) { [string]::Format($inv, "{0,5:N1}%", (100.0 * $bc / ($bc + $bm))) } else { "  n/a" }
     $lp = if (($lc + $lm) -gt 0) { [string]::Format($inv, "{0,5:N1}%", (100.0 * $lc / ($lc + $lm))) } else { "  n/a" }
-    return [pscustomobject]@{ Label=$Label; Classes=$g.Count; BranchPct=$bp; LinePct=$lp;
-                              Branches=("{0}/{1}" -f $bc, ($bc+$bm)) }
+    return [pscustomobject]@{ Key=$Key; Label=$Label; Classes=$g.Count; BranchPct=$bp; LinePct=$lp;
+                              Branches=("{0}/{1}" -f $bc, ($bc+$bm));
+                              BranchCovered=[int]$bc; BranchTotal=[int]($bc+$bm) }
 }
 
 <# game\** is split by ruleset because the aggregate hides the thing worth knowing. The two
    rulesets are separate implementations of the same game, and a single game\** figure lets a
    well-tested MS engine and an untested Lynx one average into a number that describes neither. #>
-$target  = Sum-Group "game\** + io\**  (THE TARGET)" { $_.PACKAGE -like 'game*' -or $_.PACKAGE -eq 'io' }
-$game    = Sum-Group "  game\**  (the emulator)"     { $_.PACKAGE -like 'game*' }
-$ms      = Sum-Group "    game\MS\**  (MS ruleset)"  { $_.PACKAGE -eq 'game.MS' }
-$lynx    = Sum-Group "    game\Lynx\**  (Lynx ruleset)" { $_.PACKAGE -eq 'game.Lynx' }
-$shared  = Sum-Group "    game\* + button\**  (shared)" { $_.PACKAGE -eq 'game' -or $_.PACKAGE -eq 'game.button' }
-$io      = Sum-Group "  io\**  (file formats)"       { $_.PACKAGE -eq 'io' }
-$emu     = Sum-Group "emulator\**"                   { $_.PACKAGE -eq 'emulator' }
-$notTgt  = Sum-Group "tools\** + graphics\**  (not a target)" { $_.PACKAGE -like 'tools*' -or $_.PACKAGE -like 'graphics*' }
+$target  = Sum-Group "target"    "game\** + io\**  (THE TARGET)" { $_.PACKAGE -like 'game*' -or $_.PACKAGE -eq 'io' }
+$game    = Sum-Group "game"      "  game\**  (the emulator)"     { $_.PACKAGE -like 'game*' }
+$ms      = Sum-Group "game.MS"   "    game\MS\**  (MS ruleset)"  { $_.PACKAGE -eq 'game.MS' }
+$lynx    = Sum-Group "game.Lynx" "    game\Lynx\**  (Lynx ruleset)" { $_.PACKAGE -eq 'game.Lynx' }
+$shared  = Sum-Group "game.shared" "    game\* + button\**  (shared)" { $_.PACKAGE -eq 'game' -or $_.PACKAGE -eq 'game.button' }
+$io      = Sum-Group "io"        "  io\**  (file formats)"       { $_.PACKAGE -eq 'io' }
+$emu     = Sum-Group "emulator"  "emulator\**"                   { $_.PACKAGE -eq 'emulator' }
+$notTgt  = Sum-Group "nontarget" "tools\** + graphics\**  (not a target)" { $_.PACKAGE -like 'tools*' -or $_.PACKAGE -like 'graphics*' }
+$allGroups = @($target, $game, $ms, $lynx, $shared, $io, $emu, $notTgt)
 
 # A total measurement failure -- a JaCoCo whose CSV column names differ, or a future release
 # emitting VM-form package names (game/MS) instead of dot form -- otherwise renders a full table of
@@ -306,7 +354,7 @@ Write-Host "########## coverage ##########"
 Write-Host ""
 Write-Host ("  {0,-34} {1,8} {2,10} {3,10}   {4}" -f "scope", "classes", "branch", "line", "branches")
 Write-Host ("  {0,-34} {1,8} {2,10} {3,10}   {4}" -f ("-"*34), "-------", "------", "----", "--------")
-foreach ($r in @($target, $game, $ms, $lynx, $shared, $io, $emu, $notTgt)) {
+foreach ($r in $allGroups) {
     Write-Host ("  {0,-34} {1,8} {2,10} {3,10}   {4}" -f $r.Label, $r.Classes, $r.BranchPct, $r.LinePct, $r.Branches)
 }
 
@@ -346,4 +394,156 @@ if ($worst.Count -gt 0) {
 
 Write-Host ("  evidence: {0}" -f $csv)
 Write-Host ""
+
+# ------------------------------------------------------------------ the documented-number gate
+<#
+CLAUDE.md prints this table for a reader who has never seen the repo. A percentage in a document is
+a claim, and the moment somebody adds a test or adds untested code the claim quietly stops being
+true -- with nothing to notice it, because the doc and the measurement have no connection.
+
+docs\coverage-baseline.tsv is that connection. -UpdateBaseline rewrites it (the same shape as
+verify-splice.ps1 -UpdateFormBaseline); -CheckBaseline fails when the measurement has moved away
+from it. The release workflow runs the check, so a release cannot ship documentation that no longer
+describes the code. CI does NOT run it: day-to-day work should not be blocked by a stale doc, and
+adding a test SHOULD move the number.
+
+Whole percentages are compared, not raw counts. The count moves on any one-branch edit; the
+documented figure is the rounded percentage, so that is what "still true" means. Counts are printed
+alongside so a drift is diagnosable rather than merely reported.
+#>
+$baselinePath = Join-Path $root "docs\coverage-baseline.tsv"
+
+function Format-BaselineFile {
+    param($Groups, [string]$Jdk)
+    $sb = New-Object Text.StringBuilder
+    [void]$sb.Append("# Coverage baseline -- the numbers CLAUDE.md documents.`n")
+    [void]$sb.Append("#`n")
+    [void]$sb.Append("# Regenerate with:  powershell -File coverage.ps1 -UpdateBaseline`n")
+    [void]$sb.Append("# Verified with:    powershell -File coverage.ps1 -CheckBaseline   (the release workflow does this)`n")
+    [void]$sb.Append("#`n")
+    [void]$sb.Append("# Branch percentages only. 299 of the target scope's branches are in the four spliced io\** classes,`n")
+    [void]$sb.Append("# which the local javac compiles, so this file records the JDK it was measured on.`n")
+    [void]$sb.Append("#`n")
+    [void]$sb.Append("# key`tbranch_covered`tbranch_total`tbranch_pct`n")
+    [void]$sb.Append("#jdk`t$Jdk`n")
+    foreach ($g in $Groups) {
+        [void]$sb.Append(("{0}`t{1}`t{2}`t{3}`n" -f $g.Key, $g.BranchCovered, $g.BranchTotal, $g.BranchPct.Trim()))
+    }
+    return $sb.ToString()
+}
+
+<# The JDK is recorded because it genuinely moves the io\** figure, and it is recorded as the FULL
+   BUILD STRING rather than the marketing version.
+
+   "16.0.2" is useless for this: Oracle and Temurin both print it, so a genuine cross-vendor
+   bytecode difference would show up as bare coverage drift with no hint of the real cause, and the
+   error message would tell you to -UpdateBaseline -- baking one machine's number in and breaking
+   the other machine in the opposite direction. The runtime line distinguishes them:
+   Oracle "(build 16.0.2+7-67)" vs Temurin "(build 16.0.2+7)".
+
+   Every captured line is scanned rather than [0], because the JVM prints "Picked up
+   _JAVA_OPTIONS: ..." or a VM warning FIRST when those are set, which pushed the version line
+   down and left this reading "unknown" -- a value that then gets written into the committed
+   baseline and makes every future drift print a spurious JDK note. #>
+$jdkVersion = "unknown"
+$verOut = @(& (Join-Path $jdkBin "java.exe") -version 2>&1 | ForEach-Object { $_.ToString() })
+foreach ($line in $verOut) {
+    if ($line -match '\(build ([^)]+)\)') { $jdkVersion = $Matches[1]; break }
+    if ($jdkVersion -eq "unknown" -and $line -match '"([^"]+)"') { $jdkVersion = $Matches[1] }
+}
+
+if ($UpdateBaseline) {
+    $text = Format-BaselineFile -Groups $allGroups -Jdk $jdkVersion
+    # LF and no BOM: .gitattributes normalizes this repo to eol=lf, and Set-Content -Encoding utf8
+    # on PowerShell 5.1 writes a BOM.
+    [IO.File]::WriteAllText($baselinePath, ($text -replace "`r`n", "`n"), (New-Object Text.UTF8Encoding($false)))
+    Write-Host ("  baseline written: {0}  (JDK {1})" -f $baselinePath, $jdkVersion)
+    Write-Host "  Update the table in CLAUDE.md section 4 to match, then commit both."
+    Write-Host ""
+    exit 0
+}
+
+if ($CheckBaseline) {
+    if (-not (Test-Path $baselinePath)) {
+        Fail "no docs\coverage-baseline.tsv -- generate it with: powershell -File coverage.ps1 -UpdateBaseline"
+    }
+    <# A row whose tabs an editor turned into spaces used to be dropped SILENTLY, and the group it
+       described then reported as "(not in baseline)" -- a drift accusation, and a blocked release,
+       caused by whitespace rather than by coverage. A malformed row now fails on its own terms.
+       Keys are trimmed for the same reason: a leading space produced two phantom drift rows
+       carrying the same percentage. #>
+    $expected = @{}
+    $baselineJdk = "unrecorded"
+    $lineNo = 0
+    foreach ($line in [IO.File]::ReadAllLines($baselinePath)) {
+        $lineNo++
+        if ($line -match '^#jdk\t(.+)$') { $baselineJdk = $Matches[1].Trim(); continue }
+        if ($line.TrimStart().StartsWith("#") -or $line.Trim() -eq "") { continue }
+        $f = $line -split "`t"
+        if ($f.Count -lt 4) {
+            Fail ("docs\coverage-baseline.tsv line {0} is not 4 tab-separated fields: '{1}'`n         Its tabs were probably replaced with spaces by an editor. Regenerate it with -UpdateBaseline." -f $lineNo, $line)
+        }
+        $expected[$f[0].Trim()] = $f[3].Trim()
+    }
+    if ($expected.Count -eq 0) { Fail "docs\coverage-baseline.tsv has no rows -- regenerate it with -UpdateBaseline" }
+
+    # An annotation renders on the Actions summary page; the plain lines are for a human at a shell.
+    $inCi = ($env:GITHUB_ACTIONS -eq 'true')
+    $drift = @()
+    foreach ($g in $allGroups) {
+        $now = $g.BranchPct.Trim()
+        if (-not $expected.ContainsKey($g.Key)) {
+            $drift += [pscustomobject]@{ Key=$g.Key; Was="(not in baseline)"; Now=$now; Counts=$g.Branches }
+        } elseif ($expected[$g.Key] -ne $now) {
+            $drift += [pscustomobject]@{ Key=$g.Key; Was=$expected[$g.Key]; Now=$now; Counts=$g.Branches }
+        }
+    }
+    foreach ($key in $expected.Keys) {
+        if ($allGroups.Key -notcontains $key) {
+            $drift += [pscustomobject]@{ Key=$key; Was=$expected[$key]; Now="(no longer reported)"; Counts="-" }
+        }
+    }
+
+    if ($drift.Count -gt 0) {
+        Write-Host "########## coverage baseline DRIFT ##########"
+        Write-Host ""
+        Write-Host ("  {0,-14} {1,-20} {2,-20} {3}" -f "scope", "documented", "measured now", "branches now")
+        foreach ($d in $drift) {
+            Write-Host ("  {0,-14} {1,-20} {2,-20} {3}" -f $d.Key, $d.Was, $d.Now, $d.Counts)
+        }
+        Write-Host ""
+        Write-Host ("  baseline JDK: {0}    this run: {1}" -f $baselineJdk, $jdkVersion)
+        if ($baselineJdk -ne $jdkVersion) {
+            Write-Host "  NOTE  those differ. Four spliced io\** classes are compiled by the local javac, so part"
+            Write-Host "        of this drift may be the compiler rather than the tests. io\** is only 405 branches,"
+            Write-Host "        so a single branch moves its rounded figure. Confirm before running -UpdateBaseline."
+        }
+        Write-Host ""
+        if ($inCi) { Write-Host "::error title=Coverage baseline drift::CLAUDE.md documents coverage numbers that no longer match the code. Run: powershell -File coverage.ps1 -UpdateBaseline, update the table in CLAUDE.md section 4, and commit both." }
+        Fail "the documented coverage no longer matches the code. Re-run with -UpdateBaseline, update the CLAUDE.md section 4 table to match, and commit both."
+    }
+
+    # The baseline and the docs are two different files; agreeing with the baseline does not prove
+    # the human-facing table was ever updated. Check that CLAUDE.md still states the headline figure.
+    <# Anchored to the BOLD TABLE CELL, not the bare number.
+
+       A bare substring search passed on the prose sentence "19.5% is a floor to build on" even
+       when the table cell itself had been edited to something else -- so the check did not deliver
+       what it exists for. It would also start matching across rows as figures move (3.9% inside
+       13.9%). -LiteralPath because Test-Path treats [ and ] as wildcards, and a checkout under a
+       path containing them silently skipped this whole check. #>
+    $claudeMd = Join-Path $root "CLAUDE.md"
+    if (-not (Test-Path -LiteralPath $claudeMd)) {
+        Fail "no CLAUDE.md in $root -- it is the file this gate exists to keep honest."
+    }
+    $headlineCell = "**" + $target.BranchPct.Trim() + "**"
+    if (-not (Select-String -LiteralPath $claudeMd -SimpleMatch -Pattern $headlineCell -Quiet)) {
+        if ($inCi) { Write-Host ("::error title=CLAUDE.md is stale::the section 4 table does not carry the measured target coverage {0}." -f $headlineCell) }
+        Fail ("CLAUDE.md does not contain '{0}', but that is the measured target coverage. The section 4 table is stale -- update the THE TARGET row." -f $headlineCell)
+    }
+
+    Write-Host ("  baseline OK: every documented figure still matches (JDK {0})" -f $jdkVersion)
+    Write-Host ""
+}
+
 exit 0

@@ -81,6 +81,8 @@ powershell -ExecutionPolicy Bypass -File run-tests.ps1 -ResultsPath test-results
 powershell -ExecutionPolicy Bypass -File run-tests.ps1 -Isolated   # private temp jar (see §9)
 powershell -ExecutionPolicy Bypass -File coverage.ps1 -Download     # JaCoCo, first run only
 powershell -ExecutionPolicy Bypass -File coverage.ps1               # branch coverage (see §4)
+powershell -ExecutionPolicy Bypass -File coverage.ps1 -CheckBaseline  # do the numbers below still hold?
+powershell -ExecutionPolicy Bypass -File coverage.ps1 -UpdateBaseline # after deliberately moving them
 powershell -ExecutionPolicy Bypass -File verify-splice.ps1 -UpdateFormBaseline     # after an IntelliJ rebuild
 ```
 
@@ -144,6 +146,7 @@ build.ps1              the splice build + the release packager (-Package)
 verify-splice.ps1      proves an edit will actually ship (§1)
 run-tests.ps1          builds, then compiles and runs everything in test\
 coverage.ps1           JaCoCo branch coverage, scoped to game\** + io\** (§4)
+docs/coverage-baseline.tsv  what the §4 table claims; the release gate checks it
 trace.ps1              differential trace against Tile World, local only (§4)
 java/**                source (authoritative for non-form classes)
 emulator/ game/ graphics/ io/ tools/ util/    committed .class baseline — DO NOT DELETE
@@ -238,9 +241,26 @@ another JDK is not a bug.
 - The suite is strongest exactly where the desyncs were: MS movement, `canEnter`, slide and leave.
   That is not an accident, and it was the right order to do it in.
 
-There is **no coverage gate in CI**, deliberately. A threshold on a number this young gets gamed
-before it is met; the useful signal today is the `least-covered engine classes` list the script
-prints at the end of every run.
+### The numbers above are enforced — at release time only
+
+A percentage in a document is a claim, and it stops being true the moment somebody adds a test or
+adds untested code. `docs/coverage-baseline.tsv` records what this table claims;
+`coverage.ps1 -CheckBaseline` fails when the measurement has moved away from it, and
+`-UpdateBaseline` rewrites it (the same shape as `verify-splice.ps1 -UpdateFormBaseline`). It also
+fails if `CLAUDE.md` no longer mentions the headline figure at all, because agreeing with the
+baseline does not prove this table was ever updated.
+
+**If you move the number, the fix is two steps and the error message says so:** run
+`coverage.ps1 -UpdateBaseline`, edit the table above to match, and commit both.
+
+`.github/workflows/release.yml` runs the check, so a release cannot ship documentation that no
+longer describes the code. **CI does not run it, deliberately** — it asserts nothing about
+correctness, it re-runs the whole suite a second time under the agent, and adding a test is
+*supposed* to move the number. Gating every push on a stale doc trains people to ignore a red X.
+
+There is likewise **no coverage THRESHOLD gate** anywhere. A minimum percentage on a number this
+young gets gamed before it is met; the useful signal today is the `least-covered engine classes`
+list the script prints at the end of every run.
 
 ### The differential trace — the one oracle that is not a transcription
 
@@ -423,7 +443,9 @@ Assume any behavior change ships publicly. The full checklist is `.github/RELEAS
    or changed setting to README section 6; a shipped setting nobody can find out about is not
    shipped.
 3. Update `CHANGELOG.md` and `FORK.md`.
-4. `powershell -File verify-splice.ps1` **and** `powershell -File run-tests.ps1` — both all green.
+4. `powershell -File verify-splice.ps1`, `powershell -File run-tests.ps1`, and
+   `powershell -File coverage.ps1 -CheckBaseline` — all three green. The release workflow runs the
+   coverage check too, so skipping it here just moves the failure to after the tag is public.
    The splice check is not optional here: it is what proves the change you are shipping is the
    change that will actually be in the jar.
 5. `powershell -File build.ps1 -Package -ExpectTag jc-N`, then actually launch the jar **from the

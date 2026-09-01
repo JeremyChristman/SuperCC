@@ -43,9 +43,16 @@ form-based classes.
    ```powershell
    powershell -ExecutionPolicy Bypass -File verify-splice.ps1
    powershell -ExecutionPolicy Bypass -File run-tests.ps1
+   powershell -ExecutionPolicy Bypass -File coverage.ps1 -CheckBaseline
    ```
-   Both must be green. If you edited a `java/**` file, `verify-splice.ps1` is what proves the edit
-   is actually going to ship.
+   All three must be green. If you edited a `java/**` file, `verify-splice.ps1` is what proves the
+   edit is actually going to ship.
+
+   **Run the coverage check HERE, not for the first time from CI.** The release workflow runs it
+   too, so a drift you skip now fails *after* the tag is public and the recovery is delete-tag /
+   fix / re-push. If it reports drift: run `coverage.ps1 -UpdateBaseline`, update the table in
+   `CLAUDE.md` section 4 to match, and commit both — the numbers in that table are a promise to
+   whoever reads the repo next, and a release is when it should be true.
 
 5. **Package and playtest.**
    ```powershell

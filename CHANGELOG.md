@@ -80,6 +80,11 @@ measured. All three are updated together — see [`.github/RELEASING.md`](.githu
   fails on a red suite, on a stale or undeletable exec/CSV, on a jacococli class mismatch, and when
   run from outside the repo. Each of those guards was verified by reproducing the failure it
   prevents.
+- `coverage.ps1 -CheckBaseline` / `-UpdateBaseline` and `docs/coverage-baseline.tsv`: the coverage
+  figures documented in `CLAUDE.md` are now enforced. The release workflow fails if the measurement
+  has drifted from the documented table, or if `CLAUDE.md` no longer states the headline figure, so
+  a release cannot ship documentation that stopped describing the code. Deliberately not run in CI,
+  where adding a test is supposed to move the number.
 
 ### Fixed
 - `run-tests.ps1` discarded a caller's `-JvmArgs`. PowerShell variable names are case-insensitive,
