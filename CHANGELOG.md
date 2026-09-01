@@ -80,6 +80,19 @@ measured. All three are updated together — see [`.github/RELEASING.md`](.githu
   fails on a red suite, on a stale or undeletable exec/CSV, on a jacococli class mismatch, and when
   run from outside the repo. Each of those guards was verified by reproducing the failure it
   prevents.
+- `test/LynxCreatureListTest.java`: 61 assertions over the LYNX creature list -- ordering, the
+  claimed layer, animations, clones and the creature cap. Creature ORDER is where desyncs live,
+  and Lynx had nothing covering it. lxlogic.c's `advancegame()` runs three loops per tick and
+  every one walks the list BACKWARD; the test pins the consequence rather than the loop, with two
+  tanks contending for one square (the later tank in the list wins; forward iteration would give
+  it to the other) and two blobs whose RNG draw order is the list walk order.
+  Also pins that Chip is index 0 and that the swap putting him there sends the reading-order-first
+  creature to the END of the list, which under backward iteration means it moves FIRST.
+  Seven planted defects, all caught -- but only after mutation testing exposed a hole: the tank
+  contention pins the MOVEMENT phase's order and NOT the choose phase's, because choosing takes
+  no claim. Flipping the choose phase to forward iteration passed every assertion. The blob pair
+  was added to close it, since blobs draw from the shared RNG as they are visited and therefore
+  swap directions when the walk reverses.
 - `test/LynxCanEnterTest.java`: 915 assertions covering the LYNX entry rules, transcribed from
   `lxlogic.c`'s `movelaws[]` table plus the three checks that live in `canmakemove()` rather than
   in the table (fire, doors, socket). Tile World asks a different question per entity class --
