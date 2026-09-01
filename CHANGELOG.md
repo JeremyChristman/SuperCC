@@ -70,6 +70,24 @@ measured. All three are updated together — see [`.github/RELEASING.md`](.githu
 - `build.ps1 -ExpectTag` and `-Manifest`: a guard against a git tag disagreeing with `BUILD_TAG`,
   and a machine-readable record of what was built and by which compiler.
 - `run-tests.ps1 -ResultsPath` and `-Isolated`, and automatic discovery of every test class.
+- `run-tests.ps1 -JvmArgs`: a general passthrough of extra JVM arguments to every test JVM, so the
+  runner needs no knowledge of any particular profiler.
+- `coverage.ps1`: JaCoCo branch coverage, scoped to `game\**` + `io\**` and split by ruleset, with
+  the least-covered engine classes listed at the end. JaCoCo is cached per machine outside the repo
+  and is never committed or shipped, so no dependency is added. First measurement: **19.5% branch**
+  on the target scope (JDK 16.0.2), with `game\Lynx\**` (2.0%) and the `io.TWS*` streams (0%) the
+  largest gaps. It refuses to report rather than print a number it cannot prove is current: it
+  fails on a red suite, on a stale or undeletable exec/CSV, on a jacococli class mismatch, and when
+  run from outside the repo. Each of those guards was verified by reproducing the failure it
+  prevents.
+
+### Fixed
+- `run-tests.ps1` discarded a caller's `-JvmArgs`. PowerShell variable names are case-insensitive,
+  so the local `$jvmArgs` *was* the `$JvmArgs` parameter and `$jvmArgs = @()` silently emptied it —
+  the first coverage run reported "508 passed, all green" with no agent attached and no error. The
+  local is now `$jvmLine`.
+- `run-tests.ps1` treated a clean exit with a truncated summary file as a pass: the class recorded
+  no count, was never added to `$failedClasses`, and the run still printed `all green` and exited 0.
 
 ### Changed
 - `build.ps1` now fails on a genuine robocopy failure (exit ≥ 8) instead of ignoring every exit

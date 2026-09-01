@@ -35,7 +35,11 @@ param(
     [string]$Mo3,
     [string]$Collection,
     [string]$ResultsPath,
-    [string]$Jar = "SuperCC.jar"
+    [string]$Jar = "SuperCC.jar",
+    # Extra JVM arguments, prepended to every test class's JVM. coverage.ps1 uses this to attach
+    # the JaCoCo agent; nothing else does. Kept as a general passthrough rather than a
+    # coverage-specific switch so this script needs no knowledge of the profiler.
+    [string[]]$JvmArgs = @()
 )
 
 # Native tools write notes to stderr; under "Stop" PowerShell 5.1 turns those into terminating
@@ -113,12 +117,17 @@ try {
         # Swing from a test would otherwise fail differently on a machine with a display than on
         # a CI runner without one.
         $summaryFile = Join-Path $out "$class.summary"
-        $jvmArgs = @("-Djava.awt.headless=true", "-Dsupercc.jar=$jarPath", "-Dsupercc.summary=$summaryFile")
-        if ($Mo3)        { $jvmArgs += "-Dsupercc.mo3=$Mo3" }
-        if ($Collection) { $jvmArgs += "-Dsupercc.collection=$Collection" }
-        if ($ResultsPath) { $jvmArgs += ("-Dsupercc.results=" + (Join-Path $resultsDir $class)) }
+        <# Named $jvmLine, NOT $jvmArgs. PowerShell variable names are CASE-INSENSITIVE, so a local
+           $jvmArgs IS the $JvmArgs parameter -- assigning @() to it silently discarded the caller's
+           argument, and coverage.ps1 ran the whole suite with no agent attached and no error. #>
+        $jvmLine = @()
+        if ($JvmArgs.Count -gt 0) { $jvmLine += $JvmArgs }
+        $jvmLine += @("-Djava.awt.headless=true", "-Dsupercc.jar=$jarPath", "-Dsupercc.summary=$summaryFile")
+        if ($Mo3)        { $jvmLine += "-Dsupercc.mo3=$Mo3" }
+        if ($Collection) { $jvmLine += "-Dsupercc.collection=$Collection" }
+        if ($ResultsPath) { $jvmLine += ("-Dsupercc.results=" + (Join-Path $resultsDir $class)) }
 
-        & (Join-Path $jdkBin "java.exe") @jvmArgs -cp "$jarPath;$out" $class
+        & (Join-Path $jdkBin "java.exe") @jvmLine -cp "$jarPath;$out" $class
         # Covers both a failed assertion and a class that died before Harness could report -- a
         # crashed JVM exits nonzero with no output at all, and must not read as a pass.
         if ($LASTEXITCODE -ne 0) { $failedClasses += $class }
@@ -127,7 +136,16 @@ try {
         # called System.exit itself, either of which bypasses reporting entirely.
         if (Test-Path $summaryFile) {
             $parts = (Get-Content $summaryFile -Raw).Trim() -split '\s+'
-            if ($parts.Count -ge 4) { $counts[$class] = "$($parts[1]) passed, $($parts[2]) failed, $($parts[3]) skipped" }
+            if ($parts.Count -ge 4) {
+                $counts[$class] = "$($parts[1]) passed, $($parts[2]) failed, $($parts[3]) skipped"
+            } else {
+                # A clean exit with a TRUNCATED summary. Without this branch the class recorded no
+                # count and was not added to $failedClasses, so the run printed "no count reported"
+                # and then "all green" and exited 0 -- the same silently-green shape as a missing
+                # summary, which the else below already handles correctly.
+                $counts[$class] = "MALFORMED RESULT ($($parts.Count) field(s); expected 4)"
+                if ($failedClasses -notcontains $class) { $failedClasses += $class }
+            }
         } else {
             $counts[$class] = "NO RESULT REPORTED (crashed, or called System.exit)"
             if ($failedClasses -notcontains $class) { $failedClasses += $class }

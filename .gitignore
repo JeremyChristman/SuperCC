@@ -34,3 +34,6 @@
 # Differential trace output (trace.ps1). These are per-level dumps of a real solution replay --
 # large, machine-specific, and regenerated on demand.
 /trace-*.txt
+
+# JaCoCo output (coverage.ps1). Regenerated on every run; never committed.
+/coverage-report/

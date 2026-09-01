@@ -29,6 +29,10 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -Package # -> dist\SuperCC-<t
 java -jar SuperCC.jar                                       # run it (never javaw -- it eats stderr)
 ```
 
+Coverage: `coverage.ps1` (JaCoCo; test-time only, never committed, not a dependency). Branch
+coverage of `game\**` + `io\**` is **19.5%** — a floor, not a grade. `game\Lynx\**` (2.0%) and the
+`io.TWS*` streams (0%) are the biggest gaps. No CI gate; see CLAUDE.md §4.
+
 Machine-readable results: `run-tests.ps1 -ResultsPath test-results` writes JUnit XML and JSON per
 test class. Exit code is 0 only if every assertion passed. Use `-Isolated` if another agent may be
 building at the same time — `SuperCC.jar` and `dist/` are shared mutable paths.

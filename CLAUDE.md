@@ -79,6 +79,8 @@ powershell -ExecutionPolicy Bypass -File run-tests.ps1             # builds, the
 powershell -ExecutionPolicy Bypass -File run-tests.ps1 -NoBuild    # reuse the existing jar
 powershell -ExecutionPolicy Bypass -File run-tests.ps1 -ResultsPath test-results   # JUnit XML + JSON
 powershell -ExecutionPolicy Bypass -File run-tests.ps1 -Isolated   # private temp jar (see §9)
+powershell -ExecutionPolicy Bypass -File coverage.ps1 -Download     # JaCoCo, first run only
+powershell -ExecutionPolicy Bypass -File coverage.ps1               # branch coverage (see §4)
 powershell -ExecutionPolicy Bypass -File verify-splice.ps1 -UpdateFormBaseline     # after an IntelliJ rebuild
 ```
 
@@ -141,6 +143,8 @@ build-config.ps1       THE splice list, the JDK finder, the robocopy wrapper —
 build.ps1              the splice build + the release packager (-Package)
 verify-splice.ps1      proves an edit will actually ship (§1)
 run-tests.ps1          builds, then compiles and runs everything in test\
+coverage.ps1           JaCoCo branch coverage, scoped to game\** + io\** (§4)
+trace.ps1              differential trace against Tile World, local only (§4)
 java/**                source (authoritative for non-form classes)
 emulator/ game/ graphics/ io/ tools/ util/    committed .class baseline — DO NOT DELETE
 com/ org/              third-party bytecode (inventory: docs/THIRD_PARTY.md)
@@ -189,6 +193,54 @@ test/CreatureMoveTest.java move ORDER per creature, transcribed from TW's choose
 test/CanEnterTest.java     which tiles admit whom, from which direction — TW's movelaws[] table
 test/SlideAndLeaveTest.java  where a slide sends you, and whether you may leave a square
 ```
+
+### Coverage — what the suite actually reaches
+
+`coverage.ps1` runs the suite under JaCoCo and reports **branch** coverage. Branch, not line: an
+emulator is mostly conditionals, and a line count flatters a `switch` whose arms are never all
+taken. JaCoCo is a test-time tool cached under `%LOCALAPPDATA%\jacoco\<version>\` — it is **not a
+dependency**, never committed, never shipped. Output goes to `coverage-report\` (gitignored);
+`coverage.csv` is the evidence behind every percentage below.
+
+As of jc-11, with all 508 assertions passing, **measured on JDK 16.0.2** (what CI pins):
+
+| scope | branch | line | branches |
+|---|---|---|---|
+| **`game\**` + `io\**` — THE TARGET** | **19.5%** | 33.8% | 518/2654 |
+| &nbsp;&nbsp;`game\**` (the emulator) | 13.3% | 27.0% | 298/2249 |
+| &nbsp;&nbsp;&nbsp;&nbsp;`game\MS\**` | 17.0% | 23.4% | 199/1174 |
+| &nbsp;&nbsp;&nbsp;&nbsp;`game\Lynx\**` | 2.0% | 7.8% | 15/732 |
+| &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 24.5% | 54.4% | 84/343 |
+| &nbsp;&nbsp;`io\**` (file formats) | 54.3% | 53.7% | 220/405 |
+| `emulator\**` | 3.9% | 8.6% | 15/380 |
+| `tools\**` + `graphics\**` — *not a target* | 0.0% | 0.0% | 0/1885 |
+
+**Read this correctly.** Whole-project branch coverage is 9.1% (535/5885), and that number is
+meaningless: 15 form-based classes cannot be compiled from this repo at all (ADR 0001), `tools\**`
+is 35 files of upstream code this fork does not modify, `graphics\**` is Swing with no headless test
+story, and the rest is vendored `org.json` / `com.intellij`. What this fork can break is the engine
+and the file formats, so that is what is scoped and measured.
+
+**The number is mildly JDK-dependent, by construction.** 299 of the 2654 target branches live in
+the four spliced `io\**` classes (`ErrorLog`, `LevelFactory`, `SuccPaths`, `TWSWriter`), which your
+`javac` compiles; `build-config.ps1` already notes that javac 17 does not emit identical bytecode to
+javac 16. The other 2355 branches — including all 2249 of `game\**` — come from the committed
+baseline and are byte-identical on every machine. So an `io\**` figure that differs slightly on
+another JDK is not a bug.
+
+**19.5% is a floor to build on, not a passing grade**, and the split says where the work is:
+
+- `game\Lynx\**` at **2.0%** is the largest single gap — 717 uncovered branches, essentially the
+  whole ruleset. Every engine test written so far targets MS.
+- `game.Cheats`, `game.CreatureList`, `game.SavestateReader` and both `io.TWS*` stream classes sit
+  at a flat **0%**. TWS read/write is the format behind every exported solution, which makes it the
+  highest-value uncovered code in the repo.
+- The suite is strongest exactly where the desyncs were: MS movement, `canEnter`, slide and leave.
+  That is not an accident, and it was the right order to do it in.
+
+There is **no coverage gate in CI**, deliberately. A threshold on a number this young gets gamed
+before it is met; the useful signal today is the `least-covered engine classes` list the script
+prints at the end of every run.
 
 ### The differential trace — the one oracle that is not a transcription
 
