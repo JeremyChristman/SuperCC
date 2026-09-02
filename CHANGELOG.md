@@ -80,6 +80,22 @@ measured. All three are updated together — see [`.github/RELEASING.md`](.githu
   fails on a red suite, on a stale or undeletable exec/CSV, on a jacococli class mismatch, and when
   run from outside the repo. Each of those guards was verified by reproducing the failure it
   prevents.
+- `test/TwsRoundTripTest.java`: 25 assertions over the .tws solution format, which was the last
+  flat 0% and the only remaining gap that is about DATA rather than a coverage statistic. A .tws
+  bug corrupts the file a solution is SAVED into, and jc-2 fixed a real one there. Writes a
+  solution, reads it back, and checks the header bytes against the FORMAT rather than against the
+  writer, so a signature or ruleset-byte change fails even though a pure round trip would not.
+  Five planted defects, all caught. `io\**` 54.3% -> 65.2%; target scope 34.7% -> 36.5%.
+  Two behaviors are PINNED rather than changed, with the reasoning in the file: a solution comes
+  back with one extra trailing wait (the format stores each move's duration, so the last one
+  yields a tick -- Tile World does the same), and **a .tws truncated after its signature is
+  currently ACCEPTED**, because verifyAndInit reads the rest of the header past end-of-file where
+  DataInputStream answers -1 instead of throwing. That is a real robustness gap; it is asserted as
+  it stands so that fixing it is a deliberate act that turns the assertion red. Not fixed here
+  because io\TWSReader.java is not in $SPLICE_MODIFIED, so editing it would ship nothing until
+  the build changed too.
+  Not covered, and stated in the file: the click-conversion path, which needs an MS level and a
+  real SavestateManager.
 - The differential trace harness was VERIFIED end to end for the first time, and it was broken.
   It had never been run: the comparison needs a level set and a solution, neither of which may be
   committed, so it shipped and sat. Run against CCLP1 #6 -- where the two engines agree on all 109
