@@ -80,6 +80,17 @@ jobs:
         shell: powershell
         run: powershell -ExecutionPolicy Bypass -File run-tests.ps1 -NoBuild -ResultsPath test-results
 
+      # The differential trace is the instrument that took the desync count from 135 to 0, and it
+      # shipped BROKEN for its whole life for one reason: it needs a level set and a solution,
+      # neither of which may be committed here, so nothing ever ran it. Run against a level where
+      # the two engines agree perfectly, its aligner reported a divergence at tick 0.
+      #
+      # -SelfTest exercises the alignment on synthetic traces -- no level set, no Tile World, no
+      # jar -- so the one part that cannot otherwise be tested here is tested on every push.
+      - name: Differential trace alignment self-test
+        shell: powershell
+        run: powershell -ExecutionPolicy Bypass -File trace.ps1 -SelfTest
+
       - name: Publish test results
         # Runs even when the tests failed -- that is the case where the report matters most.
         if: always()

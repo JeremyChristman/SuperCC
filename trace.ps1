@@ -26,15 +26,27 @@ skip-when-absent shape as run-tests.ps1's -Collection switch.
   # compare two existing traces without re-running anything
   powershell -File trace.ps1 -Compare -SccTrace scc.txt -TWTrace tw.txt -Level 138
 
-PRODUCING THE TILE WORLD SIDE
------------------------------
-Tile World must be built with -DTRACE_DESYNC, then run over the SET with the level selected by an
-environment variable, and its STDERR captured:
+PRODUCING THE TILE WORLD SIDE -- the recipe below is VERIFIED, the previous one was not
+---------------------------------------------------------------------------------------
+  cmake -S <tworld> -B <build> -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_C_FLAGS=-DTRACE_DESYNC"
+  cmake --build <build>
+
+Then run it in BATCH VERIFY mode with the level selected by an environment variable, capturing
+stderr:
 
   $env:TW_TRACE_LEVEL = "138"        # comma-separated list also accepted
   $env:TW_TRACE_TICK_LO = "600"      # optional window
   $env:TW_TRACE_TICK_HI = "900"
-  .\tworld2.exe -r -p -S "<CC>\save" CCLP5.dat-ms.dac  2> tw.txt
+  .\tworld2.exe -b -r -q CCLP5.dat-ms.dac  2> tw.txt
+
+-b is BATCH VERIFY and is the flag that makes it replay without a window. This file previously
+documented `-r -p`, which is read-only plus a password toggle: it opens the GUI and sits there, so
+the trace never appears. Run it from a directory containing data\, sets\ and save\ -- pointing -D
+and -R at a path with a SPACE in it truncated the argument and made it scan the wrong sets folder,
+so a scratch directory with no spaces is the reliable arrangement, and it also keeps Tile World
+from writing anything near the real save files.
+
+  powershell -File trace.ps1 -SelfTest      # checks the aligner with no level set at all
 
 Both engines emit the same two line types, tab separated:
 
@@ -52,6 +64,7 @@ param(
     [string]$SccTrace,
     [string]$TWTrace,
     [switch]$Compare,
+    [switch]$SelfTest,
     [string]$Jar = "SuperCC.jar",
     [int]$Context = 3
 )
@@ -63,6 +76,86 @@ $root = $PSScriptRoot
 . (Join-Path $root "build-config.ps1")
 
 function Fail($msg) { Write-Host "  ERROR  $msg"; exit 1 }
+
+<# ---------------------------------------------------------------- self-test
+
+   The alignment logic shipped BROKEN for its whole life, and the reason is simply that nothing ever
+   ran it: it needs a level set and a solution, neither of which may live in this repo, so it was
+   committed and never exercised. Run against a level where the two engines agree perfectly it
+   reported a divergence at tick 0.
+
+   This builds both sides of a tiny synthetic trace -- no level set, no Tile World, no jar -- and
+   checks the two outcomes that matter: that agreement reads as agreement, and that a one-creature
+   difference is still pinned to the right place. It costs a second and it runs in CI, so the
+   comparison cannot rot unnoticed again.
+
+   It deliberately reproduces the exact shape that broke the old aligner: Tile World emitting four
+   ticks per state, SuperCC emitting one per move on a half-move clock, and SuperCC carrying an
+   extra pre-move line at the front. #>
+if ($SelfTest) {
+    $td = Join-Path $env:TEMP ("scc-tracetest-" + [Guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Force $td | Out-Null
+    try {
+        $states = @(
+            "chip=10,14,0`tC:U,5,5,N`tB:",
+            "chip=10,15,0`tC:U,5,6,N`tB:",
+            "chip=11,15,0`tC:U,6,6,E`tB:"
+        )
+        # Tile World: one line per engine tick, four ticks per state, numbering from 0.
+        $tw = New-Object System.Collections.ArrayList
+        $tick = 0
+        foreach ($st in $states) {
+            for ($k = 0; $k -lt 4; $k++) {
+                [void]$tw.Add("T`t7`t$tick`t999`t$st")
+                [void]$tw.Add("Q`t7`t$tick`tQ:")
+                $tick++
+            }
+        }
+        # SuperCC: a pre-move line, then one per move on a half-move clock.
+        $scc = New-Object System.Collections.ArrayList
+        [void]$scc.Add("T`t7`t0`t999`tchip=10,13,0`tC:U,5,5,N`tB:")
+        [void]$scc.Add("Q`t7`t0`tQ:")
+        $t2 = 2
+        foreach ($st in $states) {
+            [void]$scc.Add("T`t7`t$t2`t999`t$st")
+            [void]$scc.Add("Q`t7`t$t2`tQ:")
+            $t2 += 2
+        }
+        $twFile  = Join-Path $td "tw.txt"
+        $sccFile = Join-Path $td "scc.txt"
+        $badFile = Join-Path $td "scc-bad.txt"
+        $enc = New-Object Text.UTF8Encoding($false)
+        [IO.File]::WriteAllLines($twFile,  $tw,  $enc)
+        [IO.File]::WriteAllLines($sccFile, $scc, $enc)
+        # One creature moved one square, in the middle state.
+        $bad = @($scc | ForEach-Object { $_ })
+        for ($i = 0; $i -lt $bad.Count; $i++) {
+            if ($bad[$i] -like "T`t7`t4`t*") { $bad[$i] = $bad[$i].Replace("U,5,6,N", "U,5,7,N") }
+        }
+        [IO.File]::WriteAllLines($badFile, $bad, $enc)
+
+        $self = $PSCommandPath
+        $ok = $true
+
+        & powershell -ExecutionPolicy Bypass -File $self -Compare -SccTrace $sccFile -TWTrace $twFile -Level 7 | Out-Null
+        if ($LASTEXITCODE -ne 0) { Write-Host "  FAIL  agreeing traces were reported as a divergence"; $ok = $false }
+        else { Write-Host "  PASS  agreeing traces align despite different clocks" }
+
+        $out = @(& powershell -ExecutionPolicy Bypass -File $self -Compare -SccTrace $badFile -TWTrace $twFile -Level 7)
+        if ($LASTEXITCODE -eq 0) { Write-Host "  FAIL  an injected divergence was NOT detected"; $ok = $false }
+        elseif (-not ($out -match 'FIRST DIVERGENCE at state change 1\b')) {
+            Write-Host "  FAIL  the divergence was found at the wrong place:"
+            $out | Where-Object { $_ -match 'DIVERGENCE' } | ForEach-Object { Write-Host "        $_" }
+            $ok = $false
+        }
+        else { Write-Host "  PASS  a one-creature divergence is pinned to the right state change" }
+
+        if ($ok) { Write-Host "  trace alignment self-test: all green"; exit 0 }
+        exit 1
+    } finally {
+        if (Test-Path $td) { Remove-Item -LiteralPath $td -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}
 
 # ---------------------------------------------------------------- produce the SuperCC trace
 if (-not $Compare) {
@@ -83,9 +176,17 @@ if (-not $Compare) {
         if ($LASTEXITCODE -ne 0) { Fail "could not compile TraceLevel (exit $LASTEXITCODE)" }
 
         if (-not $SccTrace) { $SccTrace = Join-Path $root ("trace-scc-{0}.txt" -f $Level) }
-        & (Join-Path $jdkBin "java.exe") "-Djava.awt.headless=true" -cp "$jarPath;$out" `
-            TraceLevel $Dat $Level $Solution > $SccTrace
+        <# Captured and written explicitly rather than redirected with `>`.
+
+           PowerShell 5.1's `>` is Out-File, which re-encodes to UTF-16LE with a BOM. TraceLevel.java
+           deliberately builds a UTF-8 PrintStream, and the redirect threw that away: the trace came
+           out as UTF-16 and ordinary tools -- grep, diff, an editor doing a byte compare -- could not
+           read it, while Tile World's half is written as plain bytes by fprintf. A diagnostic file
+           that only this script can read is most of the way to useless. #>
+        $traceLines = @(& (Join-Path $jdkBin "java.exe") "-Djava.awt.headless=true" -cp "$jarPath;$out" `
+                          TraceLevel $Dat $Level $Solution)
         if ($LASTEXITCODE -ne 0) { Fail "TraceLevel failed (exit $LASTEXITCODE)" }
+        [IO.File]::WriteAllLines($SccTrace, $traceLines, (New-Object Text.UTF8Encoding($false)))
     } finally {
         if (Test-Path $out) { [IO.Directory]::Delete($out, $true) }
     }
@@ -97,7 +198,9 @@ if (-not $Compare) {
         Write-Host ""
         Write-Host "No -TWTrace given, so nothing to diff against. To produce the other side:"
         Write-Host "  build Tile World with -DTRACE_DESYNC, then"
-        Write-Host ("  `$env:TW_TRACE_LEVEL = `"{0}`"; .\tworld2.exe -r -p -S <save> <set>.dac 2> tw.txt" -f $Level)
+        Write-Host ("  `$env:TW_TRACE_LEVEL = `"{0}`"; .\tworld2.exe -b -r -q <set>.dac 2> tw.txt" -f $Level)
+        Write-Host "  -b is BATCH VERIFY, which is what replays without a window. -r is read-only,"
+        Write-Host "  -q silences the sound init. Run it from a directory holding data\ sets\ save\."
         exit 0
     }
 }
@@ -110,98 +213,127 @@ if (-not (Test-Path $SccTrace)) { Fail "no SuperCC trace at $SccTrace" }
 if (-not (Test-Path $TWTrace))  { Fail "no Tile World trace at $TWTrace" }
 
 <#
-Keeps only this level's lines and indexes them by tick.
+ALIGNMENT: BY STATE CHANGE, NOT BY TICK NUMBER.
 
-Tile World's stderr from a batch run holds every level it replayed plus whatever else it printed,
-so the trace has to be split out rather than read whole. Indexing by TICK rather than by line
-number matters: the two engines do not necessarily emit the same NUMBER of lines -- one may stop
-early -- and comparing line N to line N would then report every tick after the first difference as
-different too, burying the one that matters.
+This is the part that was wrong, and it was wrong in the way that matters most: run against a level
+where the two engines agree perfectly, the old aligner reported a divergence at tick 0.
+
+The two halves do not share a clock.
+
+  * Tile World emits once per ENGINE tick, numbering 0,1,2,3..., and an MS move spans four of them,
+    so each state appears four times running.
+  * TraceLevel emits once per MOVE, and SuperCC's MS tick number counts HALF-moves, so it produces
+    0,2,4,6... -- with an occasional step of 1 where a move resolves in a single half-tick, which
+    makes even the ratio non-constant.
+  * TraceLevel additionally emits the PRE-MOVE state first. mslogic.c's trace point is at the END of
+    advancegame(), so that opening line has no counterpart at all.
+
+Measured on CCLP1 #6: SuperCC 114 lines, Tile World 429, and `SCC tick 2` holds the same state as
+`TW tick 0`. Comparing equal tick numbers therefore lines the pre-move state up against the
+post-first-tick state and declares a divergence immediately.
+
+What the two DO share is the sequence of distinct states. Collapse each side's repeats, drop
+SuperCC's pre-move line, and the sequences correspond one to one -- 109 and 109 on that level, every
+one identical. That needs no per-ruleset tick ratio, so it works for Lynx (four ticks per move) as
+well as MS.
+
+The cost is that a divergence is reported at the first differing STATE CHANGE rather than the first
+differing tick. Both engines' own tick numbers are printed with it, which is what you need to go
+back into either trace by hand.
 #>
-function Read-Trace {
+function Read-States {
     param([string]$Path, [int]$LevelNumber, [string]$Kind)
 
-    $byTick = @{}
+    $states = New-Object System.Collections.ArrayList
+    $prev = $null
     foreach ($line in [IO.File]::ReadLines((Resolve-Path $Path))) {
         if (-not $line.StartsWith($Kind + "`t")) { continue }
         $f = $line -split "`t"
         if ($f.Count -lt 3) { continue }
         if ([int]$f[1] -ne $LevelNumber) { continue }
-        $tick = [int]$f[2]
-        # A level replayed more than once in one run: keep the FIRST pass, which is the one the
-        # other engine's single pass lines up with.
-        if (-not $byTick.ContainsKey($tick)) { $byTick[$tick] = $line }
+
+        # Field 3 is the RNG on a T line and part of the payload on a Q line. The RNG is compared
+        # separately, so it is not part of the state key.
+        $from = if ($Kind -eq "T") { 4 } else { 3 }
+        if ($f.Count -le $from) { continue }
+        $state = ($f[$from..($f.Count - 1)] -join "`t").TrimEnd()
+        $rng = if ($Kind -eq "T" -and $f.Count -gt 3) { $f[3] } else { "" }
+
+        # Collapse runs. Tile World repeats a state for every tick of a move; SuperCC repeats one
+        # whenever a move resolves in a single half-tick.
+        if ($state -ne $prev) {
+            [void]$states.Add([pscustomobject]@{ Tick = [int]$f[2]; State = $state; Rng = $rng })
+            $prev = $state
+        }
     }
-    return $byTick
+    return $states
 }
 
-$sccT = Read-Trace -Path $SccTrace -LevelNumber $Level -Kind "T"
-$twT  = Read-Trace -Path $TWTrace  -LevelNumber $Level -Kind "T"
-$sccQ = Read-Trace -Path $SccTrace -LevelNumber $Level -Kind "Q"
-$twQ  = Read-Trace -Path $TWTrace  -LevelNumber $Level -Kind "Q"
+$sccT = @(Read-States -Path $SccTrace -LevelNumber $Level -Kind "T")
+$twT  = @(Read-States -Path $TWTrace  -LevelNumber $Level -Kind "T")
 
 if ($sccT.Count -eq 0) { Fail "no T lines for level $Level in $SccTrace" }
-if ($twT.Count -eq 0)  { Fail "no T lines for level $Level in $TWTrace -- was TW_TRACE_LEVEL set to $Level, and was it built with -DTRACE_DESYNC?" }
+if ($twT.Count -eq 0)  { Fail "no T lines for level $Level in $TWTrace -- was TW_TRACE_LEVEL set to $Level, and was it built with -DTRACE_DESYNC? Batch replay is -b, not -r -p." }
 
-Write-Host ""
-Write-Host ("level {0}:  SuperCC {1} ticks, Tile World {2} ticks" -f $Level, $sccT.Count, $twT.Count)
-
-# The RNG column is informational: the engines share one generator, so a divergence in it is a
-# SYMPTOM of a different draw count rather than a cause. Compared separately so a creature
-# difference is never buried under it.
-function Split-Line { param([string]$Line) $f = $Line -split "`t"; return $f }
-
-$ticks = @($sccT.Keys) + @($twT.Keys) | Sort-Object -Unique
-$firstDiff = $null
-$rngFirstDiff = $null
-foreach ($tick in $ticks) {
-    $a = $sccT[$tick]; $b = $twT[$tick]
-    if ($null -eq $a) { $firstDiff = @{ tick = $tick; why = "SuperCC has no tick $tick (its trace ends earlier)" }; break }
-    if ($null -eq $b) { $firstDiff = @{ tick = $tick; why = "Tile World has no tick $tick (its trace ends earlier)" }; break }
-
-    $fa = Split-Line $a; $fb = Split-Line $b
-    # Compare everything except the RNG value first.
-    $aState = ($fa[4..($fa.Count-1)] -join "`t").TrimEnd()
-    $bState = ($fb[4..($fb.Count-1)] -join "`t").TrimEnd()
-    if ($null -eq $rngFirstDiff -and $fa[3] -ne $fb[3]) { $rngFirstDiff = $tick }
-    if ($aState -ne $bState) { $firstDiff = @{ tick = $tick; why = "creature or block state differs" }; break }
-
-    $qa = $sccQ[$tick]; $qb = $twQ[$tick]
-    if ($qa -and $qb) {
-        $qaS = ((Split-Line $qa)[3..99] -join "`t").TrimEnd()
-        $qbS = ((Split-Line $qb)[3..99] -join "`t").TrimEnd()
-        if ($qaS -ne $qbS) { $firstDiff = @{ tick = $tick; why = "SLIP LIST differs (same positions, different order or direction)" }; break }
-    }
+<# TraceLevel's opening line is the position BEFORE the first move; mslogic.c has no such sample.
+   Dropped by position rather than by comparing it away, so a genuine divergence on the very first
+   move is still reported rather than silently absorbed. #>
+$droppedPreMove = $false
+if ($sccT.Count -gt 1) {
+    $sccT = $sccT[1..($sccT.Count - 1)]
+    $droppedPreMove = $true
 }
 
-if ($null -eq $firstDiff) {
-    Write-Host "  IDENTICAL across every shared tick"
-    if ($rngFirstDiff -ne $null) {
-        Write-Host ("  note: the RNG value first differs at tick {0} even though state matches" -f $rngFirstDiff)
+Write-Host ""
+Write-Host ("level {0}:  SuperCC {1} state changes, Tile World {2}" -f $Level, $sccT.Count, $twT.Count)
+if ($droppedPreMove) { Write-Host "  (SuperCC's pre-move opening state dropped -- Tile World does not emit one)" }
+
+$sccQ = @(Read-States -Path $SccTrace -LevelNumber $Level -Kind "Q")
+$twQ  = @(Read-States -Path $TWTrace  -LevelNumber $Level -Kind "Q")
+
+$n = [Math]::Min($sccT.Count, $twT.Count)
+$bad = -1
+$rngFirst = -1
+for ($i = 0; $i -lt $n; $i++) {
+    if ($rngFirst -lt 0 -and $sccT[$i].Rng -ne $twT[$i].Rng) { $rngFirst = $i }
+    if ($sccT[$i].State -ne $twT[$i].State) { $bad = $i; break }
+}
+
+if ($bad -lt 0 -and $sccT.Count -ne $twT.Count) {
+    Write-Host ""
+    Write-Host ("  the states agree for all {0} shared changes, but the traces are different LENGTHS" -f $n)
+    Write-Host ("  SuperCC has {0}, Tile World {1} -- one engine ended the level earlier." -f $sccT.Count, $twT.Count)
+    Write-Host ""
+    exit 1
+}
+
+if ($bad -lt 0) {
+    Write-Host ("  IDENTICAL across all {0} state changes" -f $n)
+    if ($rngFirst -ge 0) {
+        Write-Host ("  note: the RNG first differs at change {0} (SCC tick {1} / TW tick {2}) even though state matches" -f `
+                    $rngFirst, $sccT[$rngFirst].Tick, $twT[$rngFirst].Tick)
     }
     Write-Host ""
     exit 0
 }
 
-$t = $firstDiff.tick
 Write-Host ""
-Write-Host ("  FIRST DIVERGENCE at tick {0} -- {1}" -f $t, $firstDiff.why)
-if ($rngFirstDiff -ne $null -and $rngFirstDiff -lt $t) {
-    Write-Host ("  the RNG had already diverged at tick {0}, so look for a different DRAW COUNT before this tick" -f $rngFirstDiff)
+Write-Host ("  FIRST DIVERGENCE at state change {0}:  SuperCC tick {1}  /  Tile World tick {2}" -f `
+            $bad, $sccT[$bad].Tick, $twT[$bad].Tick)
+if ($rngFirst -ge 0 -and $rngFirst -lt $bad) {
+    Write-Host ("  the RNG had already diverged at change {0}, so look for a different DRAW COUNT before this point" -f $rngFirst)
 }
 Write-Host ""
-foreach ($tick in ($ticks | Where-Object { $_ -ge ($t - $Context) -and $_ -le ($t + $Context) })) {
-    $mark = if ($tick -eq $t) { ">>" } else { "  " }
-    Write-Host ("{0} tick {1}" -f $mark, $tick)
-    if ($sccT[$tick]) { Write-Host ("     SCC {0}" -f (($sccT[$tick] -split "`t")[3..99] -join "  ")) }
-    if ($twT[$tick])  { Write-Host ("     TW  {0}" -f (($twT[$tick]  -split "`t")[3..99] -join "  ")) }
-    if ($sccQ[$tick] -and $twQ[$tick]) {
-        $qa = (($sccQ[$tick] -split "`t")[3..99] -join "  ")
-        $qb = (($twQ[$tick]  -split "`t")[3..99] -join "  ")
-        if ($qa -ne $qb) {
-            Write-Host ("     SCC {0}" -f $qa)
-            Write-Host ("     TW  {0}" -f $qb)
-        }
+$lo = [Math]::Max(0, $bad - $Context)
+$hi = [Math]::Min($n - 1, $bad + $Context)
+for ($i = $lo; $i -le $hi; $i++) {
+    $mark = if ($i -eq $bad) { ">>" } else { "  " }
+    Write-Host ("{0} change {1}   SCC tick {2} / TW tick {3}" -f $mark, $i, $sccT[$i].Tick, $twT[$i].Tick)
+    Write-Host ("     SCC {0}" -f ($sccT[$i].State -replace "`t", "  "))
+    Write-Host ("     TW  {0}" -f ($twT[$i].State  -replace "`t", "  "))
+    if ($i -lt $sccQ.Count -and $i -lt $twQ.Count -and $sccQ[$i].State -ne $twQ[$i].State) {
+        Write-Host ("     SCC slip {0}" -f ($sccQ[$i].State -replace "`t", "  "))
+        Write-Host ("     TW  slip {0}" -f ($twQ[$i].State  -replace "`t", "  "))
     }
 }
 Write-Host ""

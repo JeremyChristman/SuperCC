@@ -290,10 +290,21 @@ powershell -File trace.ps1 -Dat ... -Level ... -Solution ... -TWTrace tw.txt   #
 powershell -File trace.ps1 -Compare -SccTrace scc.txt -TWTrace tw.txt -Level <n>
 ```
 
-It needs a level set and a solution, neither of which may live here, so it is **local and
-on-demand — never CI**, following the same skip-when-absent shape as `-Collection`. The Tile World
-half is already in `mslogic.c` behind `-DTRACE_DESYNC`, selected with `TW_TRACE_LEVEL`; run it over
-the set and capture stderr. Both sides emit the same tab-separated lines:
+It needs a level set and a solution, neither of which may live here, so the *comparison* is **local
+and on-demand**. `trace.ps1 -SelfTest` checks the alignment on synthetic traces with no level set at
+all, and CI runs that on every push. The Tile World half is in `mslogic.c` behind `-DTRACE_DESYNC`,
+selected with `TW_TRACE_LEVEL`; build it with
+`cmake -DCMAKE_C_FLAGS=-DTRACE_DESYNC` and run it in BATCH VERIFY mode -- `tworld2.exe -b -r -q
+<set>.dac 2> tw.txt`, from a directory with no spaces in its path -- and capture stderr.
+
+⚠ **This harness shipped broken and was fixed on 2026-09-01, when it was verified end to end for
+the first time.** It had never been run, because running it needs data that cannot be committed. It
+reported a divergence at tick 0 on a level where the two engines agree perfectly. Three defects: the
+trace was written as UTF-16 so ordinary tools could not read it; the documented Tile World command
+(`-r -p`) opens the GUI instead of replaying; and the aligner compared equal tick numbers when the
+two engines do not share a clock -- Tile World emits four ticks per MS move, SuperCC one per move on
+a half-move counter, plus a pre-move line with no counterpart. It now aligns by state-change
+sequence, and the self-test guards exactly that. Both sides emit the same tab-separated lines:
 
 ```
 T <lvl> <tick> <rng> chip=<x>,<y>,<slip>  C:<letter>,<x>,<y>,<dir> ...  B:<x>,<y> ...

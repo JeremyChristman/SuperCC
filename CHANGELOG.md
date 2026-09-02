@@ -80,6 +80,24 @@ measured. All three are updated together — see [`.github/RELEASING.md`](.githu
   fails on a red suite, on a stale or undeletable exec/CSV, on a jacococli class mismatch, and when
   run from outside the repo. Each of those guards was verified by reproducing the failure it
   prevents.
+- The differential trace harness was VERIFIED end to end for the first time, and it was broken.
+  It had never been run: the comparison needs a level set and a solution, neither of which may be
+  committed, so it shipped and sat. Run against CCLP1 #6 -- where the two engines agree on all 109
+  state changes -- it reported a divergence at tick 0. Three defects, all fixed:
+    * `trace.ps1` wrote the SuperCC trace as UTF-16LE via PowerShell's `>` redirect, throwing away
+      TraceLevel.java's deliberate UTF-8 and leaving a file grep and diff could not read.
+    * the documented Tile World command was `-r -p`, which is read-only plus a password toggle and
+      opens the GUI. Batch replay is `-b`. The recipe in the file is now the verified one.
+    * the aligner compared EQUAL TICK NUMBERS, but the engines do not share a clock: Tile World
+      emits four ticks per MS move, SuperCC one per move on a half-move counter (with occasional
+      single steps), and SuperCC adds a pre-move line with no counterpart. It now aligns by
+      state-change sequence, which needs no per-ruleset ratio and so works for Lynx too.
+  Verified both ways: agreement reads as agreement, and an injected one-creature difference is
+  pinned to the exact state change with both engines' tick numbers.
+- `trace.ps1 -SelfTest`, and a CI step that runs it. The harness broke because nothing ever ran
+  it; the self-test exercises the alignment on synthetic traces with no level set, no Tile World
+  and no jar, so it cannot rot unnoticed again. Two planted regressions caught, one of which
+  reproduces the original bug exactly.
 - `test/LynxTickTest.java`: 58 assertions over LynxCreature.tick(), which at 217 lines was the
   largest untested method in the repo. It folds THREE Tile World functions into one --
   startmovement(), continuemovement() and endmovement() -- and the seam between them is invisible
