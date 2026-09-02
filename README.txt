@@ -1,5 +1,5 @@
 ==============================================================================
-  SuperCC  --  Jeremy Christman's fork                      build jc-11
+  SuperCC  --  Jeremy Christman's fork                      build jc-12
 ==============================================================================
 
   1. What this is
@@ -475,7 +475,33 @@ ShowBuildTag is on, shows the build tag compiled into the jar, which matches
 the tag for that release. Newest first.
 
 
+jc-12  --  Cancelling a file dialog no longer breaks the program
+--------------------------------------------------------
+
+  * CANCELLING "OPEN" NO LONGER THROWS. Solution > Open, Search for seeds,
+    and Load states all put up a file chooser. If you pressed Cancel or
+    Escape instead of picking a file, SuperCC threw a NullPointerException
+    on the event thread. Nothing visibly crashed, but the action silently
+    died and the error went into the log. Cancelling is now what you would
+    expect: nothing happens.
+
+  * ASKING FOR A SOLUTION THAT ISN'T THERE NOW SAYS SO IN WORDS. The file
+    chooser fills in the solution filename for the level you are on. If no
+    solution has been saved for that level yet, opening it produced a
+    message box containing nothing but the full path, and dumped a fifty-
+    line Java stack trace into the error log. It now says "There is no
+    file:" and names it, and writes nothing to the log -- because being
+    asked for a solution you have not recorded yet is ordinary, not a
+    fault.
+
+  * These were both found by the error log added in jc-11, which had
+    recorded the second one three times across two sessions without anyone
+    noticing at the time. That is the log doing exactly the job it was
+    added for.
+
+
 jc-11  --  Errors stop disappearing
+
 --------------------------------------------------------
 
   * WHEN SOMETHING GOES WRONG, THERE IS NOW A FILE THAT SAYS SO. SuperCC

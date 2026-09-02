@@ -22,6 +22,7 @@ after. What the fork *does* change, by release:
 | jc-9 | **Opening ruleset** — an opt-in setting forces every set to open under MS. See *Always open under MS (jc-9)*. |
 | jc-10 | **Settings behavior** — the TWS folder remembers the last folder used again, reversing that part of jc-8. See *The TWS folder remembers again (jc-10)*. |
 | jc-11 | **Diagnostics** — errors are written to a log file instead of vanishing under `javaw`, and the NPE that fired on every launch is gone. The emulator is untouched: all 286 sets re-parsed and all 23,322 stored solutions re-played, byte-identical. See *The error log (jc-11)*. |
+| jc-12 | **GUI robustness** — cancelling a file chooser threw an uncaught NPE on the event thread, and a missing solution file produced a stack trace and a message that was just a path. Engine untouched. See *jc-12 -- the two ways MenuBar.openFileBytes could fail*. |
 
 > **`settings.ini` is `succ_settings.ini` from jc-8 on.** Older sections below are left in their
 > original wording where they describe historical work; read "settings.ini" in those as the same
@@ -37,6 +38,53 @@ after. What the fork *does* change, by release:
 3. **Clone/Trap connections on by default** (`java/graphics/MenuBar.java`, `java/graphics/GamePanel.java`).
    The Clone- and Trap-connection overlays render by default (matching Monster/Slip list), and the
    "Show Clone Connections" menu label casing is fixed.
+
+## jc-12 -- the two ways MenuBar.openFileBytes could fail
+
+`openFile()` returns `null` when the user dismisses the chooser. Its two other callers, "Open
+levelset" and "Open tws", both test for that; `openFileBytes` did not. It read
+
+```java
+return Files.readAllBytes(openFile(path, extensions).toPath());
+```
+
+so Cancel produced `null.toPath()`. A `NullPointerException` is not an `IOException`, so the
+`catch (IOException)` immediately below could not see it and it escaped onto the event thread.
+Three menu items are affected: Solution > Open, Search for seeds, and Load states.
+
+Reproduced before fixing, with a control: the pre-fix jar, Ctrl+O then Escape, gives
+
+```
+Uncaught exception in thread "AWT-EventQueue-0"
+java.lang.NullPointerException: Cannot invoke "java.io.File.toPath()" because the return value of
+  "graphics.MenuBar.openFile(String, String[])" is null
+    at graphics.MenuBar.openFileBytes(MenuBar.java:792)
+    at graphics.MenuBar$SolutionMenu.lambda$new$2(MenuBar.java:228)
+```
+
+and the same keystrokes on the fixed jar produce empty stderr with the window still responsive.
+
+The second defect is the one that was actually observed. `succ_error-<PC>.log` had recorded
+
+```
+java.nio.file.NoSuchFileException: ...\succsave\SokobanCCLP\65_Cost Benefit Paralysis-MS.json
+    at graphics.MenuBar.openFileBytes(MenuBar.java:792)
+```
+
+three times across two sessions. That one WAS caught -- but it was handled by calling
+`e.printStackTrace()`, which is what put fifty lines of JDK frames in the log, and by showing the
+user `e.getMessage()`, which for `NoSuchFileException` is the bare path with no words around it.
+Being asked to open a solution before one has been saved is the ordinary case, not a fault, so it
+now gets its own catch, a sentence, and no stack trace. Confirmed reachable by keystroke: the same
+Ctrl+O, Enter sequence reproduces it on the pre-fix jar and is silent on the fixed one.
+
+Worth recording for its own sake: **this was found by the error log added in jc-11**, in a file
+nobody had looked at, describing a defect nobody had reported. That is the whole argument for
+having built it.
+
+`graphics\MenuBar.java` is in `$SPLICE_MODIFIED` and has no `.form` sibling, so the edit ships;
+`verify-splice.ps1` and the shipped bytecode's exception table (two handlers where there was one)
+both confirm it.
 
 ## The error log (jc-11)
 

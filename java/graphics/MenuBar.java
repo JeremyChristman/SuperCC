@@ -31,6 +31,7 @@ import java.io.*;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
@@ -787,11 +788,34 @@ class MenuBar extends JMenuBar{
         return null;
     }
 
+    /**
+     * MOD (Jeremy, jc-12): two fixes, both in the two lines this used to be.
+     *
+     * openFile() returns NULL when the user cancels the chooser -- the other two callers of it,
+     * "Open levelset" and "Open tws", both test for that. This one did not: it called .toPath() on
+     * the result, and a NullPointerException is not an IOException, so the catch below could not
+     * see it and it escaped into the event thread. Cancelling Solution > Open, the seed search, or
+     * Load states threw.
+     *
+     * And a file that simply is not there was reported by dumping a fifty-line JDK stack trace to
+     * stderr and putting NoSuchFileException's message -- which is the bare path, with no words
+     * around it -- in front of the user. That is the ordinary case of asking for a solution before
+     * one has been saved, not a defect worth a stack trace. It was found because jc-11's error log
+     * recorded it three times in two sessions on succsave\SokobanCCLP\65: the log did its job.
+     *
+     * Callers all test the return for null already, so cancelling is now simply a no-op.
+     */
     private byte[] openFileBytes(String path, String... extensions) {
-        try{
-            return Files.readAllBytes(openFile(path, extensions).toPath());
+        File file = openFile(path, extensions);
+        if (file == null) return null;      // the user cancelled: not an error, nothing to report
+        try {
+            return Files.readAllBytes(file.toPath());
         }
-        catch (IOException e){
+        catch (NoSuchFileException e) {
+            // Expected whenever nothing has been saved for this level yet. No stack trace.
+            emulator.throwError("There is no file:\n" + file);
+        }
+        catch (IOException e) {
             e.printStackTrace();
             emulator.throwError("Could not load file:\n" + e.getMessage());
         }

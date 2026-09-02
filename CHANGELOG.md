@@ -47,6 +47,24 @@ measured. All three are updated together — see [`.github/RELEASING.md`](.githu
   changed class is `emulator/SuperCC.class`, plus three new `io/ErrorLog*` classes.
 - Clean launch produces empty stderr and no log file.
 
+## jc-12
+
+### Fixed
+- **Cancelling a file chooser threw an uncaught NullPointerException.** `MenuBar.openFile` returns
+  null when the user dismisses the dialog; its other two callers test for that and
+  `openFileBytes` did not, so Cancel or Escape produced `null.toPath()`. An NPE is not an
+  IOException, so the catch below could not see it and it escaped onto the event thread. Affects
+  Solution > Open, Search for seeds, and Load states. Reproduced against the pre-fix jar and
+  confirmed gone against the fixed one, same keystrokes.
+- **Opening a solution that does not exist reported it badly.** That case WAS caught, but handled
+  with `e.printStackTrace()` -- fifty lines of JDK frames into the error log -- and by showing the
+  user `NoSuchFileException.getMessage()`, which is the bare path with no words around it. It now
+  has its own catch, says "There is no file:", and logs nothing, because asking for a solution
+  before one has been saved is ordinary rather than a fault.
+
+  Both were found by the jc-11 error log, which had recorded the second three times across two
+  sessions on `succsave\SokobanCCLP\65` without anyone looking. The engine is untouched.
+
 ## Unreleased (tooling, shipped alongside jc-11)
 
 ### Added
