@@ -15,6 +15,30 @@ measured. All three are updated together — see [`.github/RELEASING.md`](.githu
 ## Unreleased (tests, no shipped change)
 
 ### Added
+- `test/MsTryEnterTest.java`: 59 assertions over MS ARRIVAL EFFECTS -- `MSCreature.tryEnter`, 365
+  lines and the largest single method in the repo, previously untested. MS splits the question in
+  two: `canEnter` answers "is this legal" and CanEnterTest already covers that in 99 assertions;
+  `tryEnter` answers "what happens now that you are here", and nothing covered it.
+
+  Most of the value is where MS and Lynx genuinely differ, because MS MUTATES THE MAP where Lynx
+  does not: Chip drowning writes `DROWNED_CHIP` and burning writes `BURNED_CHIP` (tiles Lynx has no
+  concept of), a block in water leaves `DIRT` but an ICE BLOCK leaves `ICE`, and an ice block pushed
+  into fire leaves `WATER` -- after which walking in behind it drowns you, which is asserted as its
+  own consequence. That asymmetry is why `CanEnterTest` and `LynxCanEnterTest` disagree about the
+  corpse tiles, and a test that looked at one ruleset alone would make either behavior look obvious.
+
+  Also covers the glider's water exemption and the fireball's fire exemption against `mslogic.c`'s
+  blunt `if (crid != Glider) dead` / `if (crid != Fireball) dead`, and states explicitly that a bug
+  beside fire is alive because it was REFUSED rather than because it survived -- the two look
+  identical from outside and only one is right.
+
+  Six planted defects, all caught. Two fixture bugs of my own found by running it: MS builds its
+  monster list from the .dat's monster field rather than by scanning the map, unlike Lynx, so the
+  monsters needed `.monster(x,y)`; and the block cases need exactly ONE tick, because on the second
+  Chip walks onto the square himself and clears the dirt or drowns in the water.
+
+  `game\MS\**` 25.6% -> 36.4%; target scope 42.2% -> 47.3%. No shipped code changed.
+
 - `test/TwsClickTest.java`: 32 assertions covering the .tws CLICK-EXPORT path -- the one jc-2
   fixed, which until now had no test. A click char is an offset into the 9x9 scrolled viewport and
   a .tws stores an offset relative to Chip, so the conversion needs Chip's position AT THE TICK THE
