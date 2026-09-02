@@ -12,6 +12,36 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## Unreleased (tests, no shipped change)
+
+### Added
+- `test/TwsClickTest.java`: 32 assertions covering the .tws CLICK-EXPORT path -- the one jc-2
+  fixed, which until now had no test. A click char is an offset into the 9x9 scrolled viewport and
+  a .tws stores an offset relative to Chip, so the conversion needs Chip's position AT THE TICK THE
+  CLICK WAS MADE. The original bug used his end-of-solution position, which wrote 13 of the corpus's
+  19 click-bearing solutions wrong and made BlakeE1 #118 unreplayable in Tile World.
+
+  Reaches the path through the real emulator -- SuperCC, openLevelset, loadLevel, real ticks --
+  because TWSWriter only touches its SavestateManager when `level.supportsClick()` (MS yes, Lynx
+  no) and SavestateManager's constructor is package-private. That also means it exercises the real
+  recording path rather than a stand-in, and it is why `game\MS\**` coverage jumped.
+
+  **The first version of this test did not discriminate the bug, and mutation testing is what said
+  so.** `Position.screenPosition` CLAMPS: for any 5 <= chipX < 27 the viewport is placed at
+  chipX - 4, so Chip sits at offset (4,4) inside it wherever he is, and the subtraction cancels --
+  a wrong position yields the right answer. Two squares mid-map cannot tell the two apart. The
+  fixture now clicks from 2,2, inside the top-left clamp, and ends at 13,13. That is also where the
+  original was caught: BlakeE1 #118's clicks target 31,14, against the right-hand clamp.
+
+  Four planted defects, all now caught, where the first draft caught none of them: the in-loop
+  `level.load` removed, the pre-loop one removed, BOTH removed (the true jc-2 bug), and the
+  post-write `savestates.load(-1, level)` removed. The last needed its own case -- exporting while
+  REWOUND -- because the loop's final load already leaves the level at the end of the move list,
+  so nothing else reaches it.
+
+  Coverage: target scope 36.6% -> 42.2%, `game\MS\**` 17.0% -> 25.6%, `emulator\**` 6.3% -> 24.5%,
+  `io\**` 65.5% -> 71.9%. No shipped code changed.
+
 ## jc-13
 
 ### Fixed
