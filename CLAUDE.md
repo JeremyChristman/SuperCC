@@ -210,20 +210,20 @@ taken. JaCoCo is a test-time tool cached under `%LOCALAPPDATA%\jacoco\<version>\
 dependency**, never committed, never shipped. Output goes to `coverage-report\` (gitignored);
 `coverage.csv` is the evidence behind every percentage below.
 
-As of jc-11, with all 1,665 assertions passing, **measured on JDK 16.0.2** (what CI pins):
+As of jc-13, with all 1,683 assertions passing, **measured on JDK 16.0.2** (what CI pins):
 
 | scope | branch | line | branches |
 |---|---|---|---|
-| **`game\**` + `io\**` — THE TARGET** | **36.5%** | 50.4% | 968/2654 |
+| **`game\**` + `io\**` — THE TARGET** | **36.6%** | 50.5% | 972/2658 |
 | &nbsp;&nbsp;`game\**` (the emulator) | 31.3% | 43.3% | 704/2249 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\MS\**` | 17.0% | 23.4% | 199/1174 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\Lynx\**` | 51.5% | 55.2% | 377/732 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 37.3% | 61.6% | 128/343 |
-| &nbsp;&nbsp;`io\**` (file formats) | 65.2% | 71.3% | 264/405 |
+| &nbsp;&nbsp;`io\**` (file formats) | 65.5% | 71.7% | 268/409 |
 | `emulator\**` | 6.3% | 9.7% | 24/380 |
-| `tools\**` + `graphics\**` — *not a target* | 0.0% | 0.0% | 0/1885 |
+| `tools\**` + `graphics\**` — *not a target* | 0.0% | 0.0% | 0/1887 |
 
-**Read this correctly.** Whole-project branch coverage is 16.9% (994/5885), and that number is
+**Read this correctly.** Whole-project branch coverage is 16.9% (998/5891), and that number is
 meaningless: 15 form-based classes cannot be compiled from this repo at all (ADR 0001), `tools\**`
 is 35 files of upstream code this fork does not modify, `graphics\**` is Swing with no headless test
 story, and the rest is vendored `org.json` / `com.intellij`. What this fork can break is the engine
@@ -236,7 +236,7 @@ javac 16. The other 2355 branches — including all 2249 of `game\**` — come f
 baseline and are byte-identical on every machine. So an `io\**` figure that differs slightly on
 another JDK is not a bug.
 
-**36.5% is a floor to build on, not a passing grade**, and the split says where the work is:
+**36.6% is a floor to build on, not a passing grade**, and the split says where the work is:
 
 - **`game\MS\**` at 17.0% is now the least-covered ruleset by a long way** — Lynx is at 51.5%,
   three times it. Four Lynx files did that: the move-preference table (`LynxCreatureMoveTest`),

@@ -226,31 +226,55 @@ public class TwsRoundTripTest {
         }
         Harness.check("an empty file is rejected too", threwEmpty);
 
-        /* A file truncated mid-header -- signature present, the rest missing.
+        /* Truncation, at every length a header can be cut to.
          *
-         * ⚠ FINDING, pinned rather than fixed. verifyAndInit ACCEPTS this. It genuinely checks only
-         * the signature; the ruleset byte, the skip and the header-length byte are all read straight
-         * past end-of-file, and DataInputStream.read() answers -1 there instead of throwing. The
-         * header length then comes out as garbage and readSolution starts walking records from the
-         * wrong offset.
-         *
-         * Not fixed here for two reasons: this file is about testing the format, not changing it,
-         * and io\TWSReader.java is NOT in $SPLICE_MODIFIED -- editing it would silently ship nothing
-         * until the splice list changed too, which is a build change and belongs in its own commit.
-         * The behavior is asserted as it stands so that FIXING it is a visible, deliberate act that
-         * turns this assertion red. */
-        byte[] shortHeader = new byte[6];
-        System.arraycopy(tws, 0, shortHeader, 0, 6);
-        File shortFile = dir.resolve("short.tws").toFile();
-        Files.write(shortFile.toPath(), shortHeader);
-        boolean threwShort = false;
-        try {
-            new TWSReader(shortFile).verifyAndInit();
-        } catch (java.io.IOException e) {
-            threwShort = true;
+         * This used to be a pinned FINDING: verifyAndInit accepted a file holding nothing but its
+         * four signature bytes, because twsInputStream extends FileInputStream and read() answers
+         * -1 at end of file rather than throwing. The ruleset byte came out as -1 (so LYNX), the
+         * length byte as -1, and headerLength as 8 + (-1) = 7 -- after which readSolution walked
+         * records from an offset that means nothing. Fixed in jc-13; these assertions are the
+         * inverse of what they were. */
+        for (int cut = 0; cut < 8; cut++) {
+            byte[] shortHeader = new byte[cut];
+            System.arraycopy(tws, 0, shortHeader, 0, cut);
+            File shortFile = dir.resolve("short" + cut + ".tws").toFile();
+            Files.write(shortFile.toPath(), shortHeader);
+            boolean threwShort = false;
+            String shortWhy = "";
+            try {
+                new TWSReader(shortFile).verifyAndInit();
+            } catch (java.io.IOException e) {
+                threwShort = true;
+                shortWhy = String.valueOf(e.getMessage());
+            }
+            Harness.check("a .tws cut to " + cut + " bytes is rejected", threwShort);
+            Harness.check("and it says why, rather than a bare type name (" + shortWhy + ")",
+                          shortWhy.length() > 0);
         }
-        Harness.check("a header truncated after the signature is currently ACCEPTED -- only the "
-                      + "signature is really validated (pinned, see the comment)", !threwShort);
+
+        /* A header whose own length byte claims more than the file holds. The signature and every
+         * header field are present and well-formed, so only the final cross-check catches this --
+         * and without it readSolution would skip past the end and read records out of nothing. */
+        byte[] lying = new byte[12];
+        System.arraycopy(tws, 0, lying, 0, 12);
+        lying[7] = (byte) 250;                     // header length byte: claims 8 + 250 = 258
+        File lyingFile = dir.resolve("lying.tws").toFile();
+        Files.write(lyingFile.toPath(), lying);
+        boolean threwLying = false;
+        String lyingWhy = "";
+        try {
+            new TWSReader(lyingFile).verifyAndInit();
+        } catch (java.io.IOException e) {
+            threwLying = true;
+            lyingWhy = String.valueOf(e.getMessage());
+        }
+        Harness.check("a header claiming to be longer than the whole file is rejected", threwLying);
+        Harness.check("and the message names both numbers (" + lyingWhy + ")",
+                      lyingWhy.contains("258") && lyingWhy.contains("12"));
+
+        /* The guard must not fire on a real file: the good one from section 1 still opens. */
+        new TWSReader(twsFile).verifyAndInit();
+        Harness.check("a well-formed .tws is still accepted after all that", true);
 
         /* ================================================================
          * 5. The solution length the writer declares matches what it wrote

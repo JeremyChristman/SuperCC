@@ -18,9 +18,42 @@ public class TWSReader{
 
     private final File twsFile;
 
+    /**
+     * MOD (Jeremy, jc-13): a truncated .tws used to be accepted.
+     *
+     * twsInputStream extends FileInputStream, so read() answers -1 at end of file instead of
+     * throwing. Only the signature was genuinely checked; everything after it was read straight
+     * past the end. A file holding nothing but its four signature bytes therefore came out as
+     *
+     *     ruleset      = LYNX     (the byte read as -1, and -1 != 2)
+     *     len          = -1
+     *     headerLength = 8 + (-1) = 7
+     *
+     * with no complaint, and readSolution then walked records from an offset that means nothing.
+     * The failure that produces is "the wrong solution plays back", not a clean error, which is the
+     * worst shape for something reading a file that holds work you cannot reconstruct.
+     *
+     * TWO checks do it, and there are deliberately not three. The first draft also tested each
+     * header field for -1 after reading it, described in the comment as belt-and-braces. Mutation
+     * testing said otherwise: deleting either of those tests changed no result, because with
+     * `fileLength >= 8` established they cannot fire. readInt takes bytes 0-3, the ruleset byte is
+     * 4, skip(2) covers 5 and 6, and the length byte is 7 -- every one of them present by the time
+     * the length guard has passed. They were provably dead code wearing a comment that claimed
+     * they were a safety net, which is worse than not having them.
+     *
+     * What remains, both proven load-bearing by planting their removal:
+     *   - the file is at least a whole header. This is what rejects a truncated file, and it
+     *     produces the message worth reading.
+     *   - the header's own length byte does not claim more than the file holds. Nothing else
+     *     catches that: every field is present and well-formed, and only the cross-check notices.
+     */
     public void verifyAndInit() throws IOException {
         twsInputStream reader = new twsInputStream(twsFile);
         try{
+            long fileLength = twsFile.length();
+            if (fileLength < 8)
+                throw new IOException("Not a .tws file: it holds " + fileLength
+                                      + " bytes and the header alone is 8");
             if (reader.readInt() != -1717882059)
                 throw new IOException("Invalid signature");
             if (reader.readByte() == 2)
@@ -30,6 +63,9 @@ public class TWSReader{
             reader.skip(2);
             int len = reader.readByte();
             headerLength = 8 + len;
+            if (headerLength > fileLength)
+                throw new IOException("Truncated .tws: the header says it is " + headerLength
+                                      + " bytes but the file holds only " + fileLength);
             reader.skip(len);
             reader.close();
         }

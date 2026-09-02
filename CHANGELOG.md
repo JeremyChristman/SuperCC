@@ -12,6 +12,49 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## jc-13
+
+### Fixed
+- **A truncated `.tws` was accepted and then misread.** `twsInputStream` extends
+  `FileInputStream`, so `read()` answers -1 at end of file instead of throwing, and
+  `verifyAndInit` really validated only the four-byte signature. A file holding nothing but its
+  signature came out as ruleset LYNX, length byte -1 and `headerLength = 7`, after which
+  `readSolution` walked records from an offset that means nothing -- so the symptom was "the wrong
+  solution plays back" rather than an error. Now refused, in words, with the numbers.
+- **A header claiming to be longer than the file** is refused too. Every field can be present and
+  well-formed with the file still truncated after them; only the cross-check catches that.
+
+  Found while writing `TwsRoundTripTest`, where it was pinned as a FINDING for one release because
+  `io\TWSReader.java` was not yet in `$SPLICE_MODIFIED` and editing it would have shipped nothing.
+  It is in the splice list now.
+
+  **Two checks, deliberately not four.** The first draft also tested each header field for -1;
+  mutation testing showed both were provably dead once the length guard exists, so they were
+  removed rather than left as a comment claiming a safety net that could not fire. Each remaining
+  check was proven load-bearing by planting its removal.
+
+  **It rejects nothing real:** all **23,967** `.tws` files in the maintainer's collection were
+  re-opened with the new check and every one was accepted. That regression test cannot live in the
+  repo, since none of those files may be committed.
+
+## jc-12
+
+### Fixed
+- **Cancelling a file chooser threw an uncaught NullPointerException.** `MenuBar.openFile` returns
+  null when the user dismisses the dialog; its other two callers test for that and
+  `openFileBytes` did not, so Cancel or Escape produced `null.toPath()`. An NPE is not an
+  IOException, so the catch below could not see it and it escaped onto the event thread. Affects
+  Solution > Open, Search for seeds, and Load states. Reproduced against the pre-fix jar and
+  confirmed gone against the fixed one, same keystrokes.
+- **Opening a solution that does not exist reported it badly.** That case WAS caught, but handled
+  with `e.printStackTrace()` -- fifty lines of JDK frames into the error log -- and by showing the
+  user `NoSuchFileException.getMessage()`, which is the bare path with no words around it. It now
+  has its own catch, says "There is no file:", and logs nothing, because asking for a solution
+  before one has been saved is ordinary rather than a fault.
+
+  Both were found by the jc-11 error log, which had recorded the second three times across two
+  sessions on `succsave\SokobanCCLP\65` without anyone looking. The engine is untouched.
+
 ## jc-11 — 2026-08-30
 
 ### Added
@@ -46,24 +89,6 @@ measured. All three are updated together — see [`.github/RELEASING.md`](.githu
   SHA-256. Independently, a jar-entry diff shows **zero `game/**` classes changed** — the only
   changed class is `emulator/SuperCC.class`, plus three new `io/ErrorLog*` classes.
 - Clean launch produces empty stderr and no log file.
-
-## jc-12
-
-### Fixed
-- **Cancelling a file chooser threw an uncaught NullPointerException.** `MenuBar.openFile` returns
-  null when the user dismisses the dialog; its other two callers test for that and
-  `openFileBytes` did not, so Cancel or Escape produced `null.toPath()`. An NPE is not an
-  IOException, so the catch below could not see it and it escaped onto the event thread. Affects
-  Solution > Open, Search for seeds, and Load states. Reproduced against the pre-fix jar and
-  confirmed gone against the fixed one, same keystrokes.
-- **Opening a solution that does not exist reported it badly.** That case WAS caught, but handled
-  with `e.printStackTrace()` -- fifty lines of JDK frames into the error log -- and by showing the
-  user `NoSuchFileException.getMessage()`, which is the bare path with no words around it. It now
-  has its own catch, says "There is no file:", and logs nothing, because asking for a solution
-  before one has been saved is ordinary rather than a fault.
-
-  Both were found by the jc-11 error log, which had recorded the second three times across two
-  sessions on `succsave\SokobanCCLP\65` without anyone looking. The engine is untouched.
 
 ## Unreleased (tooling, shipped alongside jc-11)
 

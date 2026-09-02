@@ -45,7 +45,7 @@ public class SuperCC {
      * class can NEVER be recompiled) would keep the OLD tag baked in, and the jar would report two
      * different versions depending on which window you looked at. */
     public static final String TITLE = "SuperCC";
-    public static final String BUILD_TAG = "[jc-12]";
+    public static final String BUILD_TAG = "[jc-13]";
 
     private SavestateManager savestates;
 //    SavestateCompressor savestateCompressor = new SavestateCompressor();

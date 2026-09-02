@@ -23,6 +23,7 @@ after. What the fork *does* change, by release:
 | jc-10 | **Settings behavior** — the TWS folder remembers the last folder used again, reversing that part of jc-8. See *The TWS folder remembers again (jc-10)*. |
 | jc-11 | **Diagnostics** — errors are written to a log file instead of vanishing under `javaw`, and the NPE that fired on every launch is gone. The emulator is untouched: all 286 sets re-parsed and all 23,322 stored solutions re-played, byte-identical. See *The error log (jc-11)*. |
 | jc-12 | **GUI robustness** — cancelling a file chooser threw an uncaught NPE on the event thread, and a missing solution file produced a stack trace and a message that was just a path. Engine untouched. See *jc-12 -- the two ways MenuBar.openFileBytes could fail*. |
+| jc-13 | **File-format robustness** — a truncated `.tws` was accepted and then misread; it is refused now, with a message. 23,967 real solution files re-verified, none rejected. Engine untouched. See *jc-13 -- a truncated .tws was accepted*. |
 
 > **`settings.ini` is `succ_settings.ini` from jc-8 on.** Older sections below are left in their
 > original wording where they describe historical work; read "settings.ini" in those as the same
@@ -38,6 +39,45 @@ after. What the fork *does* change, by release:
 3. **Clone/Trap connections on by default** (`java/graphics/MenuBar.java`, `java/graphics/GamePanel.java`).
    The Clone- and Trap-connection overlays render by default (matching Monster/Slip list), and the
    "Show Clone Connections" menu label casing is fixed.
+
+## jc-13 -- a truncated .tws was accepted
+
+`twsInputStream` extends `FileInputStream`, so `read()` answers -1 at end of file rather than
+throwing. `verifyAndInit` genuinely checked only the four-byte signature; every field after it was
+read straight past the end. A file holding nothing but its signature therefore produced
+
+    ruleset      = LYNX      (the byte read as -1, and -1 != 2)
+    len          = -1
+    headerLength = 8 + (-1) = 7
+
+with no complaint, and `readSolution` then walked records from an offset that means nothing. The
+symptom is "the wrong solution plays back", not a clean error -- the worst shape for something
+reading a file that holds work you cannot reconstruct. It was found while writing
+`TwsRoundTripTest`, and pinned there as a FINDING for one release before being fixed here, because
+`io\TWSReader.java` was not in `$SPLICE_MODIFIED` and editing it would have shipped nothing.
+
+### Two checks, and deliberately not four
+
+The first draft had four: the file-length guard, an end-of-file test after each header field, and
+the header-length cross-check. Mutation testing killed two of them. With `fileLength >= 8`
+established, `readInt` takes bytes 0-3, the ruleset byte is 4, `skip(2)` covers 5 and 6 and the
+length byte is 7 -- all present, so neither -1 test can fire. Deleting either changed no result.
+They were provably dead code wearing a comment that called them a safety net, which is worse than
+not having them, so they are gone.
+
+What remains, each proven load-bearing by planting its removal:
+
+| Check | What only it catches |
+|---|---|
+| `fileLength < 8` | a file too short to hold a header at all |
+| `headerLength > fileLength` | a header whose own length byte claims more than the file holds -- every field present and well-formed, and only the cross-check notices |
+
+### It rejects nothing real
+
+The risk in tightening a reader is refusing files that were always fine. Every `.tws` in the
+maintainer's collection was re-opened with the new check: **23,967 accepted, 0 rejected**, across
+`save\` and the whole of `tws\`. That is the regression test that matters, and it cannot live in
+the repo, because none of those files may be committed.
 
 ## jc-12 -- the two ways MenuBar.openFileBytes could fail
 

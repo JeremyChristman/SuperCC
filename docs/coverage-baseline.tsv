@@ -8,11 +8,11 @@
 #
 # key	branch_covered	branch_total	branch_pct
 #jdk	16.0.2+7-67
-target	968	2654	36.5%
+target	972	2658	36.6%
 game	704	2249	31.3%
 game.MS	199	1174	17.0%
 game.Lynx	377	732	51.5%
 game.shared	128	343	37.3%
-io	264	405	65.2%
+io	268	409	65.5%
 emulator	24	380	6.3%
-nontarget	0	1885	0.0%
+nontarget	0	1887	0.0%

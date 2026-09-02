@@ -34,7 +34,7 @@ Coverage numbers in CLAUDE.md are enforced at RELEASE time by `coverage.ps1 -Che
 CLAUDE.md section 4 table, commit both. Not gated in CI.
 
 Coverage: `coverage.ps1` (JaCoCo; test-time only, never committed, not a dependency). Branch
-coverage of `game\**` + `io\**` is **36.5%** — a floor, not a grade. `game\MS\**` (17.0%) is the
+coverage of `game\**` + `io\**` is **36.6%** — a floor, not a grade. `game\MS\**` (17.0%) is the
 least-covered ruleset, well behind Lynx (51.5%). No CI gate; see CLAUDE.md §4.
 
 Machine-readable results: `run-tests.ps1 -ResultsPath test-results` writes JUnit XML and JSON per

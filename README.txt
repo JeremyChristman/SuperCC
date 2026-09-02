@@ -1,5 +1,5 @@
 ==============================================================================
-  SuperCC  --  Jeremy Christman's fork                      build jc-12
+  SuperCC  --  Jeremy Christman's fork                      build jc-13
 ==============================================================================
 
   1. What this is
@@ -473,6 +473,30 @@ AlwaysOpenInMS  Whether every level set opens under the MS ruleset, no matter
 Releases from jc-2 on carry a jc-N tag in the repository. The title bar, when
 ShowBuildTag is on, shows the build tag compiled into the jar, which matches
 the tag for that release. Newest first.
+
+
+jc-13  --  A damaged solution file is refused instead of misread
+--------------------------------------------------------
+
+  * A .tws SOLUTION FILE THAT HAS BEEN CUT SHORT IS NOW REJECTED. Only the
+    four-byte signature was really being checked. Everything after it was
+    read past the end of the file, where Java answers -1 rather than
+    complaining, so a file holding nothing but its signature was accepted
+    and its header length came out as 7 instead of a real number. SuperCC
+    then looked for solutions at an offset that meant nothing. The failure
+    that produces is "the wrong solution plays back", not an error message,
+    which is the worst way for something reading your saved work to fail.
+
+  * A HEADER THAT CLAIMS TO BE LONGER THAN THE FILE is refused too. Every
+    field can be present and well-formed and the file still be truncated
+    after them; only comparing the two catches it.
+
+  * Both messages say what is wrong in words and give the numbers, instead
+    of naming a Java exception.
+
+  * Nothing that was readable before has stopped being readable: all 23,967
+    .tws files in the maintainer's own collection were re-opened with the
+    new check and every one was accepted.
 
 
 jc-12  --  Cancelling a file dialog no longer breaks the program

@@ -23,7 +23,8 @@ $SPLICE_MODIFIED = @(
     "io\ErrorLog.java",
     "io\LevelFactory.java",
     "io\SuccPaths.java",
-    "io\TWSWriter.java"
+    "io\TWSWriter.java",
+    "io\TWSReader.java"
 )
 
 # Everything staged into the jar: the committed IntelliJ .class baseline, the third-party bytecode,
