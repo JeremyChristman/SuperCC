@@ -80,6 +80,21 @@ measured. All three are updated together — see [`.github/RELEASING.md`](.githu
   fails on a red suite, on a stale or undeletable exec/CSV, on a jacococli class mismatch, and when
   run from outside the repo. Each of those guards was verified by reproducing the failure it
   prevents.
+- `test/LynxTickTest.java`: 58 assertions over LynxCreature.tick(), which at 217 lines was the
+  largest untested method in the repo. It folds THREE Tile World functions into one --
+  startmovement(), continuemovement() and endmovement() -- and the seam between them is invisible
+  from outside. Covers the speed table as a full countdown (floor 6,4,2,0; ice 4,0; ice skates
+  cancel the doubling; a blob steps by one) and the arrival-tile effects for Chip, blocks and
+  monsters: drowning and the glider's exemption, a block turning water to dirt, fire and the fire
+  boots, dirt and fake blue walls clearing, pop-up walls closing, bombs, the thief, every key and
+  boot, and the four doors including green not consuming its key.
+  Two places SuperCC and Tile World are written differently are now PINNED rather than fixed,
+  with the reasoning recorded: TW guards the IC counter with `if (chipsneeded())` while SuperCC
+  decrements unconditionally, so the count can go negative here (cosmetic -- the socket test is
+  `<= 0` on both sides); and TW increments boot possession while SuperCC assigns 1, so collecting
+  the same boot twice reads 1 rather than 2 (every use is a nonzero test).
+  Nine planted defects, all caught.
+  `game\Lynx\**` 37.4% -> 51.5%; target scope 30.5% -> 34.7%.
 - `test/LynxCreatureListTest.java`: 61 assertions over the LYNX creature list -- ordering, the
   claimed layer, animations, clones and the creature cap. Creature ORDER is where desyncs live,
   and Lynx had nothing covering it. lxlogic.c's `advancegame()` runs three loops per tick and
