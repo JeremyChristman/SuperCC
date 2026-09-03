@@ -12,9 +12,40 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
-## Unreleased (tests, no shipped change)
+## jc-14
 
 ### Added
+- **The window title is fully switchable: `ShowLevelPack` and `ShowLevelName` join `ShowBuildTag`.**
+  The title has always been `SuperCC [jc-N] - <pack> - <level>` with only the tag optional. Both
+  remaining halves are now `[Graphics]` switches, shipped as `ShowLevelPack = false` and
+  `ShowLevelName = true` — the level name stays on because that is how every build to date looked,
+  and the pack is off because that is the default Jeremy asked for.
+
+  **The separators are computed, not templated.** With both halves off the title is bare `SuperCC`;
+  with one off there is exactly one ` - `; only with both on are there two. That rule lives in one
+  static, pure `SuperCC.composeWindowTitle()` with no settings and no `Level` in sight, so it can be
+  walked exhaustively — `WindowTitleTest` takes all eight combinations of the three switches, and
+  asserts the separator COUNT as well as the string, because "no extra dashes" is the actual
+  requirement and reading it off eight expected strings is not the same as checking it.
+
+  **The two new switches use OPPOSITE predicates, deliberately.** `ShowLevelPack` is strictly opt-in
+  like `ShowBuildTag` (default OFF, so a typo leaves it off); `ShowLevelName` is the mirror
+  `shownUnlessOptedOut()` (default ON, so only an explicit `false` or `0` hides it). The case that
+  separates them is an unrecognized VALUE — a file with no key at all is filled in by
+  `seedDefaults()` before either predicate sees it, and the comment in `SuccPaths` says so rather
+  than claiming more for the mirror than it earns.
+
+  ⚠ **This changes the stock window title**, which is the one thing here a downloader sees without
+  asking for it: `SuperCC - CCLP5 - Lesson Zero` becomes `SuperCC - Lesson Zero`. Anything matching
+  a window by its level set — `supercc_driver.ps1` does, and uses the same expression to assert the
+  right set is loaded — needs `ShowLevelPack = true` in its own settings file. README section 6 says
+  so in the same words.
+
+  Five mutations planted and all five killed: dropping the empty-pack guard, swapping either
+  predicate for the other, bypassing the predicate in `render()`, and flipping the headless
+  `paths == null` fallback.
+
+### Added (since jc-13, no shipped change — released here)
 - **`verify-splice.ps1` check 5: the vendored third-party bytecode is tamper-evident.** `com/` and
   `org/` hold 23 class files with no source anywhere in this repo, and until now nothing watched
   them — checks 1-4 compare `java/**` against its shipped bytecode and these have no `java/**` to
@@ -55,7 +86,7 @@ measured. All three are updated together — see [`.github/RELEASING.md`](.githu
   `springTrappedCreature`'s guards.
 
   **A lifecycle contract worth knowing, found by a fixture that failed:** `addClone` queues into
-  `newClones`, and `initialise()` clears that queue at the top of every tick. So a clone queued from
+  `newClones`, and `initialise()` clears that queue at the top of every tick. So a clone queued from  <!-- aen-exempt: upstream method name -->
   OUTSIDE the tick cycle is discarded before `finalise()` ever sees it and never becomes a creature.
   That is not a defect -- in a real level only a creature or Chip standing on the button presses it,
   which happens mid-tick -- but it means the population counted right after a bare `press()`, which

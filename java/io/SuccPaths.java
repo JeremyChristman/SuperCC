@@ -95,6 +95,11 @@ public class SuccPaths {
         d.put("Graphics:TileHeight", "20");
         d.put("Graphics:TWSNotate", "false");
         d.put("Graphics:ShowBuildTag", "false");   // MOD (Jeremy, jc-8): OFF unless asked for
+        /* MOD (Jeremy, jc-14): the two halves of the title after "SuperCC" are switchable too.
+         * The shipped defaults are pack OFF and level name ON -- see getShowLevelPack() and
+         * getShowLevelName() for why they use OPPOSITE predicates. */
+        d.put("Graphics:ShowLevelPack", "false");
+        d.put("Graphics:ShowLevelName", "true");
         d.put("Emulation:AlwaysOpenInMS", "false");// MOD (Jeremy, jc-9): see getAlwaysOpenInMS()
         return d;
     }
@@ -140,6 +145,11 @@ public class SuccPaths {
         // Rendered through the same predicate the getter uses, so the file can never disagree with
         // what getShowBuildTag() will read back out of it.
         sb.append("ShowBuildTag = ").append(showBuildTagOf(map.get("Graphics:ShowBuildTag"))).append('\n');
+        /* MOD (Jeremy, jc-14): written through the same predicates the getters use, for the same
+         * reason ShowBuildTag is -- the file must never disagree with what is read back out of it.
+         * Note the two use DIFFERENT predicates because their defaults differ. */
+        sb.append("ShowLevelPack = ").append(optedIn(map.get("Graphics:ShowLevelPack"))).append('\n');
+        sb.append("ShowLevelName = ").append(shownUnlessOptedOut(map.get("Graphics:ShowLevelName"))).append('\n');
         /* MOD (Jeremy, jc-9): [Emulation] is for settings that change how a level is PLAYED rather
          * than how it is drawn or where files live. A jc-8 file has no such section; seedDefaults()
          * supplies the key and it appears the next time anything is written, which is exactly how
@@ -426,6 +436,57 @@ public class SuccPaths {
      */
     public boolean getShowBuildTag() {
         return showBuildTagOf(settingsMap.get("Graphics:ShowBuildTag"));
+    }
+
+    /* MOD (Jeremy, jc-14): the LEVEL PACK half of the title -- "SuperCC - <pack> - <level>".
+     *
+     *   succ_settings.ini  [Graphics]  ShowLevelPack = true  ->  the pack name is shown
+     *                                  anything else         ->  it is not
+     *                                  (absent)              ->  OFF, the shipped default
+     *
+     * Strictly opt-in, the same rule as ShowBuildTag, because OFF is the shipped default and a
+     * typo should leave it that way.
+     *
+     * ⚠ Turning this OFF breaks window-title matching for any automation that identifies a
+     * SuperCC instance by its level set -- supercc_driver.ps1 anchors on
+     * "^SuperCC( [tag])? - <Set>" and uses the same expression to assert the RIGHT set is loaded.
+     * That assertion is a safety property, not a convenience. Anything relying on it needs
+     * ShowLevelPack = true in ITS settings file, or a looser pattern. */
+    public boolean getShowLevelPack() {
+        return optedIn(settingsMap.get("Graphics:ShowLevelPack"));
+    }
+
+    /* MOD (Jeremy, jc-14): the LEVEL NAME half -- the trailing "- <level>".
+     *
+     *   succ_settings.ini  [Graphics]  ShowLevelName = false  ->  the level name is hidden
+     *                                  ShowLevelName = 0      ->  same
+     *                                  anything else          ->  it is shown
+     *                                  (absent)               ->  ON, the shipped default
+     *
+     * ⚠ THE PREDICATE IS THE MIRROR OF ShowBuildTag's, deliberately. Every other switch here is
+     * strictly opt-in because its default is OFF, and a typo must not switch it on. This one
+     * defaults ON, so the same reasoning inverts: a typo, a blank value or anything else the
+     * parser does not recognize must leave the name SHOWN, because shown is what every build up
+     * to jc-13 did and losing it is the surprising outcome.
+     *
+     * Be precise about what this predicate is and is NOT buying, because the two cases look alike:
+     * a settings file that predates the key entirely -- every jc-13 file -- is handled by
+     * seedDefaults(), which fills the key with "true" at load, so optedIn() would get that case
+     * right too. What only the mirror gets right is an unrecognized VALUE, where opt-in semantics
+     * would silently hide the name.
+     *
+     * Do not "tidy" the two into one predicate. They differ because their defaults differ. */
+    public boolean getShowLevelName() {
+        return shownUnlessOptedOut(settingsMap.get("Graphics:ShowLevelName"));
+    }
+
+    /* MOD (Jeremy, jc-14): ONE definition of "this switch is on unless explicitly turned off",
+     * the counterpart to optedIn(). Only the exact values "false" (any casing) and "0" turn the
+     * thing off; null, blank and anything unrecognized leave it on. */
+    private static boolean shownUnlessOptedOut(String raw) {
+        if (raw == null) return true;
+        raw = raw.trim();
+        return !(raw.equalsIgnoreCase("false") || raw.equals("0"));
     }
 
     /* MOD (Jeremy): the single definition of "is the tag on", shared by the getter and by render(),

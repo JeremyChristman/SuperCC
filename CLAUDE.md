@@ -206,6 +206,7 @@ test/TwsClickTest.java       exporting a CLICK to .tws -- the jc-2 fix, via the 
 test/MsTryEnterTest.java     MS ARRIVAL effects -- what a tile does to whoever steps on it
 test/MsCreatureListTest.java MS list per TICK -- FORWARD order, the teeth clock, what MS refuses
 test/MsCloneTrapTest.java    MS clone machines and beartraps -- the dispatch, not the wiring
+test/WindowTitleTest.java    the window title -- all 8 combinations of the three jc-14 switches
 ```
 
 ### Mutation testing — and the trap that makes it lie
@@ -254,52 +255,52 @@ taken. JaCoCo is a test-time tool cached under `%LOCALAPPDATA%\jacoco\<version>\
 dependency**, never committed, never shipped. Output goes to `coverage-report\` (gitignored);
 `coverage.csv` is the evidence behind every percentage below.
 
-As of jc-13, with all 1,834 assertions passing, **measured on JDK 16.0.2** (what CI pins):
+As of jc-14, with all 1,912 assertions passing, **measured on JDK 16.0.2** (what CI pins):
 
 | scope | branch | line | branches |
 |---|---|---|---|
-| **`game\**` + `io\**` — THE TARGET** | **50.2%** | 64.5% | 1334/2658 |
-| &nbsp;&nbsp;`game\**` (the emulator) | 46.2% | 60.0% | 1040/2249 |
+| **`game\**` + `io\**` — THE TARGET** | **50.3%** | 64.6% | 1339/2664 |
+| &nbsp;&nbsp;`game\**` (the emulator) | 46.2% | 59.9% | 1040/2249 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\MS\**` | 42.5% | 57.4% | 499/1174 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\Lynx\**` | 51.5% | 55.2% | 377/732 |
-| &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 47.8% | 69.4% | 164/343 |
-| &nbsp;&nbsp;`io\**` (file formats) | 71.9% | 77.9% | 294/409 |
-| `emulator\**` | 24.5% | 24.6% | 93/380 |
+| &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 47.8% | 69.3% | 164/343 |
+| &nbsp;&nbsp;`io\**` (file formats) | 72.0% | 78.1% | 299/415 |
+| `emulator\**` | 27.7% | 25.8% | 113/408 |
 | `tools\**` + `graphics\**` — *not a target* | 0.0% | 0.0% | 0/1887 |
 
-**Read this correctly.** Whole-project branch coverage is 24.4% (1439/5891), and that number is
+**Read this correctly.** Whole-project branch coverage is 24.7% (1464/5925), and that number is
 meaningless: 15 form-based classes cannot be compiled from this repo at all (ADR 0001), `tools\**`
 is 35 files of upstream code this fork does not modify, `graphics\**` is Swing with no headless test
 story, and the rest is vendored `org.json` / `com.intellij`. What this fork can break is the engine
 and the file formats, so that is what is scoped and measured.
 
-**The number is mildly JDK-dependent, by construction.** 299 of the 2654 target branches live in
-the four spliced `io\**` classes (`ErrorLog`, `LevelFactory`, `SuccPaths`, `TWSWriter`), which your
-`javac` compiles; `build-config.ps1` already notes that javac 17 does not emit identical bytecode to
-javac 16. The other 2355 branches — including all 2249 of `game\**` — come from the committed
-baseline and are byte-identical on every machine. So an `io\**` figure that differs slightly on
-another JDK is not a bug.
+**The number is mildly JDK-dependent, by construction.** 378 of the 2664 target branches live in
+the five spliced `io\**` classes (`ErrorLog`, `LevelFactory`, `SuccPaths`, `TWSReader`, `TWSWriter`),
+which your `javac` compiles; `build-config.ps1` already notes that javac 17 does not emit identical
+bytecode to javac 16. The other 2286 branches — including all 2249 of `game\**` — come from the
+committed baseline and are byte-identical on every machine. So an `io\**` figure that differs
+slightly on another JDK is not a bug.
 
-**50.2% is a floor to build on, not a passing grade**, and the split says where the work is:
+**50.3% is a floor to build on, not a passing grade**, and the split says where the work is:
 
-- **`game\MS\**` at 17.0% is now the least-covered ruleset by a long way** — Lynx is at 51.5%,
-  three times it. Four Lynx files did that: the move-preference table (`LynxCreatureMoveTest`),
-  the entry rules (`LynxCanEnterTest`), the creature list (`LynxCreatureListTest`) and the movement
-  engine (`LynxTickTest`), all against `lxlogic.c`. The MS suite is dense exactly where the desyncs
-  were and thin everywhere else. **`MSLevel` (12.4%) and `MSCreatureList` (10.7%) are now the
-  weakest engine files in the repo**, and MS is the ruleset the maintainer's own solutions replay
-  against — so it is the obvious next target.
+- **The two rulesets are close now — MS 42.5%, Lynx 51.5% — and that took deliberate work on both.**
+  Four Lynx files built that side (the move-preference table `LynxCreatureMoveTest`, the entry rules
+  `LynxCanEnterTest`, the creature list `LynxCreatureListTest`, the movement engine `LynxTickTest`,
+  all against `lxlogic.c`); three MS files closed the gap (`MsTryEnterTest`, `MsCreatureListTest`,
+  `MsCloneTrapTest`). **`MSCreature` (39.5%, 314/795) is now the single largest pool of uncovered
+  engine branches in the repo** — nearly a third of `game\**` lives in that one class — and MS is
+  the ruleset the maintainer's own solutions replay against, so it is the obvious next target.
+  `game.Lynx.LynxLevel` (33.9%) is the weakest by percentage.
   ⚠ Note that `lxlogic.c` carries **no** `MOD (Jeremy)` comments, unlike `mslogic.c`'s 79 — so it
   is unmodified upstream, and a Lynx divergence would never have been looked for by the (MS-only)
   desync project. A failure in a Lynx test is a finding, not a bug in the test.
-- The `io.TWS*` classes were the other 0%, and `TwsRoundTripTest` took them to 65.2% for `io\**`
-  overall. What is still uncovered there is the **click-conversion path** — the one jc-2 fixed,
-  where 13 of 19 click-bearing solutions exported the wrong cell. It needs an MS level plus a real
-  `SavestateManager`, whose constructor is package-private in `emulator`, so the round-trip test
-  uses Lynx (which has no clicks) and says so.
-- `game.Cheats`, `game.CreatureList`, `game.SavestateReader` and both `io.TWS*` stream classes sit
-  at a flat **0%**. TWS read/write is the format behind every exported solution, which makes it the
-  highest-value uncovered code in the repo.
+- The `io.TWS*` classes were once a flat 0%; `TwsRoundTripTest` and `TwsClickTest` took `io\**` to
+  72.0%, including the **click-conversion path** — the one jc-2 fixed, where 13 of 19 click-bearing
+  solutions exported the wrong cell. What is left there is mostly `TWSReader.twsInputStream`
+  (28.9%, 13/45), the byte-level reader.
+- Still at a flat **0%**: `game.Cheats` (30 branches), `game.Ruleset`, `game.Savestate`,
+  `game.Lynx.LynxSavestate`, and in `emulator\**` the `EmulatorKeyListener` (41), `ArgumentParser`
+  (26) and `SavestateCompressor` (12). `ArgumentParser` is the one a user can reach without a GUI.
 - The suite is strongest exactly where the desyncs were: MS movement, `canEnter`, slide and leave.
   That is not an accident, and it was the right order to do it in.
 
@@ -426,8 +427,15 @@ The staging temp **must stay a sibling** of the target — same directory means 
 atomic path is available; the fallback is copy-then-delete, which truncates the destination and
 reintroduces the torn-file bug this replaced. Never "tidy" it into `%TEMP%`.
 
-Opt-in switches (`ShowBuildTag`, `AlwaysOpenInMS`) all go through the single `optedIn()` predicate.
-Put any new switch through it too. **Every switch defaults OFF for downloaders** — see §6.
+Opt-in switches (`ShowBuildTag`, `ShowLevelPack`, `AlwaysOpenInMS`) all go through the single
+`optedIn()` predicate — ON only for `true`/`1`, so a typo cannot switch one on. **A switch whose
+default is OFF must use it.**
+
+`ShowLevelName` (jc-14) is the one exception and it proves the rule: its default is ON, so the same
+reasoning inverts and it goes through the mirror `shownUnlessOptedOut()` — OFF only for
+`false`/`0`. **Match the predicate to the default, and never share one between switches whose
+defaults differ.** Be accurate about why: an absent key is filled by `seedDefaults()` before either
+predicate sees it, so the two differ *only* on an unrecognized value.
 
 ### Adding a setting: three places, and missing one fails quietly
 

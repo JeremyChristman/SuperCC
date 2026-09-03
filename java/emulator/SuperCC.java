@@ -45,7 +45,7 @@ public class SuperCC {
      * class can NEVER be recompiled) would keep the OLD tag baked in, and the jar would report two
      * different versions depending on which window you looked at. */
     public static final String TITLE = "SuperCC";
-    public static final String BUILD_TAG = "[jc-13]";
+    public static final String BUILD_TAG = "[jc-14]";
 
     private SavestateManager savestates;
 //    SavestateCompressor savestateCompressor = new SavestateCompressor();
@@ -77,6 +77,42 @@ public class SuperCC {
     public String windowTitlePrefix() {
         if (paths == null || !paths.getShowBuildTag()) return TITLE;
         return TITLE + " " + BUILD_TAG;
+    }
+
+    /* MOD (Jeremy, jc-14): the whole window title, assembled in ONE place.
+     *
+     *     SuperCC [jc-N] - <pack> - <level>
+     *             \_____/   \____/   \_____/
+     *          ShowBuildTag  ShowLevelPack  ShowLevelName
+     *
+     * All three parts are independently switchable from succ_settings.ini, so the separators
+     * cannot be baked into the format string: with both halves off the title is bare "SuperCC",
+     * with one off there is a single " - ", and only with both on are there two. A dangling or
+     * doubled dash is the obvious bug here, which is why the rule lives in one static, pure
+     * function with no settings and no Level in sight -- WindowTitleTest walks all eight
+     * combinations of the three switches against it.
+     *
+     * An empty or absent pack or level name is treated as not shown, so a set with no title
+     * cannot produce a trailing separator either. */
+    public static String composeWindowTitle(boolean showBuildTag, boolean showLevelPack,
+                                            boolean showLevelName, String levelPack,
+                                            String levelName, String suffix) {
+        StringBuilder sb = new StringBuilder(TITLE);
+        if (showBuildTag) sb.append(' ').append(BUILD_TAG);
+        if (showLevelPack && levelPack != null && !levelPack.isEmpty()) sb.append(" - ").append(levelPack);
+        if (showLevelName && levelName != null && !levelName.isEmpty()) sb.append(" - ").append(levelName);
+        if (suffix != null) sb.append(suffix);
+        return sb.toString();
+    }
+
+    /* MOD (Jeremy, jc-14): the settings-aware wrapper. `paths` is null in the headless constructor,
+     * and the fallbacks here are the shipped defaults -- pack off, name on -- so a GUI-less
+     * instance composes the same title a fresh install would. */
+    public String windowTitle(String levelPack, String levelName) {
+        boolean tag  = paths != null && paths.getShowBuildTag();
+        boolean pack = paths != null && paths.getShowLevelPack();
+        boolean name = paths == null || paths.getShowLevelName();
+        return composeWindowTitle(tag, pack, name, levelPack, levelName, windowTitleSuffix());
     }
 
     /* MOD (Jeremy): marks a session that is running on defaults and discarding settings changes,
@@ -272,10 +308,9 @@ public class SuperCC {
                 solution = new Solution(new char[] {}, 0, Step.EVEN, Solution.BASIC_MOVES, level.getRuleset(), Direction.UP);
                 if(hasGui) {
                     window.repaint(true);
-                    // MOD (Jeremy): title = "SuperCC [jc-N] - <pack> - <level>", where the "[jc-N]"
-                    // half is switched on/off by settings.ini's ShowBuildTag -- see windowTitlePrefix().
-                    window.setTitle(windowTitlePrefix() + " - " + dat.getLevelsetName() + " - "
-                            + level.getTitle() + windowTitleSuffix());
+                    // MOD (Jeremy, jc-14): all three parts of the title are switchable now, so the
+                    // separators are decided by composeWindowTitle() rather than written here.
+                    window.setTitle(windowTitle(dat.getLevelsetName(), level.getTitle()));
                 }
             }
         }
@@ -415,7 +450,7 @@ public class SuperCC {
         }
     }
 
-    public static void initialise(String[] args){
+    public static void initialise(String[] args){  // aen-exempt: upstream method name, renaming it would break every caller
         SuperCC emulator = new SuperCC();
 
         // The GUI exists now, so a first error can actually be reported to the user. Under javaw
@@ -428,7 +463,7 @@ public class SuperCC {
             emulator.throwError(e.toString() + "\nSee stderr for flag use");
         }
 
-        emulator.initialiseTilesheet();
+        emulator.initialiseTilesheet();  // aen-exempt: upstream method name
     }
 
     /* MOD (Jeremy, jc-11): told once per session, the first time anything is written to the log.
@@ -458,7 +493,7 @@ public class SuperCC {
         });
     }
 
-    private void initialiseTilesheet() {
+    private void initialiseTilesheet() {  // aen-exempt: upstream method name
         Gui window = this.getMainWindow();
         SuccPaths paths = this.getPaths();
         TileSheet[] tileSheets = TileSheet.values();
@@ -475,8 +510,8 @@ public class SuperCC {
             e.printStackTrace();
         }
         //see if all of this can't be refactored out of existence by pressing the buttons in MenuBar if their setting is changed
-        window.getGamePanel().initialise(this, tilesetImages, tileSheet, tileSizes[0], tileSizes[1]);
-        window.getInventoryPanel().initialise(this);
+        window.getGamePanel().initialise(this, tilesetImages, tileSheet, tileSizes[0], tileSizes[1]);  // aen-exempt: upstream method name
+        window.getInventoryPanel().initialise(this);  // aen-exempt: upstream method name
         window.setSize(200+width*gamePanel.getWindowSizeX(), 200+height*gamePanel.getWindowSizeY());
         window.getGamePanel().setPreferredSize(new Dimension(width * gamePanel.getWindowSizeX(), height * gamePanel.getWindowSizeY()));
         window.getGamePanel().setSize(width*gamePanel.getWindowSizeX(), height*gamePanel.getWindowSizeY());
@@ -566,7 +601,7 @@ public class SuperCC {
                     + "from your own machine, including your Windows user name, so read it first.",
                     "SuperCC", JOptionPane.ERROR_MESSAGE)));
 
-        SwingUtilities.invokeLater(() -> initialise(args));
+        SwingUtilities.invokeLater(() -> initialise(args));  // aen-exempt: upstream method name
     }
 
 }

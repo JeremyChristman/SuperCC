@@ -24,6 +24,7 @@ after. What the fork *does* change, by release:
 | jc-11 | **Diagnostics** — errors are written to a log file instead of vanishing under `javaw`, and the NPE that fired on every launch is gone. The emulator is untouched: all 286 sets re-parsed and all 23,322 stored solutions re-played, byte-identical. See *The error log (jc-11)*. |
 | jc-12 | **GUI robustness** — cancelling a file chooser threw an uncaught NPE on the event thread, and a missing solution file produced a stack trace and a message that was just a path. Engine untouched. See *jc-12 -- the two ways MenuBar.openFileBytes could fail*. |
 | jc-13 | **File-format robustness** — a truncated `.tws` was accepted and then misread; it is refused now, with a message. 23,967 real solution files re-verified, none rejected. Engine untouched. See *jc-13 -- a truncated .tws was accepted*. |
+| jc-14 | **Display** — every part of the window title is a setting now, and the separators are computed from what is left rather than templated. The stock title changes: it no longer names the level set. Engine untouched. See *jc-14 -- the window title is fully switchable*. |
 
 > **`settings.ini` is `succ_settings.ini` from jc-8 on.** Older sections below are left in their
 > original wording where they describe historical work; read "settings.ini" in those as the same
@@ -33,12 +34,87 @@ after. What the fork *does* change, by release:
    Title reads `SuperCC [jc-N] - <pack> - <level>` (bump `BUILD_TAG` per production deploy so the
    running build is identifiable). Upstream showed only the level name; an earlier mod showed only the
    pack — this shows the version, pack, and current level together, updating as you change levels.
-   **The `[jc-N]` half is toggleable — see below.**
+   **As of jc-14 all three parts are toggleable — see below.**
 2. **Hint shown in the level panel** (`java/graphics/LevelPanel.java`). The level's hint text is drawn
    under "Author:" (uncapped width so even the longest hint wraps fully); hidden on hintless levels.
 3. **Clone/Trap connections on by default** (`java/graphics/MenuBar.java`, `java/graphics/GamePanel.java`).
    The Clone- and Trap-connection overlays render by default (matching Monster/Slip list), and the
    "Show Clone Connections" menu label casing is fixed.
+
+## jc-14 -- the window title is fully switchable
+
+The title had one switch (`ShowBuildTag`, jc-8) and two hard-coded halves. jc-14 makes all three
+independent `[Graphics]` settings:
+
+```
+ShowBuildTag  = false      the [jc-N] tag        (unchanged, opt-in since jc-8)
+ShowLevelPack = false      the level SET name    NEW -- shipped OFF
+ShowLevelName = true       the LEVEL name        NEW -- shipped ON
+```
+
+### The separators are the whole problem
+
+Three switches over two separators is exactly the shape that yields a dangling `" - "` or a doubled
+`" -  - "` in whichever combination nobody tried. So the rule does not live at the call site with
+the settings and the `Level` around it — it lives in one static, pure function:
+
+```java
+public static String composeWindowTitle(boolean showBuildTag, boolean showLevelPack,
+                                        boolean showLevelName, String levelPack,
+                                        String levelName, String suffix)
+```
+
+No settings, no `Level`, no `Gui`, so all eight combinations can be walked without building a level
+or opening a window — which `WindowTitleTest` does, asserting the separator COUNT as well as the
+expected string. "No extra dashes" is the actual requirement, and reading it off eight expected
+strings is not the same as checking it.
+
+`windowTitle(pack, name)` is the four-line settings-aware wrapper, and the single
+`window.setTitle(...)` call site now goes through it. The `paths == null` fallbacks there are the
+SHIPPED defaults — pack off, name on — not "everything off", so a headless instance composes the
+title a fresh install would rather than an arrangement no real install ever shows. (Tile World's
+equivalent re-title crashed every batch run for exactly this reason; the guard is not decoration.)
+
+An absent or empty pack or level name is treated as not shown, independent of the switch, so a set
+with no title cannot produce a trailing separator either.
+
+### Two switches, two OPPOSITE predicates
+
+`ShowLevelPack` goes through `optedIn()` — the existing strict predicate, ON only for `true`/`1` —
+because its default is OFF and a typo must not switch it on. `ShowLevelName` goes through a new
+mirror, `shownUnlessOptedOut()`, OFF only for `false`/`0`, because its default is ON and a typo must
+not switch it *off*.
+
+Worth being precise about what the mirror actually buys, because two cases look alike and only one
+is real:
+
+- **A settings file with no key at all** (every jc-13 file) is handled by `seedDefaults()`, which
+  fills the key with `"true"` at load. `optedIn()` would get that case right too.
+- **An unrecognized value** — `ShowLevelName = yes`, a blank, a typo — is the case only the mirror
+  gets right. Opt-in semantics there would silently hide the level name.
+
+Both are rendered back through the same predicates the getters use, the invariant `ShowBuildTag`
+already held: the file can never echo a value the program reads differently. `ShowLevelPack = yes`
+is rewritten as `false` on the next settings change, matching what the getter reads.
+
+### What changes for a downloader, and for the automation
+
+The stock title goes from `SuperCC - CCLP5 - Lesson Zero` to `SuperCC - Lesson Zero`. That is the
+requested default and it is the one visible behavior change in this release.
+
+⚠ It breaks any window-title matching that expects the level set. `supercc_driver.ps1` anchors on
+`^SuperCC(\s\[[^\]]*\])?\s-\s<Set>` and uses the same expression twice: once to FIND the window and
+once to assert the right set is loaded — the second is a safety property, not a convenience.
+Anything relying on it needs `ShowLevelPack = true` in its own settings file. Noted in
+`getShowLevelPack()`'s comment, README section 6, and the CHANGELOG.
+
+### Mutation testing
+
+Five planted, five killed — dropping the `!levelPack.isEmpty()` guard, swapping either predicate for
+the other, bypassing the predicate in `render()`, and flipping the headless `paths == null` fallback
+to `paths != null`. Both edited files were already in `$SPLICE_MODIFIED`, so no widening was needed
+(CLAUDE.md §4). The predicate swap killed only ONE assertion, which is what prompted the correction
+above: it is the unrecognized-value case doing the work, not the absent-key case.
 
 ## jc-13 -- a truncated .tws was accepted
 

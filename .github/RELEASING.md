@@ -36,16 +36,12 @@ form-based classes.
      values, default, whether the program rewrites it, and the GUI path that sets it. A shipped
      setting nobody can find out about is not shipped. Say what a changed default used to be.
 
-   **⚠ There is accumulated work waiting for the next release.** Everything committed since jc-13 is
-   tests, documentation and developer tooling — nothing that ships in the jar changed, so no release
-   was cut for it (decided 2026-09-03: a version number should stay attached to something a user can
-   observe). The next release to carry a real code change is therefore also the release that carries
-   this, and its section 7 entry should say so briefly after describing the actual fix — something
-   like *"Also since jc-13: the test suite grew to 1,834 assertions and the vendored libraries became
-   tamper-evident. Neither changes how the program behaves."*
-
-   `CHANGELOG.md`'s `## Unreleased (tests, no shipped change)` section is the full list. Fold it into
-   the new version's heading when you cut it, and delete this paragraph once that has happened.
+   **Work that does not ship in the jar rides along with the next release that does.** Tests,
+   documentation and developer tooling do not earn a version number of their own — decided
+   2026-09-03: a build tag should stay attached to something a user can observe. Accumulate it under
+   a `## Unreleased` heading in `CHANGELOG.md`, fold that into the new version's heading when a real
+   change is finally cut, and give it one sentence at the end of the section 7 entry so the history
+   is not silent about it. jc-14 is the worked example.
 
 3. **Update `FORK.md`** with the engineering detail — the reasoning, what broke first, what was
    measured — and **`CHANGELOG.md`** with the summary entry.

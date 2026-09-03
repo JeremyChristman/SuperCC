@@ -1,5 +1,5 @@
 ==============================================================================
-  SuperCC  --  Jeremy Christman's fork                      build jc-13
+  SuperCC  --  Jeremy Christman's fork                      build jc-14
 ==============================================================================
 
   1. What this is
@@ -201,8 +201,12 @@ Five rules to know before you edit it. The first two bite people.
       comments and blank lines you add are erased the first time that happens,
       as is any key SuperCC does not recognize. If you want notes, keep them
       somewhere else. Your VALUES are preserved and only your formatting is
-      lost -- with one exception: ShowBuildTag is normalized to true or false,
-      so a hand-written "1" comes back as "true" (same meaning, different text).
+      lost -- with one exception: the three title switches (ShowBuildTag,
+      ShowLevelPack and ShowLevelName) are normalized to true or false, so a
+      hand-written "1" comes back as "true" (same meaning, different text) and
+      anything SuperCC does not recognize comes back as whatever it actually
+      read that value as. That is on purpose: the file can then never say one
+      thing while the program does another.
 
   (5) DO NOT EDIT IT WHILE SUPERCC IS RUNNING. A running SuperCC holds the
       whole file in memory and will write its own version back over your edit.
@@ -285,6 +289,8 @@ This is the complete stock file. Every key SuperCC knows is here:
     TileHeight = 20
     TWSNotate = false
     ShowBuildTag = false
+    ShowLevelPack = false
+    ShowLevelName = true
 
     [Emulation]
     AlwaysOpenInMS = false
@@ -420,6 +426,44 @@ ShowBuildTag    Whether the window title shows which build of this fork you
                 Turning it off does not hide which build you have -- the tag
                 is still a string inside SuperCC.jar.
 
+ShowLevelPack   Whether the window title names the level SET you have open.
+                Values:  true or 1 turns it ON. ANYTHING ELSE IS OFF.
+                Default: false -- off, including when the key is absent
+                         entirely or the file does not exist.
+                On:   SuperCC - CCLP5 - Lesson Zero
+                Off:  SuperCC - Lesson Zero
+                New in jc-14. Off is the way SuperCC has always looked to
+                everyone downloading it, so that is what it still does; turn
+                it on if you keep several sets open at once and want to tell
+                the windows apart at a glance. Like ShowBuildTag it is strictly
+                opt-in, so a typo leaves it off.
+
+ShowLevelName   Whether the window title names the LEVEL you are playing.
+                Values:  false or 0 turns it OFF. ANYTHING ELSE IS ON.
+                Default: true -- on, including when the key is absent
+                         entirely or the file does not exist.
+                On:   SuperCC - Lesson Zero
+                Off:  SuperCC
+                New in jc-14. Note that this one reads the OPPOSITE way round
+                from every other switch in this file: the others are off unless
+                you turn them on, and this one is on unless you turn it off.
+                That is deliberate -- it has always been on, so leaving a typo
+                or a blank value showing the level name is the safe answer.
+
+                The three switches above are independent, and the title is
+                assembled from whichever ones are on -- there is never a
+                leftover " - " for a part you switched off:
+
+                    all three on   SuperCC [jc-14] - CCLP5 - Lesson Zero
+                    the default    SuperCC - Lesson Zero
+                    pack only      SuperCC - CCLP5
+                    all three off  SuperCC
+
+                One thing to know if you script against the window title:
+                with the stock settings it no longer names the level set, so
+                anything matching on "SuperCC - <set name>" needs
+                ShowLevelPack = true.
+
 
 [Emulation]
 ------------
@@ -473,6 +517,42 @@ AlwaysOpenInMS  Whether every level set opens under the MS ruleset, no matter
 Releases from jc-2 on carry a jc-N tag in the repository. The title bar, when
 ShowBuildTag is on, shows the build tag compiled into the jar, which matches
 the tag for that release. Newest first.
+
+
+jc-14  --  You choose what the window title says
+--------------------------------------------------------
+
+  * THE WINDOW TITLE IS NOW YOURS TO SET. It has always been the same three
+    things in the same order -- the program name, the level set, the level --
+    and the only part you could switch off was the build tag. Two new settings
+    in succ_settings.ini finish the job:
+
+        [Graphics]
+        ShowLevelPack = false     <-- names the level SET
+        ShowLevelName = true      <-- names the LEVEL
+
+    All three switches are independent, and the separators follow whatever is
+    left rather than being baked into the format, so you never get a dangling
+    " - " for a part you turned off:
+
+        all three on   SuperCC [jc-14] - CCLP5 - Lesson Zero
+        the default    SuperCC - Lesson Zero
+        pack only      SuperCC - CCLP5
+        all three off  SuperCC
+
+    Section 6 documents both settings in full. Note the defaults: the level
+    name stays ON, which is how SuperCC has always looked, and the level set
+    is OFF -- a change you WILL see, because the stock title no longer names
+    the set. Turn ShowLevelPack on to get the old look back. If you script
+    against the window title, that is the line to add.
+
+    Upgrading keeps working: a settings file from jc-13 has neither key, and
+    SuperCC fills both in with these defaults the next time it writes the file.
+
+  * Also since jc-13, and none of it changes how the program behaves: the test
+    suite grew to 1,912 assertions across 20 classes, the vendored third-party
+    libraries became tamper-evident, and the developer documentation gained the
+    procedure for verifying a test actually catches the bug it claims to.
 
 
 jc-13  --  A damaged solution file is refused instead of misread
