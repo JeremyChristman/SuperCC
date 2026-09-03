@@ -43,6 +43,7 @@ measured. All three are updated together — see [`.github/RELEASING.md`](.githu
   actually gone wrong, and how to tell a weak test from an equivalent mutant from a build that never
   happened are now in the docs.
 
+### Added (tests)
 - `test/MsCloneTrapTest.java`: 29 assertions over the MS clone-machine and beartrap DISPATCH, which
   was the gap MsCreatureListTest left behind. ConnectionTest covers the .dat records and ButtonTest
   covers a press producing a clone and a trap opening; none of them drives a creature through the
