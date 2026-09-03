@@ -15,6 +15,38 @@ measured. All three are updated together — see [`.github/RELEASING.md`](.githu
 ## Unreleased (tests, no shipped change)
 
 ### Added
+- `test/MsCloneTrapTest.java`: 29 assertions over the MS clone-machine and beartrap DISPATCH, which
+  was the gap MsCreatureListTest left behind. ConnectionTest covers the .dat records and ButtonTest
+  covers a press producing a clone and a trap opening; none of them drives a creature through the
+  machinery afterwards.
+
+  Covers `addClone`'s "can it discharge" precondition (a cloner facing a wall is inert -- the
+  duplicate guard was already tested, this one was not), the block-versus-monster split in how a
+  clone is queued, a creature held by a shut trap and released by a brown button, and
+  `springTrappedCreature`'s guards.
+
+  **A lifecycle contract worth knowing, found by a fixture that failed:** `addClone` queues into
+  `newClones`, and `initialise()` clears that queue at the top of every tick. So a clone queued from
+  OUTSIDE the tick cycle is discarded before `finalise()` ever sees it and never becomes a creature.
+  That is not a defect -- in a real level only a creature or Chip standing on the button presses it,
+  which happens mid-tick -- but it means the population counted right after a bare `press()`, which
+  is what ButtonTest measures, is a transient. Both halves are now pinned.
+
+  Mutation testing found two weaknesses in the first draft. `addClone` has TWO duplicate guards, one
+  scanning `list` and one scanning `newClones`, and ButtonTest's fixture only ever reaches the
+  second -- deleting the first passed everything until a fixture put a clone in the live list.
+  And the shut-trap assertions passed for the wrong reason, because `springTrappedCreature` is inert
+  before the clock has run at all.
+
+  One EQUIVALENT MUTANT is recorded rather than chased: deleting `springTrappedCreature`'s
+  `!isTrapOpen` check changes no result, because `MSCreature.canLeave` already answers
+  `case TRAP -> level.isTrapOpen(position)` and a creature sprung from a shut trap still cannot go
+  anywhere. The guard is an early-out in front of a refusal that happens regardless; the behavior it
+  stands for is covered by the section that walks a tank through a real tick.
+
+  `MSCreatureList` 41/112 -> 72/112 branches; `game\MS\**` 38.2% -> 42.5%; target scope 48.2% ->
+  50.2%. No shipped code changed.
+
 - `test/MsCreatureListTest.java`: 31 assertions over the MS creature list PER TICK. MonsterListTest
   already covered how the list is built; nothing covered what happens to it once the level runs.
 
