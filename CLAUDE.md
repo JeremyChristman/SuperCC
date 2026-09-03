@@ -202,6 +202,7 @@ test/LynxTickTest.java       LYNX start/continue/end movement -- speed table + a
 test/TwsRoundTripTest.java   the .tws solution format, written and read back
 test/TwsClickTest.java       exporting a CLICK to .tws -- the jc-2 fix, via the real emulator
 test/MsTryEnterTest.java     MS ARRIVAL effects -- what a tile does to whoever steps on it
+test/MsCreatureListTest.java MS list per TICK -- FORWARD order, the teeth clock, what MS refuses
 ```
 
 ### Coverage — what the suite actually reaches
@@ -212,20 +213,20 @@ taken. JaCoCo is a test-time tool cached under `%LOCALAPPDATA%\jacoco\<version>\
 dependency**, never committed, never shipped. Output goes to `coverage-report\` (gitignored);
 `coverage.csv` is the evidence behind every percentage below.
 
-As of jc-13, with all 1,774 assertions passing, **measured on JDK 16.0.2** (what CI pins):
+As of jc-13, with all 1,805 assertions passing, **measured on JDK 16.0.2** (what CI pins):
 
 | scope | branch | line | branches |
 |---|---|---|---|
-| **`game\**` + `io\**` — THE TARGET** | **47.3%** | 62.6% | 1256/2658 |
-| &nbsp;&nbsp;`game\**` (the emulator) | 42.8% | 57.4% | 962/2249 |
-| &nbsp;&nbsp;&nbsp;&nbsp;`game\MS\**` | 36.4% | 51.7% | 427/1174 |
+| **`game\**` + `io\**` — THE TARGET** | **48.2%** | 63.2% | 1282/2658 |
+| &nbsp;&nbsp;`game\**` (the emulator) | 43.9% | 58.2% | 988/2249 |
+| &nbsp;&nbsp;&nbsp;&nbsp;`game\MS\**` | 38.2% | 53.4% | 449/1174 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\Lynx\**` | 51.5% | 55.2% | 377/732 |
-| &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 46.1% | 69.2% | 158/343 |
+| &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 47.2% | 69.3% | 162/343 |
 | &nbsp;&nbsp;`io\**` (file formats) | 71.9% | 77.9% | 294/409 |
 | `emulator\**` | 24.5% | 24.6% | 93/380 |
 | `tools\**` + `graphics\**` — *not a target* | 0.0% | 0.0% | 0/1887 |
 
-**Read this correctly.** Whole-project branch coverage is 23.1% (1359/5891), and that number is
+**Read this correctly.** Whole-project branch coverage is 23.5% (1385/5891), and that number is
 meaningless: 15 form-based classes cannot be compiled from this repo at all (ADR 0001), `tools\**`
 is 35 files of upstream code this fork does not modify, `graphics\**` is Swing with no headless test
 story, and the rest is vendored `org.json` / `com.intellij`. What this fork can break is the engine
@@ -238,7 +239,7 @@ javac 16. The other 2355 branches — including all 2249 of `game\**` — come f
 baseline and are byte-identical on every machine. So an `io\**` figure that differs slightly on
 another JDK is not a bug.
 
-**47.3% is a floor to build on, not a passing grade**, and the split says where the work is:
+**48.2% is a floor to build on, not a passing grade**, and the split says where the work is:
 
 - **`game\MS\**` at 17.0% is now the least-covered ruleset by a long way** — Lynx is at 51.5%,
   three times it. Four Lynx files did that: the move-preference table (`LynxCreatureMoveTest`),

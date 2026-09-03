@@ -15,6 +15,32 @@ measured. All three are updated together — see [`.github/RELEASING.md`](.githu
 ## Unreleased (tests, no shipped change)
 
 ### Added
+- `test/MsCreatureListTest.java`: 31 assertions over the MS creature list PER TICK. MonsterListTest
+  already covered how the list is built; nothing covered what happens to it once the level runs.
+
+  The headline is an ordering contrast that only makes sense as a pair with the Lynx file:
+  **MS walks the list FORWARD and Lynx walks it BACKWARD.** The same fixture -- two tanks facing
+  each other across one empty square -- gives the square to the FIRST-listed tank here and the
+  last-listed one there. Stated as an outcome rather than as a claim about loop syntax, and creature
+  order is where desyncs live.
+
+  Also: MS's teeth clock is a different FORMULA, not a different constant
+  (`step.isEven() != (tick % 4 == 2)` against Lynx's `((tick - 1 + step.ordinal()) & 4) == 0`); and
+  `claimed`, `adjustClaim` and `animationAt` all THROW on MS with "MS does not have a concept of
+  claims/animations", while `getClaimedArray` returns empty and `setClaimedArray` is a silent no-op
+  -- so the refusal is deliberately NOT uniform, which anything generalizing over `CreatureList`
+  needs to know.
+
+  Four planted defects, all caught. The teeth section needed rewriting to get there: deleting the
+  gate makes teeth move MORE often, so "it moved eventually" passes either way. It is now measured
+  against an ungated creature -- over 24 ticks a tank moves 10 times and teeth and blobs 5 -- which
+  is what the gate actually means.
+
+  **Honest note on the ratio:** `MSCreatureList` itself moved only 37/112 -> 41/112 branches. The
+  clone-machine and beartrap dispatch (`addClone`, `tickClonedMonster`, `tickTrappedMonster`) is the
+  bulk of what remains and none of these fixtures build one. The value here is the ordering
+  contrast, not the branch count. Target scope 47.3% -> 48.2%. No shipped code changed.
+
 - `test/MsTryEnterTest.java`: 59 assertions over MS ARRIVAL EFFECTS -- `MSCreature.tryEnter`, 365
   lines and the largest single method in the repo, previously untested. MS splits the question in
   two: `canEnter` answers "is this legal" and CanEnterTest already covers that in 99 assertions;
