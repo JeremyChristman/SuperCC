@@ -577,6 +577,36 @@ so the shipped defaults cannot drift from the program's), `README.txt`, and `COP
   `test-results\EngineTest.xml` and the last writer wins. Give each a distinct directory.
 - **Never leave a stray `java.exe` running.** A live JVM holds the jar open, and the next build's
   delete fails with a lock error that reads like a permissions problem.
+
+  🔴 **And the failure is not always a lock error — that is the dangerous half.** Windows lets you
+  *overwrite* the jar a running JVM has open. The JVM keeps the central directory it cached at
+  startup, so `getResource()` still hands back a URL, but the entry OFFSET behind it now points into
+  a different file. Anything the program had not yet loaded comes back as garbage. Measured
+  2026-09-03 by replacing jc-13's jar under a live jc-13 instance and re-reading one icon:
+
+  ```
+  BEFORE swap: url=ok   ImageIO.read -> image ok
+  AFTER  swap: url=ok   ImageIO.read -> NULL
+  ```
+
+  In the real instance that surfaced as 18 of these in `succ_error-<MACHINE>.log`, one per mouse
+  movement, hours after the swap:
+
+  ```
+  java.lang.NullPointerException: Cannot invoke "java.awt.Image.getProperty(...)" because "image" is null
+      at javax.swing.ImageIcon.<init>(ImageIcon.java:240)
+      at graphics.Gui.changePlayButton(Gui.java:121)
+      at graphics.Gui.repaint(Gui.java:137)
+  ```
+
+  **If you see that trace, the jar was replaced under a running instance — the jar itself is fine.**
+  Check for a live `java`/`javaw` on the jar BEFORE deploying, and never deploy over a running one.
+
+  It is loud here because `changePlayButton` re-reads and re-decodes `play.gif`/`pause.gif` from the
+  jar on **every** `repaint()`, and `GamePanel.mouseMoved` repaints — so it is two zip reads and two
+  image decodes per mouse motion event. Caching the two icons in fields would remove the per-repaint
+  I/O and make the app immune to this after startup. **It cannot be done from this repo**: `Gui.java`
+  is form-based (§1), so it needs IntelliJ. Worth doing next time someone is in there.
 - Do not commit `SuperCC.jar` or `dist/` — both are ignored, deliberately.
 
 ---
