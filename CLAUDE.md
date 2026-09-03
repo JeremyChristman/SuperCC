@@ -84,6 +84,7 @@ powershell -ExecutionPolicy Bypass -File coverage.ps1               # branch cov
 powershell -ExecutionPolicy Bypass -File coverage.ps1 -CheckBaseline  # do the numbers below still hold?
 powershell -ExecutionPolicy Bypass -File coverage.ps1 -UpdateBaseline # after deliberately moving them
 powershell -ExecutionPolicy Bypass -File verify-splice.ps1 -UpdateFormBaseline     # after an IntelliJ rebuild
+powershell -ExecutionPolicy Bypass -File verify-splice.ps1 -UpdateVendorBaseline   # after a deliberate library update
 ```
 
 Extra switches worth knowing:
@@ -147,6 +148,7 @@ verify-splice.ps1      proves an edit will actually ship (§1)
 run-tests.ps1          builds, then compiles and runs everything in test\
 coverage.ps1           JaCoCo branch coverage, scoped to game\** + io\** (§4)
 docs/coverage-baseline.tsv  what the §4 table claims; the release gate checks it
+docs/vendor-baseline.sha256 hashes of the 23 vendored third-party class files (check 5)
 trace.ps1              differential trace against Tile World, local only (§4)
 java/**                source (authoritative for non-form classes)
 emulator/ game/ graphics/ io/ tools/ util/    committed .class baseline — DO NOT DELETE
@@ -205,6 +207,44 @@ test/MsTryEnterTest.java     MS ARRIVAL effects -- what a tile does to whoever s
 test/MsCreatureListTest.java MS list per TICK -- FORWARD order, the teeth clock, what MS refuses
 test/MsCloneTrapTest.java    MS clone machines and beartraps -- the dispatch, not the wiring
 ```
+
+### Mutation testing — and the trap that makes it lie
+
+Every engine test here was checked by planting the defect it claims to catch. That is the only way
+to know an assertion tests anything: four separate tests in this suite looked airtight, passed, and
+turned out to catch nothing when the bug was actually planted.
+
+**🔴 The splice build makes naive mutation testing silently useless.** `build.ps1` recompiles only
+the files in `$SPLICE_MODIFIED` (§1). Plant a defect in anything else — `game\MS\MSCreature.java`,
+`game\Lynx\**`, `game\Position.java` — and the build overlays nothing: the jar keeps its committed
+baseline bytecode, the suite runs against unmutated code, and **every mutation "passes"**. You
+conclude the test is weak, or that the code is fine, and both conclusions are wrong.
+
+This is the same silent-failure class `verify-splice.ps1` exists to prevent, in the one direction it
+cannot help with — here you *want* a temporary edit to ship.
+
+The procedure:
+
+```powershell
+# 1. add the file you are about to mutate to $SPLICE_MODIFIED in build-config.ps1
+# 2. plant the defect, then:
+powershell -ExecutionPolicy Bypass -File build.ps1
+powershell -ExecutionPolicy Bypass -File run-tests.ps1 -NoBuild
+# 3. restore the source AND rebuild, or the next run measures the mutated jar
+# 4. put build-config.ps1 back, rebuild, and confirm verify-splice.ps1 is green
+```
+
+Three things that have actually gone wrong doing this:
+
+- **Forgetting step 3's rebuild.** Restoring the source without rebuilding leaves the mutated jar in
+  place, so the *next* measurement — often the "clean baseline" — is taken against mutated code. It
+  shows up as a baseline that inexplicably fails.
+- **Leaving `build-config.ps1` widened.** `verify-splice.ps1` will not complain: a spliced file is
+  compiled from source, which is legitimate. The check that catches it is counting the entries.
+- **Believing a survivor.** A surviving mutation means one of three things, and they need different
+  responses: the test is weak (fix the test), the mutant is *equivalent* (record why, as
+  `MsCloneTrapTest` does for `springTrappedCreature`), or the splice list was never widened (nothing
+  was tested at all). Check the third first — it is the cheapest to rule out and the easiest to miss.
 
 ### Coverage — what the suite actually reaches
 

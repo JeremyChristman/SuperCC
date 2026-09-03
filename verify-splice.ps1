@@ -36,7 +36,7 @@ likely than the ordinary case this does catch. Do not extend the ignore list wit
 Exit code is 0 only if every invariant holds.
 #>
 [CmdletBinding()]
-param([switch]$UpdateFormBaseline)
+param([switch]$UpdateFormBaseline, [switch]$UpdateVendorBaseline)
 
 # Native tools write notes and warnings to stderr; under "Stop" PowerShell 5.1 turns those into
 # terminating NativeCommandErrors even when the tool succeeded. Exit codes are checked explicitly.
@@ -309,6 +309,68 @@ try {
 finally {
     if (Test-Path $stage) { [IO.Directory]::Delete($stage, $true) }
     if (Test-Path $out)   { [IO.Directory]::Delete($out, $true) }
+}
+
+# ---------------------------------------------------------------------------------------------
+# 5. THE VENDORED THIRD-PARTY BYTECODE IS UNCHANGED
+#
+# com\ and org\ hold 23 .class files with no source anywhere in this repo: json-simple and the
+# IntelliJ GUI Designer runtime. Checks 1-4 cannot see them -- they compare java\** against its
+# shipped bytecode, and these have no java\** to compare against.
+#
+# That left them watched by nothing at all. This repo has no package manager by design (ADR 0002),
+# so Dependabot covers github-actions and cannot cover these; nothing would have reported a change
+# to code that ships inside the jar. A hash baseline does not give vulnerability alerts, but it does
+# make the bytecode TAMPER-EVIDENT, which is the half that can be automated here.
+#
+# Versions are recorded in docs\THIRD_PARTY.md, pinned where they could be established by byte
+# comparison against the published artifact.
+Write-Host "`n== 5. the vendored third-party bytecode is unchanged =="
+$vendorBaseline = Join-Path $root "docs\vendor-baseline.sha256"
+$vendorFiles = @()
+foreach ($top in @("com", "org")) {
+    $dir = Join-Path $root $top
+    if (Test-Path $dir) {
+        $vendorFiles += Get-ChildItem $dir -Recurse -Filter *.class -File |
+                        ForEach-Object { $_.FullName.Substring($root.Length + 1) } 
+    }
+}
+$vendorFiles = @($vendorFiles | Sort-Object)
+
+if ($UpdateVendorBaseline) {
+    $lines = foreach ($rel in $vendorFiles) {
+        "{0}  {1}" -f (Get-FileHash (Join-Path $root $rel) -Algorithm SHA256).Hash, $rel
+    }
+    [IO.File]::WriteAllText($vendorBaseline, (($lines -join "`n") + "`n"), (New-Object Text.UTF8Encoding $false))
+    Write-Host "  WROTE $vendorBaseline ($($vendorFiles.Count) files)"
+}
+elseif (-not (Test-Path $vendorBaseline)) {
+    Add-Problem "docs\vendor-baseline.sha256 is missing -- regenerate it with -UpdateVendorBaseline"
+}
+else {
+    $vExpected = @{}
+    foreach ($line in [IO.File]::ReadAllLines($vendorBaseline)) {
+        if ($line -match '^([0-9A-Fa-f]{64})\s\s(.+)$') { $vExpected[$Matches[2]] = $Matches[1].ToUpper() }
+    }
+    $vendorProblems = $problems.Count
+    foreach ($rel in $vendorFiles) {
+        if (-not $vExpected.ContainsKey($rel)) {
+            Add-Problem "$rel is vendored bytecode with no baseline entry -- if it was added deliberately, record it in docs\THIRD_PARTY.md and re-run with -UpdateVendorBaseline"
+            continue
+        }
+        $actual = (Get-FileHash (Join-Path $root $rel) -Algorithm SHA256).Hash.ToUpper()
+        if ($actual -ne $vExpected[$rel]) {
+            Add-Problem "$rel has CHANGED. This is third-party bytecode with no source here; a change to it is either a deliberate library update, which belongs in docs\THIRD_PARTY.md, or something nobody intended."
+        }
+    }
+    foreach ($rel in $vExpected.Keys) {
+        if ($vendorFiles -notcontains $rel) {
+            Add-Problem "$rel is in the vendor baseline but no longer exists -- re-run with -UpdateVendorBaseline"
+        }
+    }
+    if ($problems.Count -eq $vendorProblems) {
+        Report-Ok "$($vendorFiles.Count) vendored class files match docs\vendor-baseline.sha256"
+    }
 }
 
 Write-Host "`n== results =="

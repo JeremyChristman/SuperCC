@@ -29,6 +29,12 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -Package # -> dist\SuperCC-<t
 java -jar SuperCC.jar                                       # run it (never javaw -- it eats stderr)
 ```
 
+Mutation testing: every engine test here was proven by planting the defect it claims to catch.
+**Adding the file you are mutating to `$SPLICE_MODIFIED` first is mandatory** — otherwise the build
+overlays nothing, the suite runs against the committed baseline bytecode, and every mutation passes
+while testing nothing. Restore the source *and rebuild* afterwards, then put `build-config.ps1` back.
+See CLAUDE.md §4.
+
 Coverage numbers in CLAUDE.md are enforced at RELEASE time by `coverage.ps1 -CheckBaseline` against
 `docs/coverage-baseline.tsv`. If you move the number: run `coverage.ps1 -UpdateBaseline`, update the
 CLAUDE.md section 4 table, commit both. Not gated in CI.
@@ -49,7 +55,13 @@ building at the same time — `SuperCC.jar` and `dist/` are shared mutable paths
    files at the repo root (`emulator/ game/ graphics/ io/ tools/ util/`) are the authoritative
    baseline. They are **not** stray build output — do not delete or "gitignore" them.
 
-2. **If you edit a source file, make sure it is in `$SPLICE_MODIFIED` in `build-config.ps1`.** Only
+2. **Never touch `com/` or `org/` without recording why.** Those 23 class files are vendored
+   third-party bytecode with no source here, and no package manager watches them — this repo has no
+   manifest for Dependabot to read. `verify-splice.ps1` check 5 makes them tamper-evident against
+   `docs/vendor-baseline.sha256`; versions, the evidence pinning them, and the manual vulnerability
+   check live in `docs/THIRD_PARTY.md`. A deliberate library update means updating both.
+
+3. **If you edit a source file, make sure it is in `$SPLICE_MODIFIED` in `build-config.ps1`.** Only
    files in that list are recompiled. Edit anything else and the build succeeds while shipping the
    old behavior, with no error. Confirm the file has no sibling `.form` first. **`verify-splice.ps1`
    checks this for you** — run it after touching `java/**`. It recompiles the unspliced files and
@@ -57,14 +69,14 @@ building at the same time — `SuperCC.jar` and `dist/` are shared mutable paths
    which cannot be recompiled here at all) against `docs/form-baseline.sha256`. Its header lists
    the narrow cases it still cannot see.
 
-3. **Test through the built jar, never against freshly compiled sources.** The jar is the only
+4. **Test through the built jar, never against freshly compiled sources.** The jar is the only
    artifact whose behavior is authoritative. `run-tests.ps1` puts it on the classpath for you.
 
-4. **Never commit a level set.** `.dat` and `.ccl` files are third-party content. Tests synthesize
+5. **Never commit a level set.** `.dat` and `.ccl` files are third-party content. Tests synthesize
    their own fixtures with `test/DatBuilder.java`. A test needing a real set must **skip**, not
    fail, when it is absent.
 
-5. **Check `CLAUDE.md` §6 before "fixing" anything that looks wrong.** A dozen things in this repo
+6. **Check `CLAUDE.md` §6 before "fixing" anything that looks wrong.** A dozen things in this repo
    look like bugs and are deliberate, load-bearing decisions with ADRs behind them — the committed
    bytecode, the hand-built zip entries, the off-by-default build tag, the relative stored paths,
    and the jc-10 reversal of jc-8's TWS pinning among them.

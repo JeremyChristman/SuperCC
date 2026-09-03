@@ -20,19 +20,61 @@ rather than chosen here.
 
 ## Versions
 
-**Exact versions are not recorded upstream and cannot be recovered from the bytecode with
-confidence.** Neither tree carries a `META-INF` with version metadata; both were extracted from the
-upstream fat jar. Best-effort identification from the class set:
+This section used to say the versions "cannot be recovered from the bytecode with confidence", and
+suggested that the honest route would be to obtain candidate jars and compare class hashes. That was
+done on 2026-09-03, and it settled one of the two.
 
-- `com.intellij.uiDesigner.core` — the `forms_rt` runtime as bundled with the IntelliJ IDEA release
-  used to build upstream's baseline. The class set (`AbstractLayout`, `DimensionInfo`,
-  `LayoutState`, `SupportCode$TextWithMnemonic`, `Util`, `HorizontalInfo`, `VerticalInfo`) has been
-  stable across many IDEA versions, so it does not pin a release.
-- `org.json.simple` — JSON.simple 1.1.x. The presence of `ItemList`, `JSONStreamAware` and the
-  `parser` package with `Yylex`/`Yytoken` matches the 1.1 line; 1.1.1 is the most likely.
+### `org.json.simple` — **JSON.simple 1.1.1**, established by byte identity
 
-Do not state a version more precisely than this without evidence. If a version ever has to be
-pinned exactly, the honest route is to obtain candidate jars and compare class hashes.
+All twelve vendored classes are **byte-for-byte identical** to
+`com.googlecode.json-simple:json-simple:1.1.1` from Maven Central, and identical to none of the
+classes in 1.1. This is not an inference from the class set; it is a SHA-256 match on every file:
+
+| | 1.1 | 1.1.1 |
+|---|---|---|
+| all 12 classes | no match | **exact match** |
+
+To repeat the check, fetch
+`https://repo1.maven.org/maven2/com/googlecode/json-simple/json-simple/1.1.1/json-simple-1.1.1.jar`,
+unpack it, and hash `org/**/*.class` against this tree.
+
+**Security position, checked 2026-09-03:** the OSV database — which aggregates CVE and GHSA —
+reports **no known vulnerabilities** for this version. The library is nonetheless unmaintained
+upstream, so the answer is "clean today", not "clean permanently".
+
+```
+curl -s -X POST https://api.osv.dev/v1/query -d \
+  '{"package":{"ecosystem":"Maven","name":"com.googlecode.json-simple:json-simple"},"version":"1.1.1"}'
+```
+
+That one command is the whole vulnerability process for this dependency. Run it when something
+prompts you to; there is no automation that can, for the reason below.
+
+### `com.intellij.uiDesigner.core` — **not a published artifact**
+
+Compared against every `forms_rt` release on Maven Central — `com.intellij` 4.5.4, 5.0, 5.1, 6.0.3,
+6.0.5, 7.0.3, and `com.github.adedayo.intellij.sdk` 142.1 — and `GridConstraints.class` matches
+**none** of them. That is consistent with the tree having been extracted from an IntelliJ IDEA
+installation rather than from Maven: the IDE ships this runtime inside its own jars, versioned by
+IDE build rather than by artifact version.
+
+So this one genuinely cannot be pinned to a published release, and saying "it is forms_rt from some
+IDEA build" is as precise as the evidence allows. It is JetBrains' own Apache-2.0 layout code, it
+has no network or file surface, and it is only reached by generated `$$$setupUI$$$()` methods.
+
+## Why Dependabot does not cover any of this
+
+`.github/dependabot.yml` declares `github-actions` and nothing else, and that is not an oversight
+that can be fixed by adding an ecosystem. Dependabot resolves dependencies from a manifest — a
+`pom.xml`, a `build.gradle`, a lockfile. This repo deliberately has none (ADR 0002): the third-party
+code is committed bytecode, so there is no manifest to read and no ecosystem to declare.
+
+What replaces it, and what does not:
+
+| | |
+|---|---|
+| **Tamper-evidence** | `verify-splice.ps1` check 5 hashes all 23 vendored class files against `docs/vendor-baseline.sha256` and fails on any change. It runs in CI on every push. Regenerate with `-UpdateVendorBaseline` when a library is deliberately updated, and record the update here. |
+| **Vulnerability alerting** | **None, and none is possible without a manifest.** The OSV query above is manual. This is an accepted, recorded risk rather than an omission — the alternative is adopting a build system, which ADR 0002 rejects for reasons that still hold. |
 
 ## Rules
 

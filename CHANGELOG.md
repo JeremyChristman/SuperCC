@@ -15,6 +15,34 @@ measured. All three are updated together — see [`.github/RELEASING.md`](.githu
 ## Unreleased (tests, no shipped change)
 
 ### Added
+- **`verify-splice.ps1` check 5: the vendored third-party bytecode is tamper-evident.** `com/` and
+  `org/` hold 23 class files with no source anywhere in this repo, and until now nothing watched
+  them — checks 1-4 compare `java/**` against its shipped bytecode and these have no `java/**` to
+  compare against, while Dependabot covers `github-actions` and cannot cover code with no manifest.
+  Hashed against `docs/vendor-baseline.sha256`, regenerated with `-UpdateVendorBaseline`, and
+  verified by tampering with one byte of `JSONValue.class` and watching it fail.
+- **`docs/THIRD_PARTY.md` now states the versions with evidence instead of disclaiming them.** It
+  used to say they "cannot be recovered from the bytecode with confidence" and suggested comparing
+  class hashes against candidate jars. That was done: all twelve `org.json.simple` classes are
+  **byte-identical to json-simple 1.1.1** from Maven Central and match none of 1.1, and OSV reports
+  **no known vulnerabilities** for it as of 2026-09-03. The IntelliJ runtime matches **no** published
+  `forms_rt` release (7 checked), consistent with extraction from an IDE install, so that one
+  genuinely cannot be pinned — and the file now says so with the evidence behind it. The absence of
+  vulnerability alerting is recorded as an accepted risk with the one-line OSV query that stands in
+  for it, rather than left as an omission.
+- **Repository rulesets**: `jc-*` tags are now immutable (no deletion, no update) and `main` refuses
+  force-pushes and deletion. Deliberately NOT requiring pull requests — that would block the
+  single-maintainer workflow this repo actually uses, and the goal was safety that costs nothing
+  operationally.
+
+### Changed
+- **CLAUDE.md §4 documents mutation testing and the trap that makes it lie.** Planting a defect in a
+  file that is not in `$SPLICE_MODIFIED` overlays nothing: the suite runs against the committed
+  baseline bytecode and **every mutation passes while testing nothing**. That cost real time in this
+  session, four separate times, and was written down nowhere. The procedure, the three ways it has
+  actually gone wrong, and how to tell a weak test from an equivalent mutant from a build that never
+  happened are now in the docs.
+
 - `test/MsCloneTrapTest.java`: 29 assertions over the MS clone-machine and beartrap DISPATCH, which
   was the gap MsCreatureListTest left behind. ConnectionTest covers the .dat records and ButtonTest
   covers a press producing a clone and a trap opening; none of them drives a creature through the
