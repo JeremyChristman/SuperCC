@@ -73,9 +73,12 @@ public class ConnectionTest {
         return b == null ? -1 : b.getTargetPosition().getIndex();
     }
 
-    private static int trapIndexAt(Level level, int x, int y) {
-        BrownButton b = brownAt(level, x, y);
-        return b == null ? -1 : b.getTrapIndex();
+    /** The button positions wired to the trap at (x,y), as indices, via getTrapButtons; empty if none. */
+    private static java.util.Set<Integer> buttonsOfTrap(Level level, int x, int y) {
+        java.util.Set<Integer> out = new java.util.TreeSet<>();
+        List<BrownButton> at = level.getTrapButtons().getList(new Position(x, y));
+        if (at != null) for (BrownButton b : at) out.add(b.getButtonPosition().getIndex());
+        return out;
     }
 
     /** The single brown button at (x,y), or null. Fails loudly rather than throwing on absence. */
@@ -160,21 +163,38 @@ public class ConnectionTest {
         Harness.eq("x and y are not transposed",
                    brownTarget(l3, 9, 1), idx(2, 9));
 
-        Harness.section("4. trapIndex is the record's position in the file");
-        /* BrownButton carries the record index, and the engine uses it to address trap state. If
-         * the indices were assigned by map order, or reversed, traps would open and close in the
-         * wrong pairs. Written so file order and map order disagree: the first record's button
-         * sits at a HIGHER map index than the second's. */
-        Path d4 = dir("trapindex");
-        DatBuilder b4 = new DatBuilder().signature(DatBuilder.SIG_MS);
-        b4.level().title("Index")
-          .trap(20, 20, 21, 21)     // record 0, button index 660
-          .trap(1, 1, 2, 2)         // record 1, button index 33
-          .end();
-        Level l4 = firstLevel(b4.writeTo(d4, "index.dat"));
-        Harness.eq("the first record has trapIndex 0", trapIndexAt(l4, 20, 20), 0);
-        Harness.eq("the second has trapIndex 1, by FILE order not map order",
-                   trapIndexAt(l4, 1, 1), 1);
+        Harness.section("4. getTrapButtons maps each TRAP to every button wired to it");
+        /* Until upstream 858dbd0 (merged here) each BrownButton carried its record's index in the
+         * file, and trap state was one bit per WIRE. Since then it is one bit per TRAP, found
+         * through getTrapButtons -- the reverse of getBrownButtons, keyed by trap position. If that
+         * map dropped a wire, or filed it under the button instead of the trap, a trap would ignore
+         * one of its buttons. Written with two buttons on one trap AND a second trap, so a map
+         * keyed by the wrong end, or one holding a single button per key, fails a count. Both
+         * rulesets build it, separately, so both are checked. */
+        for (Ruleset rs : new Ruleset[]{ Ruleset.MS, Ruleset.LYNX }) {
+            Path d4 = dir("trapmap-" + rs);
+            DatBuilder b4 = new DatBuilder().signature(rs == Ruleset.MS ? DatBuilder.SIG_MS : DatBuilder.SIG_LYNX);
+            b4.level().title("Index")
+              .trap(20, 20, 21, 21)     // two buttons, one trap
+              .trap(1, 1, 21, 21)
+              .trap(5, 9, 2, 2)         // and a trap of its own
+              .end();
+            Level l4 = new DatParser(b4.writeTo(d4, "index.dat").toFile())
+                    .parseLevel(1, 0, Step.EVEN, rs, Direction.UP);
+            Harness.eq(rs + ": two traps are mapped", l4.getTrapButtons().size(), 2);
+            Harness.eq(rs + ": the shared trap lists BOTH of its buttons",
+                       buttonsOfTrap(l4, 21, 21), new java.util.TreeSet<>(List.of(idx(20, 20), idx(1, 1))));
+            Harness.eq(rs + ": the other trap lists only its own",
+                       buttonsOfTrap(l4, 2, 2), new java.util.TreeSet<>(List.of(idx(5, 9))));
+            Harness.eq(rs + ": a button's own position is not a key",
+                       buttonsOfTrap(l4, 20, 20), new java.util.TreeSet<Integer>());
+            /* A position no button is wired to is simply shut. MS always answered that; Lynx threw
+             * a NullPointerException after 858dbd0, and the fork guards it. */
+            boolean shut;
+            try { shut = !l4.isTrapOpen(new Position(7, 7)); }
+            catch (Throwable t) { shut = false; }
+            Harness.check(rs + ": isTrapOpen on an unwired position answers shut rather than throwing", shut);
+        }
 
         Harness.section("5. one button may control several targets");
         /* CC1 permits repeated button coordinates, which is how a single brown button springs more

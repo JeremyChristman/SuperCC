@@ -17,6 +17,11 @@ See docs\adr\0001-splice-build-not-full-recompile.md.
 #       ships the old bytecode. Add it here, then run verify-splice.ps1.
 $SPLICE_MODIFIED = @(
     "emulator\SuperCC.java",
+    "game\Level.java",
+    "game\Lynx\LynxLevel.java",
+    "game\MS\MSCreature.java",
+    "game\MS\MSLevel.java",
+    "game\button\BrownButton.java",
     "graphics\LevelPanel.java",
     "graphics\MenuBar.java",
     "graphics\GamePanel.java",

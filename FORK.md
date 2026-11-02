@@ -9,9 +9,12 @@ self-contained build. Upstream is GPLv2+; see `COPYING`.
 Each mod is its own commit on top of the pristine import, so `git log`/`git diff` show exactly
 what's mine.
 
-**The emulation engine is untouched** — no mod changes movement, RNG, or the outcome of an existing
-solution, verified by a headless replay reproducing the exact same tick-by-tick result before and
-after. What the fork *does* change, by release:
+**No change alters the outcome of an existing solution** — movement, RNG and every stored replay
+end exactly as before. Through jc-14 that was true because the engine source was untouched. The
+upstream merge (in progress since 2026-11-02, see *Upstream merge*) now changes engine source, so it
+is held to the measured version of the claim instead: every stored solution in the maintainer's
+collection (24,204) replayed under the previous release and the new build, byte-identical. What the
+fork *does* change, by release:
 
 | | Scope |
 |---|---|
@@ -25,6 +28,7 @@ after. What the fork *does* change, by release:
 | jc-12 | **GUI robustness** — cancelling a file chooser threw an uncaught NPE on the event thread, and a missing solution file produced a stack trace and a message that was just a path. Engine untouched. See *jc-12 -- the two ways MenuBar.openFileBytes could fail*. |
 | jc-13 | **File-format robustness** — a truncated `.tws` was accepted and then misread; it is refused now, with a message. 23,967 real solution files re-verified, none rejected. Engine untouched. See *jc-13 -- a truncated .tws was accepted*. |
 | jc-14 | **Display** — every part of the window title is a setting now, and the separators are computed from what is left rather than templated. The stock title changes: it no longer names the level set. Engine untouched. See *jc-14 -- the window title is fully switchable*. |
+| *unreleased* | **Upstream merge, step 1** — upstream's trap rework (`858dbd0`), with three fixes of the fork's own. Replay-identical on all 24,204 stored solutions. See *Upstream merge*. |
 
 > **`settings.ini` is `succ_settings.ini` from jc-8 on.** Older sections below are left in their
 > original wording where they describe historical work; read "settings.ini" in those as the same
@@ -40,6 +44,115 @@ after. What the fork *does* change, by release:
 3. **Clone/Trap connections on by default** (`java/graphics/MenuBar.java`, `java/graphics/GamePanel.java`).
    The Clone- and Trap-connection overlays render by default (matching Monster/Slip list), and the
    "Show Clone Connections" menu label casing is fixed.
+
+## Upstream merge
+
+The fork was imported from upstream commit `e34672b` (2021-09-10), 13 commits short of upstream's
+latest release, v2.0.3 (2024-06-23, still its master tip). Those commits are being brought in one
+logical change at a time, each replayed against the corpus before it lands, because SuperCC is the
+reference engine the Tile World desync work was measured against: an engine commit moves the
+yardstick. Upstream lays its source out under `src/main/java`, this repo under `java/`, so each
+commit is applied as a patch (`git apply -p4 --directory=java`), not merged by git.
+
+| Upstream | What | Status |
+|---|---|---|
+| `858dbd0` (+ `82198a3`, its test data) | Trap rework: one trap bit per TRAP, not per wire | **merged, unreleased** — step 1, below |
+| `b997c27`, `98366f7` | Input discarding (Lynx forced moves); the second undoes the first's MS effect | to do |
+| `40495dd` | Seed search: an `int` overflow made long searches go negative | to do |
+| `72476bc` | Linux test runner, plus guards for "no level loaded" in `EmulatorKeyListener`, `MenuBar` and `Gui.java` | to do — overlaps jc-11/jc-12; its `requireNonNull` around `openFile` would undo jc-12's cancel fix; `Gui.java` is form-bound |
+| `5f928e0`, `fb8fe25`, `da35e33`, `8c95b3e` | Auto-diagonals | to do — touches `ControlGUI.form`, which needs IntelliJ's form compiler |
+| `f701c85`, `d78f6f3`, `3e92380` | Custom tilesets | to do — touches the form-bound `Gui.java` |
+
+### Step 1 — the trap rework (`858dbd0`), and four fixes to it
+
+**What upstream changed.** Each `BrownButton` used to carry its record's index in the file, and
+`MSLevel.traps` held one bit per *wire*: a trap was open if any wire into it had its bit set.
+`858dbd0` gives each *trap* one bit instead, found through a new trap-position → buttons map,
+`Level.getTrapButtons()` (the reverse of `getBrownButtons()`). It removes
+`BrownButton.getTrapIndex()`, the three-argument `BrownButton` constructor and
+`Level.setRedButtons`/`setBrownButtons`, and adds `LevelFactory`'s own off-map guard on the monster
+list (it agrees with jc-7's). Applied verbatim, plus the four changes below, each marked
+`MOD (Jeremy, upstream merge)` in the source.
+
+**Fix 1 — start-occupied traps (the bug that broke 13 real solutions).** `MSLevel`'s constructor
+presses every trap that starts with Chip, a block or an ice block on it (in MSCC every trap is open
+at level start). Upstream built the trap maps *inside* that press loop, so the press ran before
+they existed. With two or more wires into the trap it threw a `NullPointerException` and the level
+would not open; with one wire it silently did nothing and the trap stayed shut. Measured on
+2026-11-01 across all 24,204 stored solutions: 5 levels would not open (EEfor5subs #16, IsaacD1-Old
+#116, JRB_CCLP1 #18, TCCLP #110, TomP3 #66; four of the five were solved), and 8 replays ended differently, 6 of which stopped
+reaching the exit (C1059-1 #47, EEfor5subs #26, geodave1 #52, geodave4 #7, IsaacD1-Old #121, TLFC3
+#89) — 10 solved routes lost. The test suite (1,878 assertions) passed throughout: no fixture
+started anything on a wired trap. Fix: build both maps first, then press.
+
+**Fix 2 — an empty trap with one button held is open, whatever the hash order.** Before the rework,
+the end-of-tick update set each wire's bit separately, and "open if any bit" made the result
+order-free. The rework kept that loop wire by wire but writes one shared bit, so the *last* wire
+visited decided — and wires are visited in `HashMap` order. Measured with two buttons on one empty
+trap, one held by a block: open under jc-14 in all six arrangements tried, shut in three of them
+under upstream's rework. No stored replay changed because of it — a creature *entering* a trap
+re-checks its buttons, which hides the stale bit — but `isTrapOpen` is the engine's own question,
+and an answer that depends on hash order is a desync waiting for the right level. Fix:
+`finaliseTraps` collects which traps have a held button, then decides each trap once. That is
+exactly the old any-wire rule, and Tile World's `istrapopen()`. (Unchanged, and pinned by §6–§8: a
+button wired to several traps opens only the first, and releasing *either* button of a shared trap
+shuts it — the old code cleared every wire's bit on release, too.)
+
+**Fix 3 — Lynx `isTrapOpen` on an unwired position.** The rework's Lynx version iterated the map's
+list for the position without checking for null, so asking about a cell no button is wired to threw.
+Nothing in the engine asks that today (MS's version already answered `false`); guarded anyway.
+
+**Fix 4 — a trap's bit is numbered by its first wire's record, not by hash order.** The trap bits
+are written into savestates, and *File > Save all states to disk* writes those to a `.ser` file, so
+the number a trap is stored under is a file format. Upstream numbered traps by the iteration order
+of a `HashMap` keyed by position, which also depends on the map's initial capacity: any later change
+to how that map is built, or a JDK's `HashMap`, would silently renumber them. `LevelFactory` now
+gives each trap the record index of the first wire into it, in file order, and passes that map to
+`MSLevel`. That is also exactly the bit jc-14 and earlier stored for that wire, which turns
+upstream's compatibility break into a narrow one (below).
+
+**Two Lynx changes upstream made, kept and noted.** Neither touches play — the Lynx engine springs
+traps through `LynxCreatureList.springTrappedCreature` directly and never calls `setTrap` or
+`isTrapOpen` (checked: no caller outside `BrownButton` and the Cheats menu):
+- `isTrapOpen` now asks whether a creature is on a wired *button*; it used to ask whether one was
+  *in the trap*. Only `BrownButton.isOpen` sees it.
+- `setTrap(pos, true)` — reached only from the Cheats menu's *Press button* — springs the trapped
+  creature once. It used to spring it once per wire into the trap, so a two-wire trap's creature got
+  two moves from one cheat press, which no real button press does.
+
+**Measured.** With all four: the corpus (24,204 solutions, 316 packs) is **identical** to the
+deployed jc-14 jar, and `-CrossCheck` agrees on all 24,203 replayable saves. A probe of the trap
+arrangements above gives jc-14's answer in every case. Against the new tests: upstream's own build
+fails 12 of `MsCloneTrapTest`'s new assertions, upstream plus Fix 1 alone fails 3 (Fix 2's), the
+build with Fixes 1–3 but upstream's numbering fails 3 savestate checks (Fix 4's), and
+`ConnectionTest`'s unwired-position check fails without Fix 3. Four defects planted in the new code
+(no end-of-tick clear; clearing an occupied trap; no first-trap-only rule; numbering by a trap's
+LAST wire) are each caught.
+
+**Tests added.** `MsCloneTrapTest` §6 (a block or Chip starting on a trap with one wire and with two:
+open from the first tick and still open four ticks later, its occupant leaves, and Chip stepping into
+the vacated trap is caught by it), §7 (the six held/free arrangements; the neither-held control; a
+bare press, as the Cheats menu makes, lasting only to the end of the tick; one held button wired to
+two traps opening only the first), §8 (two buttons, one trap: a release shuts it), §9 (upstream's own regression level for
+this commit, "Multi Trap" from `unitTest.dat` #25, rebuilt with `DatBuilder` since a `.dat` may not
+be committed, replayed with its solution `----r-r-r`), §10 (the bit each trap is saved under, read
+from the savestate bytes, and jc-14-style trap bits loaded back). `ConnectionTest` §4, which pinned
+the removed record index, now pins `getTrapButtons` under both rulesets and the unwired-position
+answer. `LinkTest` (new) resolves every call between the fork's classes in the built jar: the five
+classes this step recompiles changed signatures that baseline classes could still have been calling.
+Each was confirmed against the build it guards against. Expected values cite Tile World's
+`mslogic.c` (`initgame`, `istrapopen`, `trapfrombutton`, and the tworld fork's `FIX_TRAP_SHUT_BEHIND`
+for the release rule) and were confirmed against jc-14.
+
+**One narrow compatibility cost.** A `.ser` savestate file holds the trap bits. Before this change
+there was one bit per wire; now there is one per trap, stored at its first wire's bit. So:
+- a `.ser` saved by jc-14 or earlier loads correctly on any level where each trap has one wire;
+- on a trap with two or more wires, its state is read from its first wire's bit alone, so a state
+  saved while only a later wire's bit was set restores that trap shut (392 of the 23,476 levels in
+  the maintainer's collection have such a trap);
+- a `.ser` saved by this build loads correctly in jc-14 and earlier, everywhere.
+Lynx states carry no trap bits; solutions (`.json`, `.tws`) carry no state at all. The maintainer's
+collection holds no `.ser` files. Belongs in the next release's README entry.
 
 ## jc-14 -- the window title is fully switchable
 

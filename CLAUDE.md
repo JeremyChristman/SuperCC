@@ -48,7 +48,7 @@ powershell -ExecutionPolicy Bypass -File verify-splice.ps1
 
 It covers the two ways an edit can fail to ship, by two different mechanisms:
 
-- **Unspliced ordinary files** (70 of them) are recompiled and compared against the bytecode the
+- **Unspliced ordinary files** (65 of them) are recompiled and compared against the bytecode the
   jar would actually contain. An edit the build ignores fails and names the file.
 - **Form-based files** — the 15 `.form` files *and their sibling `.java`* — cannot be recompiled
   here at all, so they are hashed against `docs/form-baseline.sha256`. `graphics/Gui.java` is
@@ -194,7 +194,7 @@ test/SettingsTest.java     the settings contract (SuccPaths)
 test/EngineTest.java       .dat parsing and headless emulator behavior
 test/ErrorLogTest.java     the jc-11 error log
 test/MonsterListTest.java  creature-list ORDER under both rulesets — the desync surface
-test/ConnectionTest.java   trap/clone wiring (fields 4 and 5) — the stride arithmetic
+test/ConnectionTest.java   trap/clone wiring (fields 4 and 5) — the stride arithmetic, and the trap→button map
 test/RngTest.java          the shared TW generator — and that it is NOT MSCC's
 test/ButtonTest.java       the four button types: what a press does, and what it must NOT touch
 test/CreatureMoveTest.java move ORDER per creature, transcribed from TW's choosecreaturemove()
@@ -208,9 +208,17 @@ test/TwsRoundTripTest.java   the .tws solution format, written and read back
 test/TwsClickTest.java       exporting a CLICK to .tws -- the jc-2 fix, via the real emulator
 test/MsTryEnterTest.java     MS ARRIVAL effects -- what a tile does to whoever steps on it
 test/MsCreatureListTest.java MS list per TICK -- FORWARD order, the teeth clock, what MS refuses
-test/MsCloneTrapTest.java    MS clone machines and beartraps -- the dispatch, not the wiring
+test/MsCloneTrapTest.java    MS clone machines and beartraps -- the dispatch, and traps that START occupied
 test/WindowTitleTest.java    the window title -- all 8 combinations of the three jc-14 switches
+test/LinkTest.java           every call between the fork's classes resolves IN THE BUILT JAR (§1's splice hazard)
 ```
+
+`LinkTest` exists because a splice build can ship a stale call. Only the files in `$SPLICE_MODIFIED`
+are recompiled; if one of them removes or re-signs a method, a baseline `.class` that still calls the
+old one goes into the jar untouched, and throws `NoSuchMethodError` only when that line runs.
+`verify-splice.ps1` cannot see it for the fifteen form classes, which it hashes rather than
+recompiles. The upstream merge removes methods routinely (the trap rework removed four), so any
+merge step that goes green here has at least proved its API changes did not strand a caller.
 
 ### Mutation testing — and the trap that makes it lie
 
@@ -277,12 +285,16 @@ is 35 files of upstream code this fork does not modify, `graphics\**` is Swing w
 story, and the rest is vendored `org.json` / `com.intellij`. What this fork can break is the engine
 and the file formats, so that is what is scoped and measured.
 
-**The number is mildly JDK-dependent, by construction.** 378 of the 2664 target branches live in
-the five spliced `io\**` classes (`ErrorLog`, `LevelFactory`, `SuccPaths`, `TWSReader`, `TWSWriter`),
-which your `javac` compiles; `build-config.ps1` already notes that javac 17 does not emit identical
-bytecode to javac 16. The other 2286 branches — including all 2249 of `game\**` — come from the
-committed baseline and are byte-identical on every machine. So an `io\**` figure that differs
-slightly on another JDK is not a bug.
+**The number is JDK-dependent, by construction — so measure the baseline on JDK 16.0.2.** Every
+spliced class is compiled by your `javac`, and `build-config.ps1` already notes that javac 17 does
+not emit identical bytecode to javac 16. That was once only the five `io\**` classes (`ErrorLog`,
+`LevelFactory`, `SuccPaths`, `TWSReader`, `TWSWriter`, 380 branches). Since the upstream trap merge
+(2026-11-02) it is also `MSCreature`, `MSLevel` and `LynxLevel` (plus `Level` and `BrownButton`, which
+have none): another 1,162 branches, nearly half the target. Only the rest comes from the committed
+baseline and is byte-identical on every machine. A figure that differs slightly on another JDK is not
+a bug, but it is not the baseline either: `docs/coverage-baseline.tsv` and the table above are
+measured on 16.0.2, what CI and the release workflow pin. The laptop has JDK 18 only, so re-baseline
+from a machine with 16.0.2.
 
 **50.3% is a floor to build on, not a passing grade**, and the split says where the work is:
 
@@ -424,7 +436,8 @@ starts a block or Chip on a wired trap. The corpus caught it and pinned the caus
 constructor presses start-occupied traps before its trap index exists. With that one ordering fixed,
 the same rework was byte-identical across the whole collection. That is the shape of result to
 expect: the test suite sees the arrangements someone built; the corpus sees the ones level designers
-built.
+built. (The rework was merged on 2026-11-02 with that fix and three more; `MsCloneTrapTest` §6–§7 now
+carry the fixtures that were missing, and each fails on the build it guards against.)
 
 Things that are load-bearing in `CorpusCheck` and `corpus.ps1`:
 

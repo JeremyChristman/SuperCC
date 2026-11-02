@@ -24,6 +24,7 @@ public class LynxLevel extends LynxSavestate implements Level {
     private MultiHashMap<Position, RedButton> redButtons;
     private MultiHashMap<Position, BrownButton> brownButtons;
     private MultiHashMap<Position, BlueButton> blueButtons;
+    private MultiHashMap<Position, BrownButton> trapButtons;
     private int rngSeed;
     private Step step;
     private final Direction INITIAL_SLIDE;
@@ -93,18 +94,13 @@ public class LynxLevel extends LynxSavestate implements Level {
     }
 
     @Override
+    public MultiHashMap<Position, BrownButton> getTrapButtons() {
+        return trapButtons;
+    }
+
+    @Override
     public void setGreenButtons(MultiHashMap<Position, GreenButton> greenButtons) {
         this.greenButtons = greenButtons;
-    }
-
-    @Override
-    public void setRedButtons(MultiHashMap<Position, RedButton> redButtons) {
-        this.redButtons = redButtons;
-    }
-
-    @Override
-    public void setBrownButtons(MultiHashMap<Position, BrownButton> brownButtons) {
-        this.brownButtons = brownButtons;
     }
 
     @Override
@@ -261,10 +257,7 @@ public class LynxLevel extends LynxSavestate implements Level {
     @Override
     public void setTrap(Position trapPos, boolean open) {
         if (open) {
-            for (BrownButton b : brownButtons.values()) {
-                if (b.getTargetPosition().equals(trapPos))
-                    monsterList.springTrappedCreature(b.getTargetPosition());
-            }
+            monsterList.springTrappedCreature(trapPos);
         }
     }
 
@@ -307,8 +300,16 @@ public class LynxLevel extends LynxSavestate implements Level {
 
     @Override
     public boolean isTrapOpen(Position position) {
-        for (BrownButton b : brownButtons.values()) {
-            if (b.getTargetPosition().equals(position) && monsterList.creatureAt(b.getTargetPosition(), true) != null)
+        /* MOD (Jeremy, upstream merge): fixes upstream 858dbd0 -- a position no brown button is
+         * wired to has no list, and iterating null threw. MSLevel's version already answers false.
+         * (858dbd0 also changed what this asks: a creature on a wired BUTTON, where it used to be a
+         * creature IN the trap. Nothing in the Lynx engine calls it -- Lynx springs traps through
+         * LynxCreatureList.springTrappedCreature -- so only BrownButton.isOpen sees the change.) */
+        List<BrownButton> buttons = trapButtons.getList(position);
+        if (buttons == null)
+            return false;
+        for (BrownButton b : buttons) {
+            if (monsterList.creatureAt(b.getButtonPosition(), true) != null)
                 return true;
         }
         return false;
@@ -512,5 +513,12 @@ public class LynxLevel extends LynxSavestate implements Level {
         for (Creature c : monsterList)
             c.setLevel(this);
         this.monsterList.setLevel(this);
+
+        this.trapButtons = new MultiHashMap<>(this.brownButtons.size());
+        for (List<BrownButton> buttons : this.brownButtons.rawValues()) {
+            for (BrownButton b : buttons) {
+                trapButtons.put(b.getTargetPosition(), b);
+            }
+        }
     }
 }

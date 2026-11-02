@@ -101,10 +101,12 @@ public class LevelFactory {
         }
         MSCreature[] monsterList = new MSCreature[l];
         l = 0;
-        for (int i = 0; i < monsterPositions.length; i++){
-            int x = monsterPositions[i][0];
-            int y = monsterPositions[i][1];
+        for (int[] monsterPosition : monsterPositions) {
+            int x = monsterPosition[0];
+            int y = monsterPosition[1];
             Position position = new Position(x, y);
+            if (!position.isValid())
+                continue;
             if (layerFG.get(position).isMonster() && (layerBG.get(position) != Tile.CLONE_MACHINE)) {
                 monsterList[l++] = new MSCreature(position, layerFG.get(position));
             }
@@ -182,11 +184,23 @@ public class LevelFactory {
     }
     private static MultiHashMap<Position, BrownButton> getBrownButtons(int[][] trapConnections) {
         MultiHashMap<Position, BrownButton> buttons = new MultiHashMap<>(trapConnections.length);
-        for (int i = 0; i < trapConnections.length; i++) {
-            Position buttonPos = new Position(trapConnections[i][0]);
-            buttons.put(buttonPos, new BrownButton(buttonPos, new Position(trapConnections[i][1]), i));
+        for (int[] trapConnection : trapConnections) {
+            Position buttonPos = new Position(trapConnection[0]);
+            buttons.put(buttonPos, new BrownButton(buttonPos, new Position(trapConnection[1])));
         }
         return buttons;
+    }
+    /* MOD (Jeremy, upstream merge): the MS trap bit for each trap position -- the record index of
+     * the FIRST wire into it, in file order. Before upstream 858dbd0 every wire had its own bit,
+     * numbered by record; since then each trap has one, and upstream numbered them by HashMap order.
+     * Numbering by first record keeps the bit stable across hashing changes and identical to the one
+     * jc-14 and earlier stored for that wire, which is what a .ser savestate file depends on. See
+     * MSLevel's constructor. */
+    private static Map<Position, Integer> getTrapIndexMap(int[][] trapConnections) {
+        Map<Position, Integer> indices = new HashMap<>(trapConnections.length);
+        for (int i = 0; i < trapConnections.length; i++)
+            indices.putIfAbsent(new Position(trapConnections[i][1]), i);
+        return indices;
     }
     private static MultiHashMap<Position, RedButton> getRedButtons(int[][] cloneConnections) {
         MultiHashMap<Position, RedButton> buttons = new MultiHashMap<>(cloneConnections.length);
@@ -247,6 +261,7 @@ public class LevelFactory {
                 getBrownButtons(trapConnections),
                 getBlueButtons(layerFG, layerBG),
                 new BitSet(trapConnections.length),
+                getTrapIndexMap(trapConnections),
                 layerBG,
                 layerFG,
                 getMSMonsterList(monsterPositions, layerFG, layerBG),

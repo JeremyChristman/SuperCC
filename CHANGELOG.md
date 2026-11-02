@@ -12,6 +12,59 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## Unreleased (upstream merge, step 1)
+
+### Changed
+- **Upstream's trap rework (`858dbd0`) is merged — with four fixes of the fork's own, and no
+  change to any stored replay.** Trap state is now one bit per trap instead of one per wire,
+  through a new trap → buttons map (`Level.getTrapButtons()`). Applied from upstream's commit
+  verbatim, then fixed (each marked `MOD (Jeremy, upstream merge)` in the source):
+  * **Traps that start with Chip or a block on them work again.** Upstream pressed them before its
+    trap index existed: with two wires the level would not open (NPE), with one the trap stayed
+    shut. On the 24,204-solution collection that was 13 changed replays: 5 levels that would not
+    open (4 of them solved) and 8 that ended differently (6 solved routes that stopped solving),
+    10 solved routes lost in all. The maps are now built before the press.
+  * **An empty trap with one of its buttons held is open, regardless of hash order.** The rework
+    let the last wire visited decide; measured shut in 3 of 6 arrangements where jc-14 says open.
+    No replay depended on it (entering a trap re-checks its buttons), but the engine's own
+    `isTrapOpen` did. Each trap is now decided once, by the old any-button rule (Tile World's too).
+  * **A trap's bit is numbered by its first wire's record in the file**, not by `HashMap` order.
+    The number is written into `.ser` savestate files, so it must not move with hashing; and it is
+    the bit jc-14 used for that wire, which keeps old `.ser` files loading correctly (see below).
+  * Lynx `isTrapOpen` on a cell no button is wired to threw; it answers shut, as MS does.
+
+  Kept from upstream and noted, neither reachable in Lynx play: `isTrapOpen` now asks about a
+  creature on a wired button rather than one in the trap, and the Cheats menu's *Press button* on a
+  multi-wire trap springs its creature once instead of once per wire.
+
+  **Measured:** corpus identical to the deployed jc-14 jar on all 24,204 solutions; `-CrossCheck`
+  agrees on all 24,203 replayable saves. Five more `java/game/**` files are now spliced.
+  **For the next release's README:** a `.ser` saved with *Save all states to disk* by jc-14 or
+  earlier loads correctly wherever each trap has one wire; on a trap with two or more wires, its
+  state is read from its first wire's bit alone, so it can restore shut when it was open (392 of
+  23,476 levels in the maintainer's collection have such a trap). A `.ser` saved now loads correctly
+  in older builds. Lynx states and solution files are unaffected. Coverage rose (target 50.3% →
+  51.2% on the laptop's JDK 18, before §10 was added) and must be re-baselined on JDK 16.0.2 before
+  the release: the newly spliced engine classes are now JDK-dependent too.
+
+### Added
+- **The fixtures whose absence let the trap bug through** — `MsCloneTrapTest` §6–§10: a block or
+  Chip starting on a trap with one wire and with two, an empty trap with one of two buttons held
+  (six arrangements, plus a neither-held control), a bare press, one button wired to two traps, a
+  shared trap's release, upstream's own regression level for the commit ("Multi Trap", rebuilt
+  with `DatBuilder`), and the bit each trap is saved under, with jc-14-style bits loaded back.
+  Expected values cite Tile World's `mslogic.c` and were confirmed against jc-14. `ConnectionTest`
+  §4 now pins `getTrapButtons` under both rulesets in place of the removed record index. Upstream's
+  build fails 12, upstream with only the first fix fails 3, upstream's numbering fails 3 savestate
+  checks, and four defects planted in the new code are each caught.
+- **`test/LinkTest.java`** — every method and field reference between the fork's own classes,
+  read from each class file's constant pool in the BUILT jar, must resolve, as the JVM resolves it
+  (including an interface call to a public `Object` method). A splice build recompiles only the
+  edited files, so a baseline class still calling a removed method would ship and throw
+  `NoSuchMethodError` at the call; `verify-splice.ps1` cannot see that for the fifteen form
+  classes. Planted: jc-14's `MSCreature.class` in the new jar is reported by name. It checks names
+  and descriptors only, not access or static-ness.
+
 ## Unreleased (tooling)
 
 ### Added
