@@ -55,6 +55,23 @@ form-based classes.
    All three must be green. If you edited a `java/**` file, `verify-splice.ps1` is what proves the
    edit is actually going to ship.
 
+   **If the release touches `java/game/**`, `java/io/**` or `java/emulator/**`, also replay the
+   corpus** against the previous release's jar and compare (needs the local Chip's Challenge folder,
+   so CI cannot do it):
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File corpus.ps1 -CCDir "<CC>" -Jar <previous-release.jar> -Out corpus-results\before.txt
+   powershell -ExecutionPolicy Bypass -File corpus.ps1 -CCDir "<CC>" -Out corpus-results\after.txt
+   powershell -ExecutionPolicy Bypass -File corpus.ps1 -Compare -Baseline corpus-results\before.txt -Candidate corpus-results\after.txt
+   ```
+   Run from the repo root, so the outputs land in the gitignored `corpus-results\` — they list a
+   personal collection and must never be committed. A save or level updated between the two runs
+   shows as INPUT CHANGED, not as the engine's, and a baseline written by an older version of the
+   harness is refused: run both sides back to back, with the same `corpus.ps1`.
+   Every difference must be one the release intends. The test suite alone has let a change that
+   changed 13 real solutions (10 solved routes lost) through (CLAUDE.md section 4). Name the previous jar explicitly, as above:
+   `build.ps1` has already overwritten the repo's `SuperCC.jar`, and `-Compare` refuses (exit 2) a
+   pair that replayed the same jar twice rather than report it IDENTICAL.
+
    **Run the coverage check HERE, not for the first time from CI.** The release workflow runs it
    too, so a drift you skip now fails *after* the tag is public and the recovery is delete-tag /
    fix / re-push. If it reports drift: run `coverage.ps1 -UpdateBaseline`, update the table in

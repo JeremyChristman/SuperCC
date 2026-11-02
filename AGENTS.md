@@ -27,7 +27,12 @@ powershell -ExecutionPolicy Bypass -File build.ps1          # -> SuperCC.jar
 powershell -ExecutionPolicy Bypass -File run-tests.ps1      # builds, then runs test\
 powershell -ExecutionPolicy Bypass -File build.ps1 -Package # -> dist\SuperCC-<tag>.zip
 java -jar SuperCC.jar                                       # run it (never javaw -- it eats stderr)
+powershell -ExecutionPolicy Bypass -File corpus.ps1 -SelfTest  # corpus harness self-check (CI runs it)
 ```
+
+**Changing `game\**`, `io\**` or `emulator\**`?** The test suite is not enough evidence on its own. Replay the whole
+solution collection before and after with `corpus.ps1` and compare (CLAUDE.md §4) -- upstream's trap
+rework once passed every test while changing 13 real solutions (10 solved routes lost).
 
 Mutation testing: every engine test here was proven by planting the defect it claims to catch.
 **Adding the file you are mutating to `$SPLICE_MODIFIED` first is mandatory** — otherwise the build

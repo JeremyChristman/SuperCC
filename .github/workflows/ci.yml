@@ -61,12 +61,39 @@ jobs:
           # succ_error*.log and succ_settings.ini are added here for the same reason: both are
           # written by the program into whatever directory it was launched from, both contain
           # personal paths, and .gitignore does nothing about `git add -f`.
-          $tracked = git ls-files '*.dat' '*.tws' '*.ccl' '*.dac' 'succ_error*.log' 'succ_settings.ini'
+          # corpus.ps1's run outputs list a personal collection's packs and levels: corpus-results\ by
+          # default, and ANY tracked file, whatever its name, by the "#jar<TAB>" header each opens with.
+          # A guard that could not look must not report that it found nothing, so git failing fails it.
+          $tracked = @(git ls-files '*.dat' '*.tws' '*.ccl' '*.dac' 'succ_error*.log' 'succ_settings.ini' 'corpus-results/*')
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::git ls-files failed (exit $LASTEXITCODE)"; exit 1 }
+          # git writes paths as UTF-8; PowerShell 5.1 would decode them in the console's code page, and a
+          # non-ASCII name would come back garbled and unopenable. Read them as UTF-8.
+          [Console]::OutputEncoding = New-Object Text.UTF8Encoding($false)
+          $all = @((git ls-files -z) -split "`0" | Where-Object { $_ })
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::git ls-files failed (exit $LASTEXITCODE)"; exit 1 }
+          # Each file's FIRST LINE, through a reader that honors a byte-order mark: a copy re-saved with
+          # a UTF-8 BOM, or as UTF-16 by PowerShell 5.1's `>`, still opens with "#jar<TAB>" once decoded
+          # (a plain `git grep '^#jar'` missed both -- reproduced). Binary files simply never match.
+          # A tracked file that cannot be opened is a FAILURE, not a pass: unread is not clean.
+          $unread = @()
+          foreach ($f in $all) {
+            $first = $null
+            # Only a short decoded prefix: ReadLine on a binary with no newline would buffer all of it.
+            try {
+              $r = New-Object IO.StreamReader($f, $true)
+              try { $buf = New-Object char[] 16; $n = $r.Read($buf, 0, 16); $first = New-Object string($buf, 0, $n) }
+              finally { $r.Dispose() }
+            }
+            catch { $unread += $f; continue }
+            if ($first -and $first.StartsWith("#jar`t")) { $tracked += $f }
+          }
+          if ($unread) { Write-Host "::error::tracked files the guard could not read: $($unread -join ', ')"; exit 1 }
           if ($tracked) {
-            Write-Host "::error::files that must never be committed are tracked: $($tracked -join ', ')"
+            # once each: a file in corpus-results\ that also opens with "#jar" would otherwise be listed twice
+            Write-Host "::error::files that must never be committed are tracked: $(@($tracked | Select-Object -Unique) -join ', ')"
             exit 1
           }
-          Write-Host "no level set, solution, settings or log files are tracked"
+          Write-Host "no level set, solution, settings, log or corpus-run files are tracked"
 
       - name: Verify the splice invariants
         shell: powershell
@@ -90,6 +117,21 @@ jobs:
       - name: Differential trace alignment self-test
         shell: powershell
         run: powershell -ExecutionPolicy Bypass -File trace.ps1 -SelfTest
+
+      # The corpus replay is the widest oracle this fork has -- every stored solution through the
+      # real engine -- and like the trace it needs data that may not be committed, so the real run
+      # is local only. Its previous version was lost from a scratch folder before ever being
+      # committed. -SelfTest synthesizes a small collection with test\DatBuilder.java (eight level
+      # sets: one unreadable, one well formed under a refused signature, one cut short, one present
+      # as both .dat and .ccl) and proves the
+      # harness end to end: every status a real collection can produce except the two defensive
+      # catch-alls no known input reaches (LOADEXC, STATEEXC); the cross-check against SuperCC's own
+      # replay; determinism; the same-jar and unknown-jar refusals; and that real engine-level
+      # differences are caught and classified, every count exact.
+      # Needs the jar, so it runs after the build.
+      - name: Corpus replay harness self-test
+        shell: powershell
+        run: powershell -ExecutionPolicy Bypass -File corpus.ps1 -SelfTest
 
       - name: Publish test results
         # Runs even when the tests failed -- that is the case where the report matters most.

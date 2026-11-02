@@ -56,7 +56,7 @@ public final class DatBuilder {
 
     /** One level record. Fluent, and every setter is optional except what CC1 itself requires. */
     public final class Level {
-        private final int number;
+        private int number;
         private int timeLimit = 0, chips = 0;
         private final byte[] fg = new byte[MAP_CELLS];
         private final byte[] bg = new byte[MAP_CELLS];
@@ -67,6 +67,20 @@ public final class DatBuilder {
 
         private Level(int number) { this.number = number; }
 
+        /**
+         * Overrides the level-number word at the start of the record (default: its 1-based
+         * position). The spec stores the number IN the record, so nothing forces it to match the
+         * record's position in the file -- and SuperCC names a level's solution file after this
+         * number while loading levels by position, which is exactly the gap a fixture needs to reach.
+         * The record holds an unsigned 16-bit word, so anything outside 0..65535 is refused rather
+         * than silently truncated into a different number than the fixture asserts on.
+         */
+        public Level number(int n) {
+            if (n < 0 || n > 0xFFFF)
+                throw new IllegalArgumentException("a level number is a 16-bit word (0..65535), not " + n);
+            this.number = n;
+            return this;
+        }
         public Level timeLimit(int t) { this.timeLimit = t; return this; }
         public Level chips(int c)     { this.chips = c;     return this; }
         public Level title(String s)    { this.title = s;    return this; }

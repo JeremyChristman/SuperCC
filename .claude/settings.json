@@ -9,6 +9,7 @@
       "Bash(powershell -ExecutionPolicy Bypass -File run-tests.ps1 -Isolated)",
       "Bash(powershell -ExecutionPolicy Bypass -File run-tests.ps1 -ResultsPath test-results)",
       "Bash(powershell -ExecutionPolicy Bypass -File run-tests.ps1 -NoBuild -ResultsPath test-results)",
+      "Bash(powershell -ExecutionPolicy Bypass -File corpus.ps1 -SelfTest)",
       "Bash(git status:*)",
       "Bash(git diff:*)",
       "Bash(git log:*)",

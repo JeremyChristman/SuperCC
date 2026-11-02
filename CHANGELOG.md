@@ -12,6 +12,199 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## Unreleased (tooling)
+
+### Added
+- **`corpus.ps1` + `corpus/CorpusCheck.java`: the corpus replay, committed.** Replays every stored
+  solution in a Chip's Challenge folder through one jar and writes each one's final state —
+  outcome, tick, timer, chips, Chip's cell, facing and sliding, keys and boots, RNG, and CRC32s of
+  both layers, the creature list and the slip list — then `-Compare` diffs two runs and classifies
+  every difference (STATUS, LOST THE EXIT, GAINED THE EXIT, FINAL STATE ONLY, plus a "solved routes
+  lost in all" total). Exit codes: 0 identical, 1 differences, 2 error or refused, 3 cross-check
+  mismatch. Its previous version proved jc-11 replay-neutral from a scratch folder and was lost, as
+  the trace harness's once was.
+
+  **Why it earns a place: it caught what the test suite could not.** Measuring upstream's trap
+  rework (`858dbd0`) on 2026-11-01, all 1,878 assertions passed while 13 of 24,204 real solutions
+  changed: five levels would not open at all (four of them solved), six more solved routes stopped
+  reaching the exit, and two unsolved routes ended differently — ten solved routes lost in all —
+  because no fixture starts a block or Chip on a wired trap. The cause was one upstream ordering bug
+  (the `MSLevel` constructor presses start-occupied traps before its trap index exists); with that
+  fixed, the rework was byte-identical across the whole collection. That measurement is the reason
+  for the new step in `RELEASING.md`: a release touching `game/**`, `io/**` or `emulator/**` (where
+  `tick`, `loadLevel` and `Solution` live) replays the corpus before and after.
+
+  **The ways a naive replay reports a wrong answer as a result, or dies, are each closed — most of
+  them found by twenty review passes and reproduced before being fixed:**
+  * **A save belongs to the level carrying its number, not necessarily the level at that
+    position.** SuperCC names solution files after the number stored in the level's record but
+    loads by position; replaying by position would test the moves on the wrong level and print an
+    ordinary result under BOTH jars. Each set is indexed once by record number, the save goes to the
+    level carrying its number (`pos=N`), and where several levels share a number the filename title
+    picks one or the save is `AMBIGUOUS`. They agree in every set in the collection today — a
+    cross-check run of all 24,204 saves skipped none for this.
+  * **That index is read from the set's bytes, never through the engine under test.** Built with
+    `DatParser.parseLevel`, it ran the candidate's level constructor in the SET's ruleset, so a jar
+    whose `MSLevel` constructor throws — 858dbd0's exact failure — erased those levels' numbers,
+    and their LYNX saves read `LOADFAIL` without ever being loaded (reproduced with that jar; now
+    they replay exactly as under jc-14). It agrees with SuperCC's own parser on the number and the
+    exact title of all 23,476 levels in the collection (the LAST title field wins, as in
+    `DatParser`, and each optional field is stepped over by exactly the bytes `DatParser` reads for
+    it, not its stated length). A level whose record runs past the end of the file reads `NOLEVEL` saying its
+    number is unknown, instead of a guess.
+  * Error lines carry no source line numbers, nor a helpful NPE's local-variable slot (`<local4>`:
+    the spliced classes are compiled without `-g`) — both move when the throwing method is edited
+    and would make an unchanged failure "differ"; only the first line can be the `#jar` header (a
+    pack may be named `#anything`, and an empty line is refused rather than skipped); a truncated
+    output file, a missing JDK and a `-Pack` naming no folder are errors (exit 2).
+  * **A compare of a jar against itself is refused — and so is one whose jar is unknown.** Each
+    output opens with `#jar <sha256>` for the jar the JVM actually loaded, and `-Compare` exits 2 on
+    a same-jar pair, or a pair where either side's jar cannot be read, unless `-SameJar`; an
+    explicit `-Jar` resolves against the current directory, so "`-Jar SuperCC.jar`" in a release
+    folder cannot mean the repo's fresh build.
+  * **A change in the collection is never blamed on the engine.** Every line ends with
+    `src=<save>:<level>`, CRC32s of the solution file and of the level record its FILENAME points at
+    (the whole set when no one record is picked), so a save re-recorded or a pack updated between
+    the before and after runs is classified INPUT CHANGED — reported, exit 1, but not counted in
+    "solved routes lost in all" — and so is a save present on only one side. The fingerprint is
+    worked out from the inputs alone, before the jar touches them: its first version followed the
+    STATUS (a save that stopped parsing switched to the whole-set CRC), which would have filed a jar
+    that breaks parsing or opening as INPUT CHANGED and out of the headline — caught by the sixth
+    review, and the self-test now checks the level fingerprint is identical across runs over one
+    set, even for a save whose status changed. `pos=N` is input identity and follows `src=`, so a
+    level that only moved within its pack is not a different end state. A solved route lost where
+    the input ALSO changed is counted on a line of its own, never silently: nothing can attribute
+    it, and the compare says to re-run the baseline jar on the current collection.
+  * **So is a change in the harness.** The header records the harness version (`harness=<sha256>`
+    of `CorpusCheck.java`, line endings normalized), and `-Compare` refuses a pair written by two
+    versions, or an unknown one, unless `-MixedHarness` — measured: counting the fatal move alone
+    changed 23,095 lines, every one of which an old-vs-new compare blamed on the engine. It records
+    the JDK too (`java=`), and a pair on different JDKs gets a NOTE: no end state depends on it,
+    but an exception line quotes the JDK's own wording.
+  * **A run cut short can never pass for a whole one.** Every run ends with `#end <count>`, and
+    `-Compare` refuses a file without it, or whose count does not match. Before, a run killed
+    part-way — as one was here, for low memory — compared as a short collection: measured against
+    a killed run's 435 lines, the compare said "solved routes lost in all: 0" and put 22,605
+    unreplayed solved routes down to the collection. The header records the scope too (`pack=`):
+    a one-pack run against a whole-collection run compares that pack alone, and two different
+    single packs are refused. The level fingerprint includes the set's signature, since that alone
+    decides whether SuperCC opens it — a re-signed pack is the collection's change.
+  * **The jar is replayed from a private copy** taken into the run's temp folder, and the hash
+    printed and recorded is the copy's. A run takes minutes, and Windows lets `build.ps1` overwrite
+    a jar a live JVM has open, after which late-loaded classes read as garbage (CLAUDE.md section 9,
+    measured) — a rebuild mid-run would have shown as engine failures under the old jar's hash. If
+    the jar on disk changed during the run, the run says so.
+  * The same failure failing differently (an `EXC` that moved, an `OPENFAIL` with a new reason) is
+    `STATUS <s>, detail changed`, not FINAL STATE ONLY: a line that is not OK has no end state. A
+    path with a trailing backslash and a space — `"...\Chip's Challenge\"`, as tab completion
+    writes it — no longer swallows the next argument (PowerShell 5.1 quotes it, and to java the
+    `\` escaped that quote; reproduced); the self-test now runs on folders with spaces in their
+    names. Only an absolute CC path is masked in messages (a relative `.` would have replaced every
+    period). Run outputs go in the gitignored `corpus-results\` in every documented workflow:
+    they list a personal collection.
+  * In a set cut short, one readable level carrying a save's number is not taken on trust: an
+    unreadable record might carry it too, so the title must confirm it or the save is `AMBIGUOUS`.
+  * Error messages are stripped of what differs between runs with no engine change — the CC
+    folder's own path (`<CC>`; it is a different user folder on each PC) and identity hashes
+    (`@<hash>`). The slip-list probe catches only the `UnsupportedOperationException` Lynx throws,
+    so an MS engine crash there surfaces as `STATEEXC` rather than passing for `slip=-`. A jar hash
+    that is not a well-formed sha256 counts as unknown and is refused, where it used to crash the
+    compare and exit 0.
+  * The move that ends a route is counted as replayed (MS marks Chip dead on reaching the exit, so
+    every solved route read one move short before).
+  * `loadLevel` swallows its exceptions (a failed load is detected by the identity of the level AND
+    the savestate manager — a title-less level parses but leaves the old savestates behind) and
+    WRAPS out-of-range numbers to level 1 (never passed one). `openLevelset` swallows an unreadable
+    set, after which the next call threw outside any handler and aborted the whole run — now
+    `OPENFAIL` for that pack, with the parser's reason. A number too long for an `int` aborted the
+    run too; now `NOLEVEL`. A `.ccl` set used to read as having no set at all.
+  * An error and "differences found" no longer share exit 1.
+
+  Verified on the real collection (331 sets, 24,204 solution files), with every version of the
+  harness above: the jc-14 build writes a line for every file (24,203 replay, 23,012 of them to the
+  exit; one misnamed file reads BADNAME) and matches the deployed jc-14 jar on all of them; the
+  cross-check agrees with SuperCC's own replay on all 24,203; upstream's trap rework with the
+  ordering fix is identical; and the broken-trap jar is classified exactly as measured (5 status,
+  4 of them solved; 6 lost the exit; 2 final state only; 10 solved routes lost in all; 0 filed as
+  input changes). The index agrees with SuperCC's parser on all 23,476 levels, and between the
+  first and last versions of the harness, the output changed on no line except as intended.
+- **Found along the way, NOT fixed here (it is shipped behavior): `Solution.load` reloads by the
+  level's stored NUMBER, used as a position** (`Solution.java`, `loadLevel(getLevelNumber(), …)`),
+  so in a set where a level's number is not its position, opening its solution in SuperCC replays
+  it on the wrong level. No set in the collection has such a level today. `-CrossCheck` has to skip
+  those saves, and now says so in a `NOTE` line rather than counting them silently.
+- **`-CrossCheck`.** The harness has to COPY `Solution.tickBasicMoves`, which cannot be observed
+  from outside; this replays every solution a second time through the real `Solution.load` and
+  fails on any final state that differs — a replay that throws included — so the copy is measured
+  rather than trusted. Run it after anything touches `Solution.java`.
+- **`corpus.ps1 -SelfTest`, and a CI step that runs it.** A synthesized collection
+  (`corpus/CorpusFixture.java`, built with `test/DatBuilder.java`) produces every status a real
+  collection can — all but the two defensive catch-alls no known input reaches — and checks the
+  jar and harness header, the `#end` line, the cross-check, byte-identical reruns, every refusal
+  (same jar, unknown jar, mixed harness, a run cut short, different single packs),
+  error-vs-difference exit codes, and that REAL engine-level differences are caught and classified
+  with every count asserted exactly — and that a re-recorded save is INPUT CHANGED while the same
+  end-state differences on unchanged inputs are the engine's. Its fixture folders have spaces in
+  their names, as the real one does; its saves are written as SuperCC writes them (with
+  `"Encode":"UTF-8"`), plus an older Latin-1 one and a Lynx one, so both decodings and the Lynx
+  `bg=-`/`slip=-` lines are checked. Forty-three planted defects in the harness, one per protection,
+  each turn it red. Thirteen protections are NOT exercised by it, because proving them would take
+  a second build with shifted lines or locals, a second PC, a full disk, no JDK, a jar whose engine
+  throws (often, or out of memory), or a rebuild, edit or kill during a run: (1) error lines free of
+  line numbers, local slots, paths (the CC folder, and the run's own temp folder) and identity
+  hashes; (2) the truncated-output check; (3) the missing-JDK exit code;
+  (4) the slip-list probe NOT hiding an MS engine crash (that it still catches what Lynx throws IS
+  checked); (5) the index's independence from the engine (proven instead
+  with 858dbd0's jar, above); (6) the private jar copy; (7) the harness hash taken from the compiled
+  copy; (8) an emulator constructor that throws being one pack's `OPENFAIL`; (9) `-CrossCheck`
+  counting a reload whose `SavestateManager` threw as skipped, as `loadPosition` does, rather than
+  comparing it; (10) a run that dies leaving an existing output untouched (seen working on a real
+  kill: the stopped run left only its `.partial`); (11) a run stopping, refused, when a set
+  changes on disk while its saves replay — the collection syncs through Dropbox, and the engine
+  re-reads the file at every load, so the fingerprint would describe bytes that were not all
+  replayed; (12) the JVM's `-XX:-OmitStackTraceInFastThrow`, without which HotSpot, once it has
+  compiled a site that throws often, throws a preallocated exception with no message or stack — so
+  the same failure would read differently partway through a run, and two runs of one jar would
+  stop matching; and (13) out-of-memory and the VM's internal errors killing the run (no `#end`,
+  refused) instead of being written as EXC lines that depend on the heap, not the input.
+  The CI step that keeps level sets out of the repo now also refuses a tracked corpus output — in
+  `corpus-results\`, or any file whose first line, read through a BOM-aware reader, is the `#jar`
+  header (so a copy re-saved with a UTF-8 BOM or as UTF-16 is caught too: a plain `git grep` missed
+  both, reproduced) — and fails if `git` itself fails, rather than reporting that it found nothing. The header names the jar the user gave, beside the
+  hash of the private copy that ran.
+- **A save is decoded exactly as SuperCC's own Open decodes it** (`MenuBar`): UTF-8 only when its
+  `"Encode"` field says so, else ISO-8859-1 — the format of older saves, whose click moves are single
+  bytes 0xAF–0xFF. Read as UTF-8, most such saves would not decode at all, and a pair like `C3 BF`
+  would become ONE different move, replayed without a word; `-CrossCheck` could not see it, since it
+  replays the same decoded solution. In the collection today it changes nothing: 1,877 saves have
+  no `"Encode"` field, all plain ASCII, and all 66 with other bytes declare UTF-8. The self-test
+  pins it with a Latin-1 save. Output is written to `<out>.partial` and moved into place only when
+  complete, so a run that fails or is killed cannot destroy a baseline kept at that path; `-Jar`
+  must name a file, not a folder; and paths are resolved by PowerShell's own resolver, so a
+  drive-relative `C:foo` or root-relative `\foo` means what it means in the console.
+- **Nothing that is not a result can become a baseline.** A `-CrossCheck` run that finds its replay
+  disagreeing with SuperCC's is left as `.partial`, never moved into place (exit 3), and so is a run
+  that could not identify its own jar; `-Out` may not be a folder, nor anywhere in a git working
+  tree that git does not ignore, nor whose `.partial` it does not ignore (git itself is asked, so no
+  spelling of the path slips past); a stack overflow
+  is recorded by its class alone, since the frame it strikes in depends on the JIT; the JVM flags
+  that shape the output are part of the harness version; and the pack order no longer depends on
+  the machine's locale. After a run, the file at `-Out` must carry the hash of the copy that just
+  ran (and the exit code is reset before java starts), so an older file can never be reported as
+  this run's; an `"Encode"` that is not a string fails as it does in SuperCC; and the CI guard
+  reads tracked paths as UTF-8 and fails on any file it cannot open, instead of passing it. The
+  level fingerprint covers every byte SuperCC's parser reads for the level — beyond its stated size
+  where a malformed record makes it read on — and a set cut off inside its level count is read as
+  `DatParser` reads it (65535 levels, all unreadable), not as an empty set.
+- `test/DatBuilder.java`: `Level.number(n)`, to write a level whose record number differs from its
+  position — which the format allows and SuperCC's file naming depends on.
+
+### Fixed
+- `CLAUDE.md` had an unclosed code fence after the differential-trace section — a stray
+  `test/ErrorLogTest.java` line from the test map, followed by a fence that never closed — so on
+  GitHub everything from there to the end of the file (the rest of §4 and all of §5–§10) rendered
+  as one code block. The line is back in the test map.
+
 ## jc-14
 
 ### Added
