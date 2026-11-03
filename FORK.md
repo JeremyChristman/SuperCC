@@ -29,6 +29,7 @@ fork *does* change, by release:
 | jc-13 | **File-format robustness** — a truncated `.tws` was accepted and then misread; it is refused now, with a message. 23,967 real solution files re-verified, none rejected. Engine untouched. See *jc-13 -- a truncated .tws was accepted*. |
 | jc-14 | **Display** — every part of the window title is a setting now, and the separators are computed from what is left rather than templated. The stock title changes: it no longer names the level set. Engine untouched. See *jc-14 -- the window title is fully switchable*. |
 | jc-15 | **Upstream merge, steps 1 and 2** — upstream's trap rework (`858dbd0`) with four fixes of the fork's own, and its Lynx input discarding (`b997c27` + `98366f7`), which records a key the engine ignores as a wait. Replay-identical on all 24,204 stored solutions; 40 Lynx move lists record differently once loaded. See *Upstream merge*. |
+| jc-16 | **Upstream merge, step 3** — Seed Search stops at the last seed instead of wrapping into negative seeds forever (`40495dd`), plus three fork fixes: a negative start, threads that finished before the next one started, and an example seed that hid negative seeds. `SeedSearch` is form-based, so this added `formclass.ps1`, which rebuilds a form class whose `.form` is unchanged (ADR 0010). Engine untouched. See *Upstream merge*, step 3. |
 
 > **`settings.ini` is `succ_settings.ini` from jc-8 on.** Older sections below are left in their
 > original wording where they describe historical work; read "settings.ini" in those as the same
@@ -58,10 +59,10 @@ commit is applied as a patch (`git apply -p4 --directory=java`), not merged by g
 |---|---|---|
 | `858dbd0` (+ `82198a3`, its test data) | Trap rework: one trap bit per TRAP, not per wire | **merged, jc-15** — step 1, below |
 | `b997c27`, `98366f7` | Input discarding (Lynx forced moves); the second undoes the first's MS effect | **merged, jc-15** — step 2, below |
-| `40495dd` | Seed search: an `int` overflow made long searches go negative | to do |
-| `72476bc` | Linux test runner, plus guards for "no level loaded" in `EmulatorKeyListener`, `MenuBar` and `Gui.java` | to do — overlaps jc-11/jc-12; its `requireNonNull` around `openFile` would undo jc-12's cancel fix; `Gui.java` is form-bound |
-| `5f928e0`, `fb8fe25`, `da35e33`, `8c95b3e` | Auto-diagonals | to do — touches `ControlGUI.form`, which needs IntelliJ's form compiler |
-| `f701c85`, `d78f6f3`, `3e92380` | Custom tilesets | to do — touches the form-bound `Gui.java` |
+| `40495dd` | Seed search: an `int` overflow made long searches go negative | **merged, jc-16** — step 3, below |
+| `72476bc` | Linux test runner, plus guards for "no level loaded" in `EmulatorKeyListener`, `MenuBar` and `Gui.java` | to do — overlaps jc-11/jc-12; its `requireNonNull` around `openFile` would undo jc-12's cancel fix; `Gui.java` is form-bound, but its `.form` is untouched, so `formclass.ps1` can rebuild it |
+| `5f928e0`, `fb8fe25`, `da35e33`, `8c95b3e` | Auto-diagonals | to do — `5f928e0` edits `ControlGUI.form` itself, which still needs IntelliJ's form compiler (ADR 0010) |
+| `f701c85`, `d78f6f3`, `3e92380` | Custom tilesets | to do — touches the form-bound `Gui.java` and `ChooseTileSize.java`, `.form`s untouched: `formclass.ps1` |
 
 ### Step 1 — the trap rework (`858dbd0`), and four fixes to it
 
@@ -271,6 +272,196 @@ had to add it to `$SPLICE_MODIFIED`, CLAUDE.md §4), a blocked key reported disc
 half-blocked diagonal reported discarded (1), and upstream's recorder line restored (1 — `r--UUUUUu`
 through the wrapped level; before §5 existed this one survived, since no real engine path returns
 both bits).
+
+### Step 3 — seed search overflow (`40495dd`), and the tool that made it possible
+
+**What upstream changed.** Solution > Search for seeds splits the seeds from the starting one up to
+`Integer.MAX_VALUE` among its threads; the last thread's range ends at `Integer.MAX_VALUE` itself.
+Held in an `int`, the seed after it is `Integer.MIN_VALUE`, `currentSeed <= endSeed` is still true,
+and the loop runs on through every negative seed — which `RNG.setCurrentValue` masks to 31 bits, so
+it retries seeds already tried and counts them again. The attempt and success totals were
+`AtomicInteger`s too, so a full search (2^31 seeds) overflowed them as well. `40495dd` makes the
+seeds, ranges and totals `long`.
+
+**Measured before fixing, on jc-15:** a search of the last 3,000 seeds, four threads, had made
+12,285,648 attempts after 8.4 seconds and was still running. On jc-16: exactly 3,000 attempts and
+3,000 successes, then it stops; started at `Integer.MAX_VALUE` itself, exactly one.
+
+**One fork fix (`MOD (Jeremy, upstream merge)`), reproduced first.** Upstream left
+`long numSeeds = Integer.MAX_VALUE - start` in `int` arithmetic, so a negative start wraps it. With
+start −5 and four threads the pool came out negative: threads 0–2 got empty ranges and never
+advanced, thread 3 searched from −1,610,612,735 up — about 3.8 billion seeds alone — and
+`SeedSearch.isRunning()` read false 1.3 seconds in while thread 3 kept going (the empty threads
+count `numAlive` down to zero and clear `running`). A `(long)` cast fixes the split; all four
+threads now advance through their own quarter.
+
+**A second fork fix: threads are built, then started (found by `/code-review`, reproduced first).**
+Upstream started each search thread the moment it was built, and building the next one (an
+emulator, the level set, the level) takes longer than a short range takes to search. So an earlier
+thread finished first, counted `numAlive` down to zero and ran the "last one cleans up" block
+mid-search. Sampling `isRunning()` during a 3,000-seed, four-thread search: it went false four
+times in three of five runs (once per thread). In that moment a Pause click started a second set
+of threads over the same ranges, and an early thread's `updateText()` could overwrite the final
+totals. Each `run()` also reset `killFlag`, undoing a Pause that landed before the last thread
+began. Now all threads are built first, `running`/`killFlag` are set once before any starts (and
+are `volatile`), and `run()` no longer touches them: eight of eight runs went false exactly once,
+at the end.
+
+The second `/code-review` found two holes in that fix, both true by reading:
+- **The count.** Workers were counted in their constructor, so if building a later one threw, the
+  counted ones would never run and `numAlive` would never reach zero again. Now all of them are
+  added at once, at the start.
+- **The cleanup order.** It published `running = false` before clearing `killFlag`, so a Resume
+  started between the two had its Pause cleared by the old batch. The two lines are swapped.
+
+**A third fork fix: the example seed.** "No success yet" was `-1`, tested as `>= 0`, so a success at
+a negative seed — reachable now that a negative start is split properly — was counted but never
+shown. Three reviewers raised it; it is `Long.MIN_VALUE` now, which no seed can be.
+
+Left alone, all upstream's own design and none made worse here:
+- The button still reads Pause after a search finishes, and pressing it starts a batch with
+  nothing left to search. What it should say then is a UI decision, not part of an overflow fix.
+- `run()` has no `try/finally`, so an exception inside a search would leave the static flags set.
+- A non-numeric start throws `NumberFormatException`.
+- Two open Seed Search windows share that static state.
+
+**The real work: `SeedSearch` is form-based.** Its `.class` is committed IntelliJ bytecode
+(ADR 0001/0002), and javac alone cannot rebuild it — it would ship with no components and die on
+its constructor's first line. Four of the remaining upstream commits edit a form class too, and
+only one of them edits a `.form`. So this step added `formclass.ps1` and
+`formclass/FormTransplant.java` (ADR 0010): javac compiles the edited `.java`, the members IntelliJ
+generated from the unchanged `.form` are copied from the committed class, and the constructor call
+goes where IntelliJ's own `FormConstructorVisitor` puts it — a line-for-line port, read at
+`idea/211.7628.21` (the 2021 line that built these classes) and unchanged on master.
+
+**It was proven against IntelliJ's real output before it was trusted.** Rebuilt from the UNCHANGED
+source of all fifteen form classes, against IntelliJ's originals (jc-15's `SeedSearch`):
+- all 37 classes (15 plus 22 inner) match instruction for instruction, the `$$$setupUI$$$` call
+  included, in the odd spot IntelliJ puts it;
+- four come out byte-identical: ChangeTimer, ChooseWindowSize, GameGifRecorder, SeedSearch;
+- HelpWindow and TSPHelpWindow differ only in constant-pool numbering;
+- the other nine also differ in stack-map frames. IntelliJ recomputed the frames for the whole
+  class and chose different, equally valid encodings (`same_frame_extended` where javac
+  wrote `chop`, for one). This tool keeps javac's frames.
+
+**What the reviews found in the tool, every one reproduced before it was fixed.** The first
+version's insertion rule was my reading of IntelliJ's, not IntelliJ's:
+- **One branch only.** `/code-review` showed it putting the call inside one arm of
+  `killFlag ? new Object() : null`.
+- **Before `lock` was assigned.** The hostile review read IntelliJ's source and found that a jump
+  is also a trigger, and that `invokespecial <init>` on the superclass is not. The old rule called
+  `$$$setupUI$$$` before `lock = new Object()` was assigned.
+
+The same review found three classes the tool rebuilt that every gate passed, and that broke the
+moment the window opened:
+- a `final` bound field (IllegalAccessError — IntelliJ refuses it: "Cannot bind: field is final");
+- an exception before the call, caught past it (no components);
+- a second top-level class in the `.java`, silently dropped (NoClassDefFoundError).
+
+The second `/code-review` found two more, both reproduced the same way:
+- **A static method.** A `createUIComponents()` made static passed, because method calls were
+  checked by name and type only; the window would throw IncompatibleClassChangeError.
+- **A `new` inside `super(…)`.** `super(new JPanel().getLayout())` in a `JPanel` subclass put the
+  call before the real `super(…)`: IntelliJ's flag reads the inner `JPanel.<init>` as `super(…)`.
+  That class failed verification on load.
+
+The hostile review's second pass found two shapes where IntelliJ's own flag goes wrong, and the
+port with it, both reproduced:
+- **`new ChangeTimer(0)` before the call.** The flag reads it as `this(…)` and then ignores bound
+  reads, so the call landed after `getfield spinner` (NullPointerException on open).
+- **`this(new Object(), 1)`.** The inner `Object.<init>` set the flag first, and the delegating
+  constructor got a second call, so every component was built twice.
+
+Now:
+- the placement is the ported rule;
+- a constructor whose real first call is `this(…)` is always left alone, deciding by the `<init>`
+  that initializes `this`, not by IntelliJ's flag;
+- a static or final bound field and an explicit `$$$setupUI$$$` call are refused;
+- a copied call whose target changed between static and instance is refused;
+- a call that would land before the `<init>` that really initializes `this` is refused;
+- a `new <ThisClass>(…)`, or a read of a bound field, before the call is refused, as is a
+  constructor where the rule finds no point at all;
+- a loop, switch, throw or try block before the call is refused, because there not even
+  IntelliJ's placement is proven to run exactly once;
+- a second class from the `.java` is refused.
+
+None of the fifteen forms trips any refusal.
+
+The reviews also caught four PowerShell slips, all now fixed:
+- a comma list;
+- a missing `-Jar`;
+- a wrong-case path;
+- a work path over 260 characters, where `Copy-Item` failed quietly and `-Rebuild` deleted a
+  committed inner class but still printed DONE. My first fix covered only the final copy. The
+  second hostile pass reproduced the same loss through the staging copy before it, and I
+  reproduced it too. Now:
+  - both copies use .NET calls that throw;
+  - the staged set must name exactly what javac wrote;
+  - the committed set is checked byte for byte;
+  - temp paths are short;
+  - the same deep TEMP fails with exit 1 and a message naming the cause, and leaves the committed
+    classes untouched.
+
+Two limits, deliberate and documented:
+- **The try refusal is conservative.** It refuses a try block before the call even when nothing
+  in it could throw first: `try { emulator.getLevel(); } catch …`, or a `synchronized` block.
+  A shape like that needs IntelliJ, or the try moved after the first call.
+- **Nothing headless reaches `graphics.Gui`'s setup.** For Gui, a placement mistake is stopped only
+  by the refusals and a real launch. Upstream's 72476bc and d78f6f3 both edit `Gui.java`, so the
+  merge step that takes them should add a non-headless construction of Gui (a separate JVM,
+  skipped where no desktop exists) before it trusts a rebuilt Gui.
+
+**The checks:**
+- `formclass.ps1 -Check` (CI and the release workflow) rebuilds all fifteen and compares them with
+  the committed classes, so a form `.java` edited without a rebuild fails the build. Before the
+  rebuild, it flagged exactly `SeedSearch` and passed the other fourteen.
+- `-Check` has a blind spot: once a class has been rebuilt, both sides of the comparison came from
+  the tool, so a tool defect passes it. Hence `FormClassTest`.
+- `-SelfTest` (CI) makes 18 checks on 17 specimens, built from `SeedSearch`, `ChangeTimer` and
+  `ChangeInventory`:
+  - **refused:** a bound field renamed; a bound field retyped; a final bound field; a called method
+    made static; an instrumented class passed in as javac's; a non-form class passed in as
+    IntelliJ's; a loop, a switch, or a try block before the first call; a second top-level class;
+    a `new JPanel()` inside `super(…)`'s arguments; a `new ChangeTimer(0)` before the call;
+  - **placed correctly:** a `this(…)` constructor left alone, including `this(new Object(), 1)`;
+    `new Object()` not taken as a trigger; an early `if` getting the call before the branch;
+  - **plus** the unchanged class rebuilding with exactly one call.
+- It does not exercise every refusal: field static-ness, a missing method, a generated field, a name
+  or superclass mismatch, and "no insertion point" are reasoned, not specimen-tested.
+
+**Tests.**
+- **`FormClassTest`** (67) runs the real constructor of every form window that can run headless:
+  14 classes, all 17 of their constructors. A form class that gains a constructor fails it until
+  that constructor is added, because the review's delegating-constructor case was in a
+  constructor nothing ran. Reaching the window's `HeadlessException` — or returning, for the three
+  no-window constructors — means `$$$setupUI$$$` ran, and a spy `PanelUI` also counts the panels
+  built. `graphics.Gui` cannot be reached: it is the `JFrame`, and launching the program is its
+  check. Built with the old tools, the `final`-field and one-branch `ChangeTimer` fail it
+  (IllegalAccessError, NullPointerException), as does a javac-only `ChangeTimer`.
+- **`SeedSearchTest`** (25) drives Seed Search through its real constructor headless.
+  - **How:** the constructor dies at its `JFrame` after building everything, so a spy `ButtonUI`
+    catches the one `JButton` the form makes. Its listener is the constructor's own lambda,
+    holding the instance.
+  - **What it checks:** the search stops at the top seed exactly; `running` goes false only once,
+    including with two seeds a thread (where upstream's thread order flips it once per thread); a
+    negative start splits evenly; the totals pass 2^31; a success at a negative seed is shown.
+
+Planted defects, each caught:
+
+| Planted defect | `SeedSearchTest` | `FormClassTest` |
+|---|---|---|
+| the jc-15 jar | 12 failures, then `ClassCastException` (`int[]` seeds) | — |
+| the cast removed | 5 | — |
+| upstream's thread start restored | 1 (3 of 3 runs) | — |
+| upstream's `-1` "no success" sentinel restored | 1 | — |
+| `SeedSearch` compiled by javac alone | 7 of 7 | 2 |
+| the transplant without the constructor call | 7 of 7 | 1 (the member-presence check passes) |
+
+**The engine is untouched:** of the jar's 575 entries, 7 differ from the published jc-15 jar —
+`SuperCC.class` and `ErrorLog$Sink.class` (the build tag, inlined; `javap -v` shows nothing else),
+the two edited sources, and the three `SeedSearch` classes. No `game/**` class differs, so the corpus,
+which replays `game/**`, was not re-run.
+
 
 ## jc-14 -- the window title is fully switchable
 

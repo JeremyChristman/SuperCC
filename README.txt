@@ -1,5 +1,5 @@
 ==============================================================================
-  SuperCC  --  Jeremy Christman's fork                      build jc-15
+  SuperCC  --  Jeremy Christman's fork                      build jc-16
 ==============================================================================
 
   1. What this is
@@ -517,6 +517,45 @@ AlwaysOpenInMS  Whether every level set opens under the MS ruleset, no matter
 Releases from jc-2 on carry a jc-N tag in the repository. The title bar, when
 ShowBuildTag is on, shows the build tag compiled into the jar, which matches
 the tag for that release. Newest first.
+
+
+jc-16  --  Seed search stops where it should
+--------------------------------------------------------
+
+  * SEARCH FOR SEEDS NOW ENDS. Solution > Search for seeds tries every RNG
+    seed from the starting seed up to the last one, 2,147,483,647. Until
+    now it did not stop there: the counting ran past the top and wrapped
+    around to negative numbers, so the search went on forever, retrying
+    seeds it had already tried (the game treats a negative seed as one of
+    the positive ones) and adding them to the totals. Asked for the last
+    3,000 seeds, jc-15 had made 12 million attempts eight seconds later.
+    jc-16 makes exactly 3,000 and stops. The success and attempt totals
+    also count correctly past 2,147,483,647, where a long search used to
+    show them going negative. This is upstream's fix, and the third step
+    of bringing its 13 newer commits into this fork.
+
+    Two more fixes, made in this fork only:
+
+    - A NEGATIVE starting seed used to hand all of the work to one thread
+      while the others did nothing. The threads now share the work evenly,
+      and a seed that works is shown as the example even when it is
+      negative (it used to be counted but never shown). Searching from 0
+      already tries every seed the game can use.
+
+    - Seed Search could think it had stopped while threads were still
+      searching -- whenever one thread finished before the next had even
+      started, which a short search does. Pressing Pause at that moment
+      started the search a second time over the same seeds, counting them
+      twice. Now every thread is ready before any starts, and Pause always
+      pauses.
+
+  * Nothing else changes how the program behaves. The emulator itself is
+    untouched -- the game engine in this jar is byte-for-byte jc-15's.
+    Since Seed Search's window was built with IntelliJ's GUI designer,
+    this fork could not rebuild it until now; it gained a tool that can,
+    which several of upstream's remaining changes also need. The test
+    suite now builds each of the 14 tool windows to prove each one still
+    puts itself together, and grew to 2,109 assertions across 24 classes.
 
 
 jc-15  --  Newer upstream code for traps and Lynx keys, checked

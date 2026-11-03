@@ -122,3 +122,66 @@ function Invoke-Robocopy {
     $global:LASTEXITCODE = 0
     if ($code -ge 8) { throw "robocopy failed copying $Source -> $Destination (exit $code)" }
 }
+
+<#
+Returns a directory's canonical full path, for use as a substring base. Shared by verify-splice.ps1
+and formclass.ps1.
+
+GitHub's Windows runners set TEMP to an 8.3 short path (C:\Users\RUNNER~1\AppData\Local\Temp), while
+Get-ChildItem reports FullName in long form. Subtracting the short length from a long path cuts in
+the wrong place -- CI reported paths like "87\emulator\ArgumentParser.class", the tail of a GUID
+directory name leaking into what should have been a package-relative path.
+#>
+function Get-CanonicalDir {
+    param([string]$Path)
+    return (Get-Item -LiteralPath $Path).FullName.TrimEnd('\')
+}
+
+<#
+Builds the comparison key for one class: its disassembly, plus the SORTED SET of String constants.
+Shared by verify-splice.ps1 (ordinary files) and formclass.ps1 (form classes), so "the same
+bytecode" means one thing in both.
+
+Neither half is sufficient on its own, and both failure modes were measured on this tree:
+
+  * `javap -c -p -constants` alone is stable across compilers (70 of 70 files matched) but BLIND to
+    string literals. Java 9+ lowers string concatenation to an invokedynamic whose literal lives in
+    the BootstrapMethods attribute, which -c does not print -- so changing a message string inside
+    a concatenation produced an identical disassembly and slipped straight through.
+  * Raw class bytes catch everything but are useless here: 68 of 70 files differ on constant-pool
+    ordering alone, because the baseline came from IntelliJ and the comparison build comes from
+    javac.
+
+Sorting the String entries drops pool ORDER, which is the part that legitimately varies between
+compilers, and keeps the string CONTENT, which is the part an edit changes.
+
+-IgnorePoolIndexes (formclass.ps1) also drops the `#N` an instruction names, and the column padding
+that shifts with its width. IntelliJ numbered the pool differently in the three forms that use
+$$$getFont$$$, though their code is identical. javap prints what each index resolves to in a
+trailing `//` comment, and that comment is kept, as is any operand after the index. (Like the key
+without the switch, it never compared stack-map frames, which javap -c does not print.)
+
+Uses the caller's $javap (both scripts define it before calling).
+#>
+function Get-ClassKey {
+    param([string]$ClassDir, [string]$Fqcn, [switch]$IgnorePoolIndexes)
+
+    # javap's exit code is checked because this whole script is a silent-failure detector and
+    # ignoring it would put one inside: if javap failed on BOTH sides -- a corrupt or unreadable
+    # class -- the two keys would both be the same empty string and the file would pass.
+    $lines = & $javap -c -p -constants -cp $ClassDir $Fqcn
+    if ($LASTEXITCODE -ne 0) { throw "javap could not read $Fqcn from $ClassDir (exit $LASTEXITCODE)" }
+    if ($IgnorePoolIndexes) {
+        # Only the `#N` itself. What may follow it -- `invokeinterface #N,  1`, `multianewarray #N,  2`
+        # -- is kept: multianewarray's dimension count is NOT in the `//` comment.
+        $lines = $lines | ForEach-Object { ($_ -replace '#\d+(?=(,\s*\d+)?\s+//)', '#') -replace '\s+', ' ' }
+    }
+    $code = $lines -join "`n"
+    $verbose = & $javap -v -p -cp $ClassDir $Fqcn
+    if ($LASTEXITCODE -ne 0) { throw "javap -v could not read $Fqcn from $ClassDir (exit $LASTEXITCODE)" }
+    $strings = @($verbose |
+                 Select-String -Pattern '=\s+String\s+#\d+\s+//\s*(.*)$' |
+                 ForEach-Object { $_.Matches[0].Groups[1].Value } |
+                 Sort-Object)
+    return ($code.Trim() + "`n--STRINGS--`n" + ($strings -join "`n"))
+}

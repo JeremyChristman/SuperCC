@@ -12,6 +12,83 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## jc-16 — 2026-11-03 (upstream merge, step 3)
+
+### Fixed
+- **Seed search ends at the last seed (upstream `40495dd`).** The last thread's range ended at
+  `Integer.MAX_VALUE` in an `int`, so the next seed wrapped to `Integer.MIN_VALUE` and the search
+  never stopped, retrying masked-equal seeds and counting them again; the totals were `int`s too.
+  Seeds, ranges and totals are `long` now. Measured on jc-15: asked for the last 3,000 seeds, 12.3
+  million attempts after 8.4 s and still running; jc-16 makes exactly 3,000 and stops.
+- **A negative starting seed splits the work evenly** (fork fix, `MOD (Jeremy, upstream merge)`):
+  upstream kept `Integer.MAX_VALUE - start` in `int` arithmetic, so start −5 gave three of four
+  threads an empty range, and the search reported itself stopped while the fourth ran on.
+- **Search threads are built, then started** (fork fix, found by `/code-review` and reproduced).
+  Upstream started each thread as it was built, and a short range finishes faster than the next
+  thread is built. So an early thread ran the "last one cleans up" block mid-search: `running`
+  went false once per thread in 3 of 5 runs of a 3,000-seed search. A Pause click then started a
+  second set of threads over the same seeds. Now `numAlive` counts every thread before any starts;
+  `running`/`killFlag` are set once, before the start, and are `volatile`; and `run()` no longer
+  resets `killFlag`, which had undone an early Pause. Result: false exactly once in 8 of 8 runs.
+  The threads are counted at the start, not in their constructor: if building a later one threw,
+  counted ones would never run. And the cleanup clears `killFlag` before it publishes
+  `running = false`. Both of those came from a second `/code-review`.
+- **A success at a negative seed is shown** (fork fix): "no success yet" was `-1`, tested as `>= 0`,
+  which hid it. It is `Long.MIN_VALUE` now.
+
+### Added
+- **`formclass.ps1` + `formclass/FormTransplant.java` (ADR 0010).** `SeedSearch` is one of the
+  fifteen form-based classes the splice build cannot compile. This rebuilds one whose `.form` is
+  unchanged: javac's class, plus the members IntelliJ generated (copied from the committed class),
+  plus the constructor call placed by a line-for-line port of IntelliJ's `FormConstructorVisitor`.
+  - **Proven:** from unchanged source it matches IntelliJ's originals instruction for instruction —
+    all 37 classes, four top-level ones byte-identical. The rest differ only in pool numbering and
+    stack-map frames.
+  - **Refuses** what would break the window: a static or final bound field; a called method changed
+    between static and instance; a call before the real `super(…)`; a `new <ThisClass>()` or a
+    bound read before the call; a loop, switch, throw or try block before the call; a second class
+    in the `.java`; and more. A `this(…)` constructor is always left alone.
+  - **`-Check`** (CI and release) fails a form `.java` edited without a rebuild.
+  - **`-SelfTest`** (CI) makes 18 checks on 17 specimens.
+  - **JDK 16.0.2 only**, by design.
+  - **Reviews:** two `/code-review` passes and two hostile passes found ten defects, each
+    reproduced, then fixed:
+    - **the rule was not IntelliJ's:** the call was put on one branch only, or before
+      `new Object()` had been assigned;
+    - **accepted, though broken when the window opened:** a final bound field; a called method made
+      static; an exception that skips setup; a `new` inside `super(…)` (failed verification); a
+      dropped second class;
+    - **IntelliJ's own flag is wrong:** a `new <ThisClass>()` before the call (NullPointerException
+      on open), and `this(new Object(), 1)` (setup run twice);
+    - **`-Rebuild` with a work path over 260 characters** deleted an inner class and still printed
+      DONE. It now fails loudly and verifies what it wrote.
+- **`FormClassTest`** (67): every form window that can run headless (14 classes, all 17 of their
+  constructors) is built through its real constructor, which `-Check` alone cannot vouch for once a
+  class has been rebuilt. A constructor it does not run fails it. It also checks that all 15
+  classes carry their generated members.
+- **`SeedSearchTest`** (25): Seed Search driven headless through a spy `ButtonUI`. The search stops
+  at the top seed, `running` goes false once, a negative start splits evenly, the totals pass 2^31,
+  and a negative example seed is shown. Six planted defects each caught.
+
+### Changed
+- `verify-splice.ps1` now tells a form `.java` edit to use `formclass.ps1 -Rebuild`, and only a `.form`
+  edit to use IntelliJ. Its comparison key and canonical-path helper moved to `build-config.ps1`,
+  shared with `formclass.ps1`.
+  ADRs 0001 and 0002 are marked amended by 0010.
+- Docs: AGENTS.md, CONTRIBUTING.md and RELEASING.md describe the form-class route. RELEASING.md and
+  CLAUDE.md §8 no longer say only two classes inline `BUILD_TAG`: `ErrorLog` does too.
+- Coverage re-baselined on JDK 16.0.2. Target 56.5% (1505/2666: one more MS branch, reached by the
+  new tests' seed searches); `emulator\**` 32.9%; `tools\**` + `graphics\**` 2.6%, the first tests
+  ever to reach them.
+
+Engine untouched: 7 of the jar's 575 entries differ from the published jc-15 jar —
+- `SuperCC.class` and `ErrorLog$Sink.class` (the build tag, which javac inlines; nothing else
+  changed in either, per `javap -v`);
+- the two edited sources;
+- the three `SeedSearch` classes.
+
+No `game/**` class. Suite 2,109 assertions / 24 classes.
+
 ## jc-15 — 2026-11-02 (upstream merge, steps 1 and 2)
 
 The first release carrying upstream code newer than the fork's 2021 import. Every stored solution in

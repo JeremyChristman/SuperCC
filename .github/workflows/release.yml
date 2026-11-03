@@ -66,6 +66,12 @@ jobs:
         shell: powershell
         run: powershell -ExecutionPolicy Bypass -File run-tests.ps1 -ResultsPath test-results
 
+      # A form class's .class is committed bytecode, so a .java edit that was never rebuilt ships
+      # the OLD class with every other gate green. See the matching step in ci.yml.
+      - name: Form classes match their source
+        shell: powershell
+        run: powershell -ExecutionPolicy Bypass -File formclass.ps1 -Check -Jar SuperCC.jar
+
       # THE guard this workflow exists for. The git tag and the tag baked into the jar are two
       # independent facts and nothing else compares them. Push jc-11 while BUILD_TAG still reads
       # [jc-10] and every other gate passes: the README check looks for jc-10 and finds it, the zip

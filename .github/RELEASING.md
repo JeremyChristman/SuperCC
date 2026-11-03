@@ -16,8 +16,8 @@ tag and `BUILD_TAG` agree. Without it, pushing `jc-11` while `BUILD_TAG` still r
 passes every other gate and publishes a release whose jar calls itself `jc-10`.
 
 ⚠ **`BUILD_TAG` is a `static final String`, so javac inlines it at every use site.** A class that
-does not get recompiled keeps the old tag baked in permanently. Today only `SuperCC.java` and
-`SuccPaths.java` reference `BUILD_TAG`/`TITLE`/`SETTINGS_FILE_NAME`, and both are spliced every
+does not get recompiled keeps the old tag baked in permanently. Today only `SuperCC.java`,
+`SuccPaths.java` and `ErrorLog.java` reference `BUILD_TAG`/`TITLE`/`SETTINGS_FILE_NAME`, and all three are spliced every
 build — but if a form-based class ever reads one of them, it would report a stale tag forever, and
 `verify-splice.ps1` would flag it only if the source itself changed. Keep these constants out of
 form-based classes.
@@ -55,7 +55,10 @@ form-based classes.
    All three must be green, and run them **on JDK 16.0.2** — what CI pins — by pointing `JAVA_HOME` at
    it for these commands: on a newer `javac`, `verify-splice.ps1` reports untouched files as edited
    and the coverage figures move (CLAUDE.md §1, §4). If you edited a `java/**` file,
-   `verify-splice.ps1` is what proves the edit is actually going to ship.
+   `verify-splice.ps1` is what proves the edit is actually going to ship. If you edited a
+   form-based class (one with a sibling `.form`), also run
+   `powershell -ExecutionPolicy Bypass -File formclass.ps1 -Check`: it proves the committed `.class`
+   was rebuilt from that `.java` (ADR 0010). CI and the release workflow run it too.
 
    **If the release touches `java/game/**`, `java/io/**` or `java/emulator/**`, also replay the
    corpus** against the previous release's jar and compare (needs the local Chip's Challenge folder,

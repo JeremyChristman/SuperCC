@@ -103,6 +103,20 @@ jobs:
         shell: powershell
         run: powershell -ExecutionPolicy Bypass -File build.ps1 -Manifest dist/build-manifest.json
 
+      # The fifteen form classes ship as committed IntelliJ-built bytecode, and verify-splice can
+      # only hash their .java and .form. formclass.ps1 rebuilds each one from its .java (javac plus
+      # the generated members copied from the committed class, docs/adr/0010) and compares: a .java
+      # edit whose class was never rebuilt fails here instead of shipping the old window. -SelfTest
+      # proves the rebuild tool still refuses the inputs that would produce a window with no
+      # components. Both compile against the jar just built, so they run after the build.
+      - name: Form classes match their source
+        shell: powershell
+        run: powershell -ExecutionPolicy Bypass -File formclass.ps1 -Check -Jar SuperCC.jar
+
+      - name: Form-class rebuild tool self-test
+        shell: powershell
+        run: powershell -ExecutionPolicy Bypass -File formclass.ps1 -SelfTest -Jar SuperCC.jar
+
       - name: Test
         shell: powershell
         run: powershell -ExecutionPolicy Bypass -File run-tests.ps1 -NoBuild -ResultsPath test-results

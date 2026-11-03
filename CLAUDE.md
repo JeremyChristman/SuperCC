@@ -37,8 +37,10 @@ The repo therefore works like this:
 
 > **If you modify a source file that is not already in `$SPLICE_MODIFIED`, add it to that list in
 > `build-config.ps1`, or your edit silently does nothing.** The build will succeed and ship the old
-> behavior. Before adding it, confirm the file has no sibling `.form` — if it does, you cannot
-> modify it from here at all without IntelliJ.
+> behavior. Before adding it, confirm the file has no sibling `.form` — if it does, it must NEVER go
+> in that list (javac would ship it without components). A form class is rebuilt separately:
+> `formclass.ps1 -Rebuild <file>` when only its `.java` changed (ADR 0010), IntelliJ when its
+> `.form` changed.
 
 **You do not have to take this on trust — run the check:**
 
@@ -48,13 +50,25 @@ powershell -ExecutionPolicy Bypass -File verify-splice.ps1
 
 It covers the two ways an edit can fail to ship, by two different mechanisms:
 
-- **Unspliced ordinary files** (65 of them) are recompiled and compared against the bytecode the
+- **Unspliced ordinary files** (64 of them) are recompiled and compared against the bytecode the
   jar would actually contain. An edit the build ignores fails and names the file.
-- **Form-based files** — the 15 `.form` files *and their sibling `.java`* — cannot be recompiled
-  here at all, so they are hashed against `docs/form-baseline.sha256`. `graphics/Gui.java` is
-  ordinary hand-written Java and is the likeliest of these to be edited; an edit there is flagged,
-  and the only correct response is to rebuild it in IntelliJ, commit the new `.class`, and re-run
-  with `-UpdateFormBaseline`.
+- **Form-based files** — the 15 `.form` files *and their sibling `.java`* — ship as committed
+  bytecode the build never recompiles, so they are hashed against `docs/form-baseline.sha256`.
+  `graphics/Gui.java` is ordinary hand-written Java and is the likeliest of these to be edited; an
+  edit there is flagged. If only the `.java` changed, rebuild the class with
+  `formclass.ps1 -Rebuild <file>`; if the `.form` changed, rebuild it in IntelliJ. Either way,
+  commit the new `.class` files and re-run with `-UpdateFormBaseline`.
+
+**The form classes have a second check of their own.** `formclass.ps1 -Check` rebuilds all fifteen
+from their `.java` (javac, plus IntelliJ's generated members copied from the committed class) and
+compares them with what is committed, so a `.java` whose class was never rebuilt fails even after
+someone has run `-UpdateFormBaseline`. CI and the release workflow run it after the build. It
+cannot see a `.form` edit — the hash does that — and it, like `-Rebuild`, needs JDK 16.0.2 exactly.
+**And it cannot vouch for the tool:** once a class has been rebuilt, both sides of its comparison
+came from `FormTransplant`. That is `test/FormClassTest.java`'s job: it runs the real constructor of
+every form window that can run headless. After any `-Rebuild`, that test and a launch of the program
+are what prove the window still builds. How the transplant was proven against IntelliJ's own output,
+how its first version was wrong, and what it refuses are in `docs/adr/0010`.
 
 Run it after touching anything under `java/**`, before calling the change done. CI runs it too.
 **Run it on JDK 16.0.2, like CI.** On a newer `javac` it reports false edits: on JDK 18 (measured
@@ -88,7 +102,10 @@ powershell -ExecutionPolicy Bypass -File coverage.ps1 -Download     # JaCoCo, fi
 powershell -ExecutionPolicy Bypass -File coverage.ps1               # branch coverage (see §4)
 powershell -ExecutionPolicy Bypass -File coverage.ps1 -CheckBaseline  # do the numbers below still hold?
 powershell -ExecutionPolicy Bypass -File coverage.ps1 -UpdateBaseline # after deliberately moving them
-powershell -ExecutionPolicy Bypass -File verify-splice.ps1 -UpdateFormBaseline     # after an IntelliJ rebuild
+powershell -ExecutionPolicy Bypass -File verify-splice.ps1 -UpdateFormBaseline     # after rebuilding a form class
+powershell -ExecutionPolicy Bypass -File formclass.ps1 -Rebuild tools\SeedSearch.java  # a form .java edit, .form unchanged (JDK 16.0.2)
+powershell -ExecutionPolicy Bypass -File formclass.ps1 -Check       # every committed form class matches its .java
+powershell -ExecutionPolicy Bypass -File formclass.ps1 -SelfTest    # the rebuild tool still refuses what it must
 powershell -ExecutionPolicy Bypass -File verify-splice.ps1 -UpdateVendorBaseline   # after a deliberate library update
 ```
 
@@ -98,8 +115,11 @@ Extra switches worth knowing:
   pushed git tag), and `-Manifest <path>` writes a JSON record of the build — tag, jar SHA-256,
   size, entry count, and the exact compiler used.
 - `verify-splice.ps1 -UpdateFormBaseline` regenerates `docs/form-baseline.sha256`. It is the *only*
-  correct response to a flagged form file, and only after the class has genuinely been rebuilt in
-  IntelliJ and committed — running it to silence a warning defeats the check entirely.
+  correct response to a flagged form file, and only after the class has genuinely been rebuilt
+  (`formclass.ps1 -Rebuild`, or IntelliJ for a `.form` edit) and committed — running it to silence a
+  warning defeats the check for `.form` edits entirely.
+- `formclass.ps1` builds a private jar to compile against unless given `-Jar <path>`; CI passes the
+  jar its Build step just made. It refuses to run on anything but `javac 16.0.2`.
 - `-Isolated` and `-NoBuild` are mutually exclusive and the script rejects the pair: `-Isolated`
   names a jar it is about to build, so there is nothing for `-NoBuild` to reuse.
 
@@ -150,6 +170,8 @@ COPYING                GPLv2 — ships with the binary, as the license requires
 build-config.ps1       THE splice list, the JDK finder, the robocopy wrapper — one source of truth
 build.ps1              the splice build + the release packager (-Package)
 verify-splice.ps1      proves an edit will actually ship (§1)
+formclass.ps1          rebuilds / checks a FORM class whose .form is unchanged (§1, ADR 0010)
+formclass/**           its transplant tool (FormTransplant.java, JDK-internal ASM)
 run-tests.ps1          builds, then compiles and runs everything in test\
 coverage.ps1           JaCoCo branch coverage, scoped to game\** + io\** (§4)
 docs/coverage-baseline.tsv  what the §4 table claims; the release gate checks it
@@ -217,7 +239,17 @@ test/MsCloneTrapTest.java    MS clone machines and beartraps -- the dispatch, an
 test/WindowTitleTest.java    the window title -- all 8 combinations of the three jc-14 switches
 test/LinkTest.java           every call between the fork's classes resolves IN THE BUILT JAR (§1's splice hazard)
 test/InputDiscardTest.java   which keys Level.tick reports as DISCARDED, and the WAIT the move list records
+test/SeedSearchTest.java     Seed Search through its REAL constructor, headless: stops at the top seed, threads, Pause
+test/FormClassTest.java      every form window's REAL constructor builds its components (14 of 15; Gui is the JFrame)
 ```
+
+**Testing a form-based window headless.** Its constructor builds every component
+(`$$$setupUI$$$`), then throws `HeadlessException` at its `JFrame`. So reaching that exception means
+setup ran: `FormClassTest` checks exactly that for every form window, plus a spy `PanelUI` count.
+A rebuilt class with no setup call, a final bound field, or the call on one branch fails it with
+`NullPointerException` / `IllegalAccessError` instead. To drive a window's behavior,
+`SeedSearchTest` goes further: a spy `ButtonUI` installed through `UIManager` catches the button,
+whose listener is the constructor's own lambda, holding the instance.
 
 `InputDiscardTest` is about the move list, which the corpus cannot see: a discarded key changes no
 final state, only what SuperCC records, and so what a saved `.json` or an exported `.tws` holds.
@@ -283,22 +315,22 @@ taken. JaCoCo is a test-time tool cached under `%LOCALAPPDATA%\jacoco\<version>\
 dependency**, never committed, never shipped. Output goes to `coverage-report\` (gitignored);
 `coverage.csv` is the evidence behind every percentage below.
 
-As of jc-15, with all 2,017 assertions passing, **measured on JDK 16.0.2** (Temurin 16.0.2+7, what
+As of jc-16, with all 2,109 assertions passing, **measured on JDK 16.0.2** (Temurin 16.0.2+7, what
 CI pins):
 
 | scope | branch | line | branches |
 |---|---|---|---|
-| **`game\**` + `io\**` — THE TARGET** | **56.4%** | 70.3% | 1504/2666 |
-| &nbsp;&nbsp;`game\**` (the emulator) | 53.4% | 67.5% | 1199/2247 |
-| &nbsp;&nbsp;&nbsp;&nbsp;`game\MS\**` | 47.2% | 62.0% | 552/1170 |
+| **`game\**` + `io\**` — THE TARGET** | **56.5%** | 70.4% | 1505/2666 |
+| &nbsp;&nbsp;`game\**` (the emulator) | 53.4% | 67.7% | 1200/2247 |
+| &nbsp;&nbsp;&nbsp;&nbsp;`game\MS\**` | 47.3% | 62.2% | 553/1170 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\Lynx\**` | 62.8% | 70.7% | 461/734 |
-| &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 54.2% | 72.7% | 186/343 |
-| &nbsp;&nbsp;`io\**` (file formats) | 72.8% | 78.4% | 305/419 |
-| `emulator\**` | 31.4% | 30.4% | 130/414 |
-| `tools\**` + `graphics\**` — *not a target* | 0.0% | 0.0% | 0/1887 |
+| &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 54.2% | 73.0% | 186/343 |
+| &nbsp;&nbsp;`io\**` (file formats) | 72.8% | 78.5% | 305/419 |
+| `emulator\**` | 32.9% | 34.7% | 136/414 |
+| `tools\**` + `graphics\**` — *not a target* | 2.6% | 8.3% | 49/1889 |
 
-**Read this correctly.** Whole-project branch coverage is 29.1% (1724/5933), and that number is
-meaningless: 15 form-based classes cannot be compiled from this repo at all (ADR 0001), `tools\**`
+**Read this correctly.** Whole-project branch coverage is 30.4% (1802/5935), and that number is
+meaningless: 15 form-based classes can be rebuilt here only by copying IntelliJ's output (ADR 0010), `tools\**`
 is 35 files of upstream code this fork does not modify, `graphics\**` is Swing with no headless test
 story, and the rest is vendored `org.json` / `com.intellij`. What this fork can break is the engine
 and the file formats, so that is what is scoped and measured.
@@ -316,16 +348,16 @@ install: jc-15's baseline was taken on the laptop (JDK 18) from Temurin 16.0.2+7
 uses, checked against Adoptium's published SHA-256 — unpacked to a scratch folder, with `JAVA_HOME`
 pointed at it for the one command. `build-config.ps1` lets `JAVA_HOME` win.
 
-**56.4% is a floor to build on, not a passing grade**, and the split says where the work is:
+**56.5% is a floor to build on, not a passing grade**, and the split says where the work is:
 
-- **Lynx is ahead now — MS 47.2%, Lynx 62.8% — and both took deliberate work.**
+- **Lynx is ahead now — MS 47.3%, Lynx 62.8% — and both took deliberate work.**
   Four Lynx files built that side (the move-preference table `LynxCreatureMoveTest`, the entry rules
   `LynxCanEnterTest`, the creature list `LynxCreatureListTest`, the movement engine `LynxTickTest`,
   all against `lxlogic.c`); three MS files closed the gap (`MsTryEnterTest`, `MsCreatureListTest`,
   `MsCloneTrapTest`). **`MSCreature` (44.3%, 351/793) is now the single largest pool of uncovered
   engine branches in the repo** — over a third of `game\**` lives in that one class — and MS is
   the ruleset the maintainer's own solutions replay against, so it is the obvious next target.
-  `game.MS.MSLevel` (49.0%, 122/249) is the next engine class down.
+  `game.MS.MSLevel` (49.4%, 123/249) is the next engine class down.
   ⚠ Note that `lxlogic.c` carries **no** `MOD (Jeremy)` comments, unlike `mslogic.c`'s 79 — so it
   is unmodified upstream, and a Lynx divergence would never have been looked for by the (MS-only)
   desync project. A failure in a Lynx test is a finding, not a bug in the test.
@@ -663,6 +695,10 @@ covering on, off, the wrong section, and the no-space typo.
 Each of these looks like a bug or an oversight and is not. The ADRs carry the full reasoning.
 
 - **The committed `.class` baseline.** It is not build output that escaped `.gitignore`. See §1.
+- **`formclass/FormTransplant.java` imports `jdk.internal.org.objectweb.asm`.** That is the JDK's own
+  internal ASM, chosen so this repo takes on no dependency (ADR 0002); the tool is pinned to JDK
+  16.0.2, where it exists. Do not "modernize" it to a downloaded ASM or to a newer JDK's class-file
+  API without re-running the fifteen-class reproduction in ADR 0010.
 - **`build.ps1` builds zip entries by hand instead of using `Compress-Archive`.** On PowerShell 5.1
   both `Compress-Archive` and `ZipFile::CreateFromDirectory` emit **backslash** entry names —
   measured here, not assumed. Explorer tolerates it; Info-ZIP `unzip` and Java's `ZipInputStream`
@@ -702,6 +738,9 @@ Two language-level traps:
   special case rather than handle it. A pattern that is not paying for itself is a defect.
 - **Comments:** this codebase comments *why*, not *what*, and fork-specific edits are marked
   `/* MOD (Jeremy, jc-N): ... */` with the reasoning and the trap that motivated them. Match that.
+  A fork fix to code brought in from upstream is marked `MOD (Jeremy, upstream merge)` instead, so
+  every departure from an upstream commit can be found with one search; FORK.md's merge section
+  says which release each step shipped in.
   When you change behavior that a comment explains, update the comment in the same edit.
 - **American English** in code, comments, identifiers, strings, and documentation: `color`,
   `behavior`, `gray`, `analyze`, `center`, `-ize`.
@@ -727,7 +766,8 @@ Assume any behavior change ships publicly. The full checklist is `.github/RELEAS
    `powershell -File coverage.ps1 -CheckBaseline` — all three green, **on JDK 16.0.2** (`JAVA_HOME`). The release workflow runs the
    coverage check too, so skipping it here just moves the failure to after the tag is public.
    The splice check is not optional here: it is what proves the change you are shipping is the
-   change that will actually be in the jar.
+   change that will actually be in the jar. If the release touches a form class, add
+   `powershell -File formclass.ps1 -Check` — the release workflow runs it as well.
 5. `powershell -File build.ps1 -Package -ExpectTag jc-N`, then actually launch the jar **from the
    built zip**, not the one in the repo root.
 6. Commit, push `main`, create and push the tag `jc-N`.
@@ -737,9 +777,12 @@ Assume any behavior change ships publicly. The full checklist is `.github/RELEAS
 
 ⚠ `BUILD_TAG`, `TITLE` and `SETTINGS_FILE_NAME` are `static final String`s, so javac **inlines them
 at every use site**. A class that is not recompiled keeps the old value baked in permanently. Today
-only `SuperCC.java` and `SuccPaths.java` reference them and both are spliced, but if a form-based
+only `SuperCC.java`, `SuccPaths.java` and `ErrorLog.java` (its log-session header) reference them,
+and all three are spliced, but if a form-based
 class ever reads one, it would report a stale build tag forever — which is the "two jars must never
-report the same tag" invariant broken from the inside.
+report the same tag" invariant broken from the inside. (`formclass.ps1 -Check` would now catch it —
+it compiles against the new jar, so the inlined tag would differ from the committed class — but
+keeping these constants out of form classes is still the rule.)
 
 The release zip is exactly four files: `SuperCC.jar`, a **generated** stock `succ_settings.ini`
 (produced by calling `SuccPaths.createSettingsFile()` in the jar just built — never hand-written,
@@ -804,8 +847,9 @@ so the shipped defaults cannot drift from the program's), `README.txt`, and `COP
   It is loud here because `changePlayButton` re-reads and re-decodes `play.gif`/`pause.gif` from the
   jar on **every** `repaint()`, and `GamePanel.mouseMoved` repaints — so it is two zip reads and two
   image decodes per mouse motion event. Caching the two icons in fields would remove the per-repaint
-  I/O and make the app immune to this after startup. **It cannot be done from this repo**: `Gui.java`
-  is form-based (§1), so it needs IntelliJ. Worth doing next time someone is in there.
+  I/O and make the app immune to this after startup. `Gui.java` is form-based (§1), but this is a
+  `.java`-only edit, so since jc-16 `formclass.ps1 -Rebuild graphics\Gui.java` can ship it without
+  IntelliJ (ADR 0010). Worth doing next time someone is in there.
 - Do not commit `SuperCC.jar` or `dist/` — both are ignored, deliberately.
 
 ---

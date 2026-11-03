@@ -1,6 +1,6 @@
 # 0001 — Build by splicing recompiled classes over a prebuilt baseline
 
-**Status:** Accepted (2026-07-25) · **Applies to:** `build.ps1`
+**Status:** Accepted (2026-07-25); amended by [0010](0010-rebuild-form-classes-by-transplant.md) (2026-11-03) — a form class whose `.form` is unchanged can now be rebuilt here · **Applies to:** `build.ps1`
 
 ## Context
 

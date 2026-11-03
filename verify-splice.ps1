@@ -82,51 +82,9 @@ function Get-TextHash {
     finally { $sha.Dispose() }
 }
 
-<#
-Returns a directory's canonical full path, for use as a substring base.
-
-GitHub's Windows runners set TEMP to an 8.3 short path (C:\Users\RUNNER~1\AppData\Local\Temp), while
-Get-ChildItem reports FullName in long form. Subtracting the short length from a long path cuts in
-the wrong place -- CI reported paths like "87\emulator\ArgumentParser.class", the tail of a GUID
-directory name leaking into what should have been a package-relative path.
-#>
-function Get-CanonicalDir {
-    param([string]$Path)
-    return (Get-Item -LiteralPath $Path).FullName.TrimEnd('\')
-}
-
-<#
-Builds the comparison key for one class: its disassembly, plus the SORTED SET of String constants.
-
-Neither half is sufficient on its own, and both failure modes were measured on this tree:
-
-  * `javap -c -p -constants` alone is stable across compilers (70 of 70 files matched) but BLIND to
-    string literals. Java 9+ lowers string concatenation to an invokedynamic whose literal lives in
-    the BootstrapMethods attribute, which -c does not print -- so changing a message string inside
-    a concatenation produced an identical disassembly and slipped straight through.
-  * Raw class bytes catch everything but are useless here: 68 of 70 files differ on constant-pool
-    ordering alone, because the baseline came from IntelliJ and the comparison build comes from
-    javac.
-
-Sorting the String entries drops pool ORDER, which is the part that legitimately varies between
-compilers, and keeps the string CONTENT, which is the part an edit changes.
-#>
-function Get-ClassKey {
-    param([string]$ClassDir, [string]$Fqcn)
-
-    # javap's exit code is checked because this whole script is a silent-failure detector and
-    # ignoring it would put one inside: if javap failed on BOTH sides -- a corrupt or unreadable
-    # class -- the two keys would both be the same empty string and the file would pass.
-    $code = (& $javap -c -p -constants -cp $ClassDir $Fqcn) -join "`n"
-    if ($LASTEXITCODE -ne 0) { throw "javap could not read $Fqcn from $ClassDir (exit $LASTEXITCODE)" }
-    $verbose = & $javap -v -p -cp $ClassDir $Fqcn
-    if ($LASTEXITCODE -ne 0) { throw "javap -v could not read $Fqcn from $ClassDir (exit $LASTEXITCODE)" }
-    $strings = @($verbose |
-                 Select-String -Pattern '=\s+String\s+#\d+\s+//\s*(.*)$' |
-                 ForEach-Object { $_.Matches[0].Groups[1].Value } |
-                 Sort-Object)
-    return ($code.Trim() + "`n--STRINGS--`n" + ($strings -join "`n"))
-}
+# Get-CanonicalDir (a directory's long-form path, for use as a substring base) and Get-ClassKey (the
+# comparison key for one class) live in build-config.ps1, shared with formclass.ps1. Their headers
+# say why each is shaped the way it is.
 
 Write-Host "`n== 1. every file in the splice list exists and is compilable by javac =="
 foreach ($m in $SPLICE_MODIFIED) {
@@ -164,10 +122,13 @@ foreach ($f in $forms) {
 # entirely because it is form-based. So an edit there is invisible twice over: the build will not
 # recompile it (it cannot, without IntelliJ) and, until now, nothing said so.
 #
-# Both are hashed. A member-level bytecode comparison that ignores the generated $$$ members would
-# be more precise, but a hash cannot produce a false green, and for a file nobody can rebuild here
-# anyway the only correct response to either flag is identical: rebuild it in IntelliJ, commit the
-# new .class, and re-run with -UpdateFormBaseline.
+# Both are hashed. A hash cannot produce a false green; it also cannot say whether the committed
+# class was rebuilt after the edit, which is why formclass.ps1 -Check exists (CI runs it after the
+# build -- it needs a built jar to compile against). The responses differ by file:
+#   * .java edited, .form untouched: formclass.ps1 -Rebuild <file> rebuilds the class here
+#     (javac plus IntelliJ's generated members copied from the committed class, docs\adr\0010);
+#   * .form edited: $$$setupUI$$$ itself must change, and only IntelliJ can write it.
+# Either way, commit the new .class files and re-run with -UpdateFormBaseline.
 $baselineFile = Join-Path $root "docs\form-baseline.sha256"
 $formTracked = @()
 foreach ($f in $forms) {
@@ -198,8 +159,12 @@ else {
             Add-Problem "$rel is NEW and form-based -- build it in IntelliJ, commit its .class, then re-run with -UpdateFormBaseline"
         }
         elseif ($expected[$rel] -ne $got) {
-            Add-Problem ("$rel has been EDITED, and it is form-based, so THIS BUILD CANNOT RECOMPILE IT -- the jar " +
-                         "would ship the old class. Rebuild it in IntelliJ, commit the new .class, then re-run " +
+            $how = if ($rel -like "*.java") {
+                       "If its .form is unchanged, rebuild it with formclass.ps1 -Rebuild $rel (JDK 16.0.2); " +
+                       "if the .form changed too, rebuild it in IntelliJ."
+                   } else { "A .form edit changes `$`$`$setupUI`$`$`$, so rebuild it in IntelliJ." }
+            Add-Problem ("$rel has been EDITED, and it is form-based, so THE BUILD DOES NOT RECOMPILE IT -- the jar " +
+                         "would ship the old class. $how Commit the new .class files, then re-run " +
                          "with -UpdateFormBaseline.")
         }
     }

@@ -28,14 +28,18 @@ catches the repo's signature failure: `build.ps1` recompiles only the files list
 tests passing, and the old bytecode in the jar. There is no error and no runtime signal.
 
 It works two ways. Unspliced ordinary files are recompiled and their bytecode compared against what
-would actually ship. The 15 form-based files — each `.form` **and its sibling `.java`** — cannot be
-recompiled here at all, so they are hashed against `docs/form-baseline.sha256`.
+would actually ship. The 15 form-based files — each `.form` **and its sibling `.java`** — ship as
+committed bytecode the build never recompiles, so they are hashed against `docs/form-baseline.sha256`.
 
 - If it reports an ordinary file, add it to `$SPLICE_MODIFIED` — after confirming it has no
   sibling `.form`.
-- If it reports a form-based file, the edit cannot ship from this repo. Rebuild that class in
-  IntelliJ, commit the new `.class`, and re-run with `-UpdateFormBaseline`. Never run
-  `-UpdateFormBaseline` just to silence the warning; that removes the only check there is.
+- If it reports a form-based `.java` and its `.form` is unchanged, rebuild the class with
+  `formclass.ps1 -Rebuild <file>` (JDK 16.0.2 — see `docs/adr/0010`), then re-run with
+  `-UpdateFormBaseline` and commit the `.class` files, the source and the baseline together.
+- If it reports a `.form`, the edit needs IntelliJ's form compiler: rebuild the class there, commit
+  the new `.class`, and re-run with `-UpdateFormBaseline`.
+- Never run `-UpdateFormBaseline` just to silence the warning. CI's `formclass.ps1 -Check` would
+  still catch a `.java` whose class was not rebuilt, but nothing catches a `.form` edit except the hash.
 
 ## Running it
 
@@ -112,7 +116,7 @@ the maintainer runs.
 
 - **American English** in code, comments, identifiers, strings and docs.
 - Comment *why*, not *what*. Mark fork changes `/* MOD (Jeremy, jc-N): ... */` and name the trap
-  that motivated them.
+  that motivated them; a fork fix to merged upstream code is `MOD (Jeremy, upstream merge)`.
 - SOLID and GoF patterns only where they genuinely make the code cleaner.
 - No `\u` escapes in Java comments — the lexer decodes them inside comments, so a Windows path in a
   comment is a compile error.

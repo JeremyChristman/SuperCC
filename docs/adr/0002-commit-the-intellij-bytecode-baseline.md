@@ -1,6 +1,6 @@
 # 0002 — Commit IntelliJ-built `.class` files to version control
 
-**Status:** Accepted (2026-07-25) · **Applies to:** `emulator/ game/ graphics/ io/ tools/ util/` at the repo root
+**Status:** Accepted (2026-07-25); amended by [0010](0010-rebuild-form-classes-by-transplant.md) (2026-11-03) — committed form classes may now also come from `formclass.ps1`, still committed here · **Applies to:** `emulator/ game/ graphics/ io/ tools/ util/` at the repo root
 
 ## Context
 
