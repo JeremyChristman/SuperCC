@@ -12,10 +12,44 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
-## Unreleased (upstream merge, step 1)
+## jc-15 — 2026-11-02 (upstream merge, steps 1 and 2)
+
+The first release carrying upstream code newer than the fork's 2021 import. Every stored solution in
+the maintainer's collection (24,204) ends identically to the deployed jc-14 jar.
 
 ### Changed
-- **Upstream's trap rework (`858dbd0`) is merged — with four fixes of the fork's own, and no
+- **Lynx: a key the engine ignores is recorded as a wait (upstream `b997c27` + `98366f7`, step 2).**
+  `Level.tick` returns two bits instead of a boolean: `MASK_TICK_MULTI` (the old meaning) and
+  `MASK_DISCARD_INPUT`. `LynxLevel` sets the second when Chip is between tiles (no move is chosen
+  at all) or when choosing finds a forced move (ice without skates, a force floor without boots and
+  without the slide token, the tick after a teleport), and `SuperCC.tick` then records `-` in the
+  move list in place of the key. That is Tile World's rule: `lxlogic.c`'s `choosechipmove` drops a
+  key when `discard` is set, and `play.c` records a move only when one is accepted. `b997c27` also
+  made `MSLevel` return the discard bit on every tick without automatic ticks; `98366f7` took that
+  back out, because an MS key during a force-floor slide is an override and must be kept — so MS
+  records exactly as before — and must: even an MS key on ice, whose move is refused, changes the
+  engine's state. Applied verbatim, with one fork fix (`MOD (Jeremy, upstream merge)`): where a
+  tick returns BOTH bits, `SuperCC.tick` keeps the key instead of writing `-`, which would have
+  recorded one tick where the engine ran four. The automatic-tick bit only comes from a direction
+  Chip chose from the key, so the key was used; and a key that was not is ignored again on replay.
+  No engine path returns both today; the fix is so a saved route does not depend on that staying
+  true. All four files were already spliced. **The trade-off:** the move list now records what happened, not what was typed, so a
+  macro or a copy of moves, played from a square where an ignored key would have counted, waits
+  where jc-14 moved (README section 7 says so; `InputDiscardTest` §3 pins it).
+
+  **Measured:** corpus identical to the deployed jc-14 jar on all 24,204 solutions; `-CrossCheck`
+  agrees on all 24,203 replayable saves. A census of the move list SuperCC records on loading each
+  save: 40 of 1,085 Lynx routes record differently (2,500 keys become waits: 1,678 typed between
+  tiles, in 30 routes, and 822 on forced moves), no MS route does, and no tick set both bits. All 40,
+  saved as the menu saves them and reloaded, end in the same state. Tile World's batch verifier
+  accepts both the jc-14 and the jc-15 `.tws` export of the three routes where a key typed between
+  tiles is followed only by waits — the shape where Tile World, which keeps an unconsumed key until
+  Chip next chooses, looked likely to apply it late. It did not matter in any of the three, so this
+  is a cleaner move list, not a fix to old exports. Three review passes (`/code-review`, a hostile
+  review of every move-list consumer, a line-by-line Tile World parity review) found no key SuperCC
+  reports ignored that it or Tile World would use; their fuzzing, 23,000 random Lynx levels between
+  them, replayed every ignored tick with other keys and never changed the outcome.
+- **Upstream's trap rework (`858dbd0`, step 1) is merged — with four fixes of the fork's own, and no
   change to any stored replay.** Trap state is now one bit per trap instead of one per wire,
   through a new trap → buttons map (`Level.getTrapButtons()`). Applied from upstream's commit
   verbatim, then fixed (each marked `MOD (Jeremy, upstream merge)` in the source):
@@ -39,15 +73,27 @@ measured. All three are updated together — see [`.github/RELEASING.md`](.githu
 
   **Measured:** corpus identical to the deployed jc-14 jar on all 24,204 solutions; `-CrossCheck`
   agrees on all 24,203 replayable saves. Five more `java/game/**` files are now spliced.
-  **For the next release's README:** a `.ser` saved with *Save all states to disk* by jc-14 or
-  earlier loads correctly wherever each trap has one wire; on a trap with two or more wires, its
-  state is read from its first wire's bit alone, so it can restore shut when it was open (392 of
-  23,476 levels in the maintainer's collection have such a trap). A `.ser` saved now loads correctly
-  in older builds. Lynx states and solution files are unaffected. Coverage rose (target 50.3% →
-  51.2% on the laptop's JDK 18, before §10 was added) and must be re-baselined on JDK 16.0.2 before
-  the release: the newly spliced engine classes are now JDK-dependent too.
+  **The one compatibility cost, in README section 7:** a `.ser` saved with *Save all states to
+  disk* by jc-14 or earlier loads correctly wherever each trap has one wire; on a trap with two or
+  more wires, its state is read from its first wire's bit alone, so it can restore shut when it was
+  open (392 of 23,476 levels in the maintainer's collection have such a trap). A `.ser` saved now
+  loads correctly in older builds. Lynx states and solution files are unaffected.
+- **Coverage re-baselined on JDK 16.0.2** (Temurin 16.0.2+7, what CI and the release workflow pin):
+  the target scope is 56.4% (1504/2666), up from 50.3% at jc-14. `coverage.ps1`'s notes no longer say only four `io\**` classes are compiled
+  locally: since step 1, 1,544 of the target's 2,666 branches are.
 
 ### Added
+- **`test/InputDiscardTest.java`** (45 assertions) — step 2's rules, tick by tick: Lynx force floors
+  (forced on the first, the slide token freeing Chip on the second), ice with and without skates, a
+  teleport, the exit, a start on a force floor (tick 1 is never forced), and keys that bump, which
+  are used and never discarded. The safety property itself, on five routes: on every discarded tick,
+  all nine keys from the same savestate give the same savestate. What the move list records, the
+  recorded list saved, reloaded and replayed to the same square and tick, the macro trade-off, and
+  MS never setting the bit — with the force-floor override alone, recorded as a wait, ending on a
+  different square, and an MS key on ice changing the savestate. Expected values come from
+  `lxlogic.c`, worked out before each first run. And the both-bits rule, through a real level
+  wrapped to report both bits. Ten planted defects are each caught, upstream's recorder line among
+  them.
 - **The fixtures whose absence let the trap bug through** — `MsCloneTrapTest` §6–§10: a block or
   Chip starting on a trap with one wire and with two, an empty trap with one of two buttons held
   (six arrangements, plus a neither-held control), a bare press, one button wired to two traps, a
@@ -65,7 +111,7 @@ measured. All three are updated together — see [`.github/RELEASING.md`](.githu
   classes. Planted: jc-14's `MSCreature.class` in the new jar is reported by name. It checks names
   and descriptors only, not access or static-ness.
 
-## Unreleased (tooling)
+## Unreleased (tooling, shipped alongside jc-15)
 
 ### Added
 - **`corpus.ps1` + `corpus/CorpusCheck.java`: the corpus replay, committed.** Replays every stored

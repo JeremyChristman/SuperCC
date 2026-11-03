@@ -3,16 +3,17 @@
 # Regenerate with:  powershell -File coverage.ps1 -UpdateBaseline
 # Verified with:    powershell -File coverage.ps1 -CheckBaseline   (the release workflow does this)
 #
-# Branch percentages only. 299 of the target scope's branches are in the four spliced io\** classes,
-# which the local javac compiles, so this file records the JDK it was measured on.
+# Branch percentages only. Over half of the target scope's branches are in spliced classes (io\** and,
+# since the upstream merge, MSCreature, MSLevel and LynxLevel), which the local javac compiles, so this
+# file records the JDK it was measured on.
 #
 # key	branch_covered	branch_total	branch_pct
-#jdk	16.0.2+7-67
-target	1339	2664	50.3%
-game	1040	2249	46.2%
-game.MS	499	1174	42.5%
-game.Lynx	377	732	51.5%
-game.shared	164	343	47.8%
-io	299	415	72.0%
-emulator	113	408	27.7%
+#jdk	16.0.2+7
+target	1504	2666	56.4%
+game	1199	2247	53.4%
+game.MS	552	1170	47.2%
+game.Lynx	461	734	62.8%
+game.shared	186	343	54.2%
+io	305	419	72.8%
+emulator	130	414	31.4%
 nontarget	0	1887	0.0%

@@ -57,6 +57,10 @@ It covers the two ways an edit can fail to ship, by two different mechanisms:
   with `-UpdateFormBaseline`.
 
 Run it after touching anything under `java/**`, before calling the change done. CI runs it too.
+**Run it on JDK 16.0.2, like CI.** On a newer `javac` it reports false edits: on JDK 18 (measured
+2026-11-02), `graphics\SmallGamePanel.java` and `tools\tsp\SimulatedAnnealing.java`, both untouched,
+compile to different bytecode and fail as "EDITED but not spliced". A machine without 16.0.2 can
+point `JAVA_HOME` at an unpacked Temurin 16.0.2+7 zip for the one command (see §4, *Coverage*).
 Its header lists the narrow cases it still cannot see (annotations, a literal swapped between two
 concatenations, line-number-only edits) — read that before trusting a green run absolutely.
 
@@ -69,7 +73,8 @@ freshly compiled sources. See §4.
 ## 2. Commands
 
 Everything is PowerShell. There is no Maven, no Gradle, no `package.json`, no dependency manifest.
-Requires a **JDK 16 or newer** (`--release 16` keeps bytecode compatible with the baseline).
+Requires a **JDK 16 or newer** (`--release 16` keeps bytecode compatible with the baseline) to build
+and test — but `verify-splice.ps1` and the coverage baseline need **16.0.2 itself**, as CI uses (§1, §4).
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File verify-splice.ps1         # will my edit actually ship?
@@ -211,7 +216,16 @@ test/MsCreatureListTest.java MS list per TICK -- FORWARD order, the teeth clock,
 test/MsCloneTrapTest.java    MS clone machines and beartraps -- the dispatch, and traps that START occupied
 test/WindowTitleTest.java    the window title -- all 8 combinations of the three jc-14 switches
 test/LinkTest.java           every call between the fork's classes resolves IN THE BUILT JAR (§1's splice hazard)
+test/InputDiscardTest.java   which keys Level.tick reports as DISCARDED, and the WAIT the move list records
 ```
+
+`InputDiscardTest` is about the move list, which the corpus cannot see: a discarded key changes no
+final state, only what SuperCC records, and so what a saved `.json` or an exported `.tws` holds.
+Only Lynx discards. If a change ever makes MS return `Level.MASK_DISCARD_INPUT`, `InputDiscardTest` §4 shows the cost —
+an MS key on a force floor is an override, and recorded as a wait the route ends somewhere else; even
+an MS key on ice, whose move is refused, changes the savestate. Its `inert()` check is the property
+everything else rests on: on a tick the engine reports discarded, every key from the same savestate
+must give the same savestate. Run it on any new discard rule before trusting the rule.
 
 `LinkTest` exists because a splice build can ship a stale call. Only the files in `$SPLICE_MODIFIED`
 are recompiled; if one of them removes or re-signs a method, a baseline `.class` that still calls the
@@ -227,8 +241,8 @@ to know an assertion tests anything: four separate tests in this suite looked ai
 turned out to catch nothing when the bug was actually planted.
 
 **🔴 The splice build makes naive mutation testing silently useless.** `build.ps1` recompiles only
-the files in `$SPLICE_MODIFIED` (§1). Plant a defect in anything else — `game\MS\MSCreature.java`,
-`game\Lynx\**`, `game\Position.java` — and the build overlays nothing: the jar keeps its committed
+the files in `$SPLICE_MODIFIED` (§1). Plant a defect in anything else — `game\MS\MSCreatureList.java`,
+`game\Lynx\LynxCreature.java`, `game\Position.java` — and the build overlays nothing: the jar keeps its committed
 baseline bytecode, the suite runs against unmutated code, and **every mutation "passes"**. You
 conclude the test is weak, or that the code is fine, and both conclusions are wrong.
 
@@ -238,12 +252,15 @@ cannot help with — here you *want* a temporary edit to ship.
 The procedure:
 
 ```powershell
-# 1. add the file you are about to mutate to $SPLICE_MODIFIED in build-config.ps1
+# 1. add the file you are about to mutate to $SPLICE_MODIFIED in build-config.ps1 -- CHECK FIRST:
+#    since the upstream merge, MSCreature, MSLevel, LynxLevel, Level and BrownButton are already
+#    there for good, and must not be added twice or removed in step 4
 # 2. plant the defect, then:
 powershell -ExecutionPolicy Bypass -File build.ps1
 powershell -ExecutionPolicy Bypass -File run-tests.ps1 -NoBuild
 # 3. restore the source AND rebuild, or the next run measures the mutated jar
-# 4. put build-config.ps1 back, rebuild, and confirm verify-splice.ps1 is green
+# 4. put build-config.ps1 back (git diff build-config.ps1 must be empty), rebuild, and confirm
+#    verify-splice.ps1 is green
 ```
 
 Three things that have actually gone wrong doing this:
@@ -266,20 +283,21 @@ taken. JaCoCo is a test-time tool cached under `%LOCALAPPDATA%\jacoco\<version>\
 dependency**, never committed, never shipped. Output goes to `coverage-report\` (gitignored);
 `coverage.csv` is the evidence behind every percentage below.
 
-As of jc-14, with all 1,912 assertions passing, **measured on JDK 16.0.2** (what CI pins):
+As of jc-15, with all 2,017 assertions passing, **measured on JDK 16.0.2** (Temurin 16.0.2+7, what
+CI pins):
 
 | scope | branch | line | branches |
 |---|---|---|---|
-| **`game\**` + `io\**` — THE TARGET** | **50.3%** | 64.6% | 1339/2664 |
-| &nbsp;&nbsp;`game\**` (the emulator) | 46.2% | 59.9% | 1040/2249 |
-| &nbsp;&nbsp;&nbsp;&nbsp;`game\MS\**` | 42.5% | 57.4% | 499/1174 |
-| &nbsp;&nbsp;&nbsp;&nbsp;`game\Lynx\**` | 51.5% | 55.2% | 377/732 |
-| &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 47.8% | 69.3% | 164/343 |
-| &nbsp;&nbsp;`io\**` (file formats) | 72.0% | 78.1% | 299/415 |
-| `emulator\**` | 27.7% | 25.8% | 113/408 |
+| **`game\**` + `io\**` — THE TARGET** | **56.4%** | 70.3% | 1504/2666 |
+| &nbsp;&nbsp;`game\**` (the emulator) | 53.4% | 67.5% | 1199/2247 |
+| &nbsp;&nbsp;&nbsp;&nbsp;`game\MS\**` | 47.2% | 62.0% | 552/1170 |
+| &nbsp;&nbsp;&nbsp;&nbsp;`game\Lynx\**` | 62.8% | 70.7% | 461/734 |
+| &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 54.2% | 72.7% | 186/343 |
+| &nbsp;&nbsp;`io\**` (file formats) | 72.8% | 78.4% | 305/419 |
+| `emulator\**` | 31.4% | 30.4% | 130/414 |
 | `tools\**` + `graphics\**` — *not a target* | 0.0% | 0.0% | 0/1887 |
 
-**Read this correctly.** Whole-project branch coverage is 24.7% (1464/5925), and that number is
+**Read this correctly.** Whole-project branch coverage is 29.1% (1724/5933), and that number is
 meaningless: 15 form-based classes cannot be compiled from this repo at all (ADR 0001), `tools\**`
 is 35 files of upstream code this fork does not modify, `graphics\**` is Swing with no headless test
 story, and the rest is vendored `org.json` / `com.intellij`. What this fork can break is the engine
@@ -288,29 +306,31 @@ and the file formats, so that is what is scoped and measured.
 **The number is JDK-dependent, by construction — so measure the baseline on JDK 16.0.2.** Every
 spliced class is compiled by your `javac`, and `build-config.ps1` already notes that javac 17 does
 not emit identical bytecode to javac 16. That was once only the five `io\**` classes (`ErrorLog`,
-`LevelFactory`, `SuccPaths`, `TWSReader`, `TWSWriter`, 380 branches). Since the upstream trap merge
-(2026-11-02) it is also `MSCreature`, `MSLevel` and `LynxLevel` (plus `Level` and `BrownButton`, which
-have none): another 1,162 branches, nearly half the target. Only the rest comes from the committed
+`LevelFactory`, `SuccPaths`, `TWSReader`, `TWSWriter`, 382 branches at jc-15). Since the upstream
+trap merge (2026-11-02) it is also `MSCreature`, `MSLevel` and `LynxLevel` (plus `Level` and
+`BrownButton`, which have none): another 1,162 branches — 1,544 of the target's 2,666 in all. Only the rest comes from the committed
 baseline and is byte-identical on every machine. A figure that differs slightly on another JDK is not
 a bug, but it is not the baseline either: `docs/coverage-baseline.tsv` and the table above are
-measured on 16.0.2, what CI and the release workflow pin. The laptop has JDK 18 only, so re-baseline
-from a machine with 16.0.2.
+measured on 16.0.2, what CI and the release workflow pin. A machine without it does not need an
+install: jc-15's baseline was taken on the laptop (JDK 18) from Temurin 16.0.2+7's zip — the build CI
+uses, checked against Adoptium's published SHA-256 — unpacked to a scratch folder, with `JAVA_HOME`
+pointed at it for the one command. `build-config.ps1` lets `JAVA_HOME` win.
 
-**50.3% is a floor to build on, not a passing grade**, and the split says where the work is:
+**56.4% is a floor to build on, not a passing grade**, and the split says where the work is:
 
-- **The two rulesets are close now — MS 42.5%, Lynx 51.5% — and that took deliberate work on both.**
+- **Lynx is ahead now — MS 47.2%, Lynx 62.8% — and both took deliberate work.**
   Four Lynx files built that side (the move-preference table `LynxCreatureMoveTest`, the entry rules
   `LynxCanEnterTest`, the creature list `LynxCreatureListTest`, the movement engine `LynxTickTest`,
   all against `lxlogic.c`); three MS files closed the gap (`MsTryEnterTest`, `MsCreatureListTest`,
-  `MsCloneTrapTest`). **`MSCreature` (39.5%, 314/795) is now the single largest pool of uncovered
-  engine branches in the repo** — nearly a third of `game\**` lives in that one class — and MS is
+  `MsCloneTrapTest`). **`MSCreature` (44.3%, 351/793) is now the single largest pool of uncovered
+  engine branches in the repo** — over a third of `game\**` lives in that one class — and MS is
   the ruleset the maintainer's own solutions replay against, so it is the obvious next target.
-  `game.Lynx.LynxLevel` (33.9%) is the weakest by percentage.
+  `game.MS.MSLevel` (49.0%, 122/249) is the next engine class down.
   ⚠ Note that `lxlogic.c` carries **no** `MOD (Jeremy)` comments, unlike `mslogic.c`'s 79 — so it
   is unmodified upstream, and a Lynx divergence would never have been looked for by the (MS-only)
   desync project. A failure in a Lynx test is a finding, not a bug in the test.
 - The `io.TWS*` classes were once a flat 0%; `TwsRoundTripTest` and `TwsClickTest` took `io\**` to
-  72.0%, including the **click-conversion path** — the one jc-2 fixed, where 13 of 19 click-bearing
+  72%, including the **click-conversion path** — the one jc-2 fixed, where 13 of 19 click-bearing
   solutions exported the wrong cell. What is left there is mostly `TWSReader.twsInputStream`
   (28.9%, 13/45), the byte-level reader.
 - Still at a flat **0%**: `game.Cheats` (30 branches), `game.Ruleset`, `game.Savestate`,
@@ -438,6 +458,12 @@ the same rework was byte-identical across the whole collection. That is the shap
 expect: the test suite sees the arrangements someone built; the corpus sees the ones level designers
 built. (The rework was merged on 2026-11-02 with that fix and three more; `MsCloneTrapTest` §6–§7 now
 carry the fixtures that were missing, and each fails on the build it guards against.)
+
+The corpus compares FINAL STATES, so it is blind to a change in what gets *recorded*. Upstream's
+input discarding (step 2) is the worked example: identical on all 24,204 solutions, yet 40 Lynx move
+lists record differently once loaded (a `-` in place of each ignored key). A change to `SuperCC.tick`, `SavestateManager` or anything else
+on the recording path needs that measured separately — FORK.md's step 2 says how it was done (a
+scratch census comparing the recorded list with jc-14's, then a save-reload-replay round trip).
 
 Things that are load-bearing in `CorpusCheck` and `corpus.ps1`:
 
@@ -698,7 +724,7 @@ Assume any behavior change ships publicly. The full checklist is `.github/RELEAS
    shipped.
 3. Update `CHANGELOG.md` and `FORK.md`.
 4. `powershell -File verify-splice.ps1`, `powershell -File run-tests.ps1`, and
-   `powershell -File coverage.ps1 -CheckBaseline` — all three green. The release workflow runs the
+   `powershell -File coverage.ps1 -CheckBaseline` — all three green, **on JDK 16.0.2** (`JAVA_HOME`). The release workflow runs the
    coverage check too, so skipping it here just moves the failure to after the tag is public.
    The splice check is not optional here: it is what proves the change you are shipping is the
    change that will actually be in the jar.

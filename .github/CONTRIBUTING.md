@@ -5,7 +5,8 @@ the traps, and the biggest one will silently discard your change if you do not k
 
 ## Setup
 
-Windows and a **JDK 16 or newer**. That is the whole setup. There is no package manager, no build
+Windows and a **JDK 16 or newer** (16.0.2 itself for `verify-splice.ps1` and the coverage check,
+as CI uses; see CLAUDE.md §1). That is the whole setup. There is no package manager, no build
 tool, and nothing to install — third-party libraries are committed as bytecode
 (`docs/THIRD_PARTY.md`).
 

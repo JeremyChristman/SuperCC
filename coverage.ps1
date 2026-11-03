@@ -54,11 +54,12 @@ that no longer describes the code. CI deliberately does not: adding a test is su
 number, and everyday work should not be blocked by a stale doc.
 
 Coverage is measured against the BUILT JAR, like every test here (docs\adr\0003) -- the jar is the
-only artifact whose behavior is authoritative under a splice build. Note that 299 of the target
-scope's branches live in the four spliced io\** classes, which YOUR javac compiles; the other 2355
-come from the committed baseline and are identical everywhere. A different JDK can therefore move
-the io\** figure slightly without anything being wrong. The numbers documented in CLAUDE.md were
-measured on JDK 16.0.2, which is what CI pins.
+only artifact whose behavior is authoritative under a splice build. Note that the spliced classes
+are compiled by YOUR javac: the io\** files, and since the upstream merge (2026-11-02) MSCreature,
+MSLevel and LynxLevel too -- over half of the target scope's branches. Only the rest come
+from the committed baseline and are identical everywhere. A different JDK can therefore move the
+figures without anything being wrong. The numbers documented in CLAUDE.md are measured on JDK
+16.0.2, which is what CI pins.
 #>
 param(
     [switch]$Download,
@@ -421,8 +422,9 @@ function Format-BaselineFile {
     [void]$sb.Append("# Regenerate with:  powershell -File coverage.ps1 -UpdateBaseline`n")
     [void]$sb.Append("# Verified with:    powershell -File coverage.ps1 -CheckBaseline   (the release workflow does this)`n")
     [void]$sb.Append("#`n")
-    [void]$sb.Append("# Branch percentages only. 299 of the target scope's branches are in the four spliced io\** classes,`n")
-    [void]$sb.Append("# which the local javac compiles, so this file records the JDK it was measured on.`n")
+    [void]$sb.Append("# Branch percentages only. Over half of the target scope's branches are in spliced classes (io\** and,`n")
+    [void]$sb.Append("# since the upstream merge, MSCreature, MSLevel and LynxLevel), which the local javac compiles, so this`n")
+    [void]$sb.Append("# file records the JDK it was measured on.`n")
     [void]$sb.Append("#`n")
     [void]$sb.Append("# key`tbranch_covered`tbranch_total`tbranch_pct`n")
     [void]$sb.Append("#jdk`t$Jdk`n")
@@ -445,6 +447,14 @@ function Format-BaselineFile {
    _JAVA_OPTIONS: ..." or a VM warning FIRST when those are set, which pushed the version line
    down and left this reading "unknown" -- a value that then gets written into the committed
    baseline and makes every future drift print a spurious JDK note. #>
+<# "16.0.2+7-67" (Oracle), "16.0.2+7" (Temurin), "16.0.2+7-LTS" and the like all name one source
+   release, jdk-16.0.2+7. Vendors append their own suffixes after it, so the comparison of a baseline's
+   JDK with this run's keeps only the release: everything up to and including the "+build" number. #>
+function Get-JdkRelease([string]$v) {
+    if ($v -match '^(\d+(\.\d+)*\+\d+)') { return $Matches[1] }
+    return $v
+}
+
 $jdkVersion = "unknown"
 $verOut = @(& (Join-Path $jdkBin "java.exe") -version 2>&1 | ForEach-Object { $_.ToString() })
 foreach ($line in $verOut) {
@@ -513,10 +523,12 @@ if ($CheckBaseline) {
         }
         Write-Host ""
         Write-Host ("  baseline JDK: {0}    this run: {1}" -f $baselineJdk, $jdkVersion)
-        if ($baselineJdk -ne $jdkVersion) {
-            Write-Host "  NOTE  those differ. Four spliced io\** classes are compiled by the local javac, so part"
-            Write-Host "        of this drift may be the compiler rather than the tests. io\** is only 405 branches,"
-            Write-Host "        so a single branch moves its rounded figure. Confirm before running -UpdateBaseline."
+        # Compared as RELEASES (Get-JdkRelease): Oracle's "16.0.2+7-67" and Temurin's "16.0.2+7", what CI
+        # and the release workflow use, are builds of the same jdk-16.0.2+7 source tag.
+        if ((Get-JdkRelease $baselineJdk) -ne (Get-JdkRelease $jdkVersion)) {
+            Write-Host "  NOTE  those differ. The spliced classes (io\** and, since the upstream merge, MSCreature,"
+            Write-Host "        MSLevel and LynxLevel) are compiled by the local javac, so part of this drift may be the"
+            Write-Host "        compiler rather than the tests. Confirm on JDK 16.0.2 before running -UpdateBaseline."
         }
         Write-Host ""
         if ($inCi) { Write-Host "::error title=Coverage baseline drift::CLAUDE.md documents coverage numbers that no longer match the code. Run: powershell -File coverage.ps1 -UpdateBaseline, update the table in CLAUDE.md section 4, and commit both." }

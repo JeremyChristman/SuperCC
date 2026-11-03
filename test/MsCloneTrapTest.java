@@ -583,7 +583,7 @@ public class MsCloneTrapTest {
                 case 'r' -> Direction.RIGHT;
                 default  -> Direction.NONE;
             };
-            if (lv.tick(c, new Direction[]{ d })) {
+            if ((lv.tick(c, new Direction[]{ d }) & game.Level.MASK_TICK_MULTI) != 0) {
                 lv.tick(emulator.SuperCC.capital(c), new Direction[]{ Direction.NONE });
                 i++;
             }

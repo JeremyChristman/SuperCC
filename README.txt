@@ -1,5 +1,5 @@
 ==============================================================================
-  SuperCC  --  Jeremy Christman's fork                      build jc-14
+  SuperCC  --  Jeremy Christman's fork                      build jc-15
 ==============================================================================
 
   1. What this is
@@ -517,6 +517,58 @@ AlwaysOpenInMS  Whether every level set opens under the MS ruleset, no matter
 Releases from jc-2 on carry a jc-N tag in the repository. The title bar, when
 ShowBuildTag is on, shows the build tag compiled into the jar, which matches
 the tag for that release. Newest first.
+
+
+jc-15  --  Newer upstream code for traps and Lynx keys, checked
+--------------------------------------------------------
+
+  * THE FIRST BUILD WITH NEWER UPSTREAM CODE. This fork started from
+    upstream SuperCC as it stood in September 2021, and upstream has 13
+    commits since. jc-15 brings in two of those changes, one at a time, and
+    each was checked by replaying all 24,204 solutions in the maintainer's
+    collection: every one of them ends exactly as it did under jc-14.
+
+  * TRAPS. Upstream changed how SuperCC keeps track of which traps are open.
+    As upstream wrote it, the change broke levels where Chip or a block
+    starts the level standing on a trap: some would not open at all, and
+    others had the trap stuck shut. This build has the change with that bug
+    and three smaller ones fixed, so those levels play exactly as in jc-14.
+
+    One thing to know if you use "Save all states to disk" (.ser files): a
+    .ser file saved by jc-14 or earlier still loads correctly on any level
+    where each trap has a single button wired to it. On a trap with two or
+    more buttons wired to it, the trap's open/shut state comes back from the
+    first button's record only, so it can come back shut when it was saved
+    open. A .ser file saved by jc-15 loads correctly in older builds.
+    Solution files (.json and .tws) are not affected: they store no state.
+
+  * LYNX: A KEY THE GAME IGNORES IS RECORDED AS A WAIT. Under Lynx rules,
+    a key does nothing while Chip is between two tiles, while ice is
+    carrying him, just after a teleport, or on the force floor that first
+    grabs him (from the next force floor of the same slide on, he may step
+    off). Tile World never records a key like that. SuperCC used to record it anyway; now the move
+    list holds a wait there instead. A solution plays exactly as before --
+    the game ignored that key before too -- but the move list and a copied
+    or saved solution now show what actually happened, and an exported .tws
+    file can be smaller. Opening an older Lynx solution re-records it this
+    way, and saving it then writes the new form. In the maintainer's
+    collection that is 40 of 1,085 Lynx solutions, and every one of them,
+    saved again and replayed, still ends exactly the same.
+
+    The one place this can show: a MACRO, or moves copied out of the move
+    list, now holds those waits too. Played back from the same spot, they
+    do exactly what they did. Played back somewhere a key WOULD have counted
+    -- say, on plain floor instead of ice -- they wait there instead of
+    moving, where jc-14 would have moved.
+
+    MS is unchanged: every MS key is still recorded as typed, because under
+    MS even a key that cannot move Chip still counts for the game.
+
+  * Also since jc-14, and none of it changes how the program behaves: the
+    test suite grew to 2,017 assertions across 22 classes, including a check
+    that every call between the program's own classes still connects in the
+    finished jar, and the replay of the whole collection that checked this
+    release is now part of the repository.
 
 
 jc-14  --  You choose what the window title says

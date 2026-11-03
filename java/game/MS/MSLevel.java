@@ -494,10 +494,14 @@ public class MSLevel extends MSSavestate implements Level {
      *          interpreted as a mouse click. Note that the click itself is not
      *          set here - use {@link #setClick(int)} for that.
      * @param directions The directions in which chip should try to move
-     * @return true if the next move should be made automatically without input
+     * @return {@link Level#MASK_TICK_MULTI} if the next move should be made automatically without
+     *         input, else 0. MS never sets {@link Level#MASK_DISCARD_INPUT}: an input here is either
+     *         used or, on a half move or a slide, kept for the move list as typed (upstream's
+     *         98366f7 took the discard back out of MS).
+     *         MOD (Jeremy, upstream merge): this line said "true if", left over from the boolean.
      */
     @Override
-    public boolean tick(char c, Direction[] directions){
+    public int tick(char c, Direction[] directions){
 
         setLevelWon(false); //Each tick sets the level won state to false so that even when rewinding unless you stepped into the exit the level is not won
         initialiseSlidingMonsters();
@@ -518,9 +522,9 @@ public class MSLevel extends MSSavestate implements Level {
 
         if (tickNumber > 0 && !isHalfMove) monsterList.tick();
 
-        if (endTick()) return false;
+        if (endTick()) return 0;
         if (chip.isSliding()) moveChipSliding();
-        if (endTick()) return false;
+        if (endTick()) return 0;
         if (moveType == CLICK_EARLY && voluntaryMoveAllowed) { //todo: it seems like it should be impossible to do a key move onto an FF and then TSG right after
 //            System.out.println("tsg");
             Direction sought = chip.seek(new Position(mouseGoal))[0];
@@ -536,10 +540,10 @@ public class MSLevel extends MSSavestate implements Level {
 //                moveType = CLICK_LATE;
 //            }
         }
-        if (endTick()) return false;
+        if (endTick()) return 0;
         tickNumber++;
         slipList.tick();
-        if (endTick()) return false;
+        if (endTick()) return 0;
         if (moveType == KEY) {
             moveChip(directions);
             idleMoves = 0;
@@ -554,7 +558,7 @@ public class MSLevel extends MSSavestate implements Level {
                 voluntaryMoveAllowed = true; //this way causes the bottom part of SuCCTest L 75 to desync, but why???
         }
         if (endTick())
-            return false;
+            return 0;
 
         monsterList.finalise();
         finaliseTraps();
@@ -563,7 +567,9 @@ public class MSLevel extends MSSavestate implements Level {
         else if ((moveType == CLICK_LATE || moveType == CLICK_EARLY) && failedDirections)
             mouseGoal = NO_CLICK;
 
-        return (moveType == KEY || moveType == CLICK_EARLY) && !isHalfMove && !chip.isSliding();
+        if ((moveType == KEY || moveType == CLICK_EARLY) && !isHalfMove && !chip.isSliding())
+            return MASK_TICK_MULTI;
+        return 0;
     }
 
     void resetData(int xPosition) {

@@ -52,8 +52,10 @@ form-based classes.
    powershell -ExecutionPolicy Bypass -File run-tests.ps1
    powershell -ExecutionPolicy Bypass -File coverage.ps1 -CheckBaseline
    ```
-   All three must be green. If you edited a `java/**` file, `verify-splice.ps1` is what proves the
-   edit is actually going to ship.
+   All three must be green, and run them **on JDK 16.0.2** — what CI pins — by pointing `JAVA_HOME` at
+   it for these commands: on a newer `javac`, `verify-splice.ps1` reports untouched files as edited
+   and the coverage figures move (CLAUDE.md §1, §4). If you edited a `java/**` file,
+   `verify-splice.ps1` is what proves the edit is actually going to ship.
 
    **If the release touches `java/game/**`, `java/io/**` or `java/emulator/**`, also replay the
    corpus** against the previous release's jar and compare (needs the local Chip's Challenge folder,

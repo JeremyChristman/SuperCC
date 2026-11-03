@@ -28,7 +28,7 @@ fork *does* change, by release:
 | jc-12 | **GUI robustness** — cancelling a file chooser threw an uncaught NPE on the event thread, and a missing solution file produced a stack trace and a message that was just a path. Engine untouched. See *jc-12 -- the two ways MenuBar.openFileBytes could fail*. |
 | jc-13 | **File-format robustness** — a truncated `.tws` was accepted and then misread; it is refused now, with a message. 23,967 real solution files re-verified, none rejected. Engine untouched. See *jc-13 -- a truncated .tws was accepted*. |
 | jc-14 | **Display** — every part of the window title is a setting now, and the separators are computed from what is left rather than templated. The stock title changes: it no longer names the level set. Engine untouched. See *jc-14 -- the window title is fully switchable*. |
-| *unreleased* | **Upstream merge, step 1** — upstream's trap rework (`858dbd0`), with three fixes of the fork's own. Replay-identical on all 24,204 stored solutions. See *Upstream merge*. |
+| jc-15 | **Upstream merge, steps 1 and 2** — upstream's trap rework (`858dbd0`) with four fixes of the fork's own, and its Lynx input discarding (`b997c27` + `98366f7`), which records a key the engine ignores as a wait. Replay-identical on all 24,204 stored solutions; 40 Lynx move lists record differently once loaded. See *Upstream merge*. |
 
 > **`settings.ini` is `succ_settings.ini` from jc-8 on.** Older sections below are left in their
 > original wording where they describe historical work; read "settings.ini" in those as the same
@@ -56,8 +56,8 @@ commit is applied as a patch (`git apply -p4 --directory=java`), not merged by g
 
 | Upstream | What | Status |
 |---|---|---|
-| `858dbd0` (+ `82198a3`, its test data) | Trap rework: one trap bit per TRAP, not per wire | **merged, unreleased** — step 1, below |
-| `b997c27`, `98366f7` | Input discarding (Lynx forced moves); the second undoes the first's MS effect | to do |
+| `858dbd0` (+ `82198a3`, its test data) | Trap rework: one trap bit per TRAP, not per wire | **merged, jc-15** — step 1, below |
+| `b997c27`, `98366f7` | Input discarding (Lynx forced moves); the second undoes the first's MS effect | **merged, jc-15** — step 2, below |
 | `40495dd` | Seed search: an `int` overflow made long searches go negative | to do |
 | `72476bc` | Linux test runner, plus guards for "no level loaded" in `EmulatorKeyListener`, `MenuBar` and `Gui.java` | to do — overlaps jc-11/jc-12; its `requireNonNull` around `openFile` would undo jc-12's cancel fix; `Gui.java` is form-bound |
 | `5f928e0`, `fb8fe25`, `da35e33`, `8c95b3e` | Auto-diagonals | to do — touches `ControlGUI.form`, which needs IntelliJ's form compiler |
@@ -152,7 +152,125 @@ there was one bit per wire; now there is one per trap, stored at its first wire'
   the maintainer's collection have such a trap);
 - a `.ser` saved by this build loads correctly in jc-14 and earlier, everywhere.
 Lynx states carry no trap bits; solutions (`.json`, `.tws`) carry no state at all. The maintainer's
-collection holds no `.ser` files. Belongs in the next release's README entry.
+collection holds no `.ser` files. README section 7 carries this from jc-15 on.
+
+### Step 2 — input discarding (`b997c27` + `98366f7`)
+
+**What upstream changed.** `Level.tick` returned a boolean, "make the next move automatically". It
+now returns two bits: `MASK_TICK_MULTI`, the same thing, and `MASK_DISCARD_INPUT`, "the key given
+to this tick was not used". `LynxLevel.tick` sets the second when Chip is between tiles (it does
+not call `selectChipMove` at all then) and when `selectChipMove` finds a forced move — ice without
+skates, a force floor without boots and without the slide token, the tick after a teleport — and
+`SuperCC.tick` then records `WAIT` in the move list in place of the key. `b997c27` also made
+`MSLevel.tick` return the discard bit on every tick without automatic ticks; `98366f7`, four hours
+later, returned 0 there instead. Net effect on MS: none. The pair also adds a `break` to
+`SuperCC.tick`'s diagonal-to-vertical loop, harmless because each direction has exactly one key.
+
+**Why it is right.** It is Tile World's rule. In `lxlogic.c`, `advancegame` calls `choosemove` only
+for a creature with `moving <= 0`; `choosemove` calls `choosechipmove(cr, getforcedmove(cr))`, which
+drops the key when `discard` is set ("the player's input should not be retained"); and `play.c`'s
+`doturn` records a move only `if (state.lastmove)`, which is set only when a key is accepted. Tile
+World never records a key it threw away; SuperCC's move list now agrees. The MS half is right for
+the opposite reason: `mslogic.c` discards only on `CS_SLIP` (ice), and an MS key during a
+force-floor slide is an *override* that moves Chip off the floor. Recording it as a wait, as
+`b997c27` alone did, loses the move. Not even an MS key on ice may become a wait, though `moveChip`
+refuses the move it asks for there: the key still resets `MSLevel`'s idle-move count and
+voluntary-move state, and would cancel a pending click — so the savestate after keys differs from
+the one after waits, mid-slide, on the same square (`InputDiscardTest` §4). An "ice-only MS
+discard" would desync replays; this is the reason not to add one.
+
+**How it was applied.** The net diff of both commits, verbatim (upstream's files are CRLF, so the
+patch was converted to LF first). All four files were already in `$SPLICE_MODIFIED`. Fork edits:
+`MSLevel.tick`'s `@return` still said "true if"; `MsCloneTrapTest`'s replay helper used the boolean;
+and one fix from review, marked `MOD (Jeremy, upstream merge)`. Upstream's `SuperCC.tick` writes a
+plain `WAIT` whenever the discard bit is set — even on a tick that also reports automatic ticks,
+after its multi-tick loop has made the key a capital — so such a tick would be recorded as one tick
+where the engine ran four. No path returns both bits today (every discard path leaves Chip's chosen
+direction empty, so `moveChip` reports no automatic move; none of 1,085 Lynx solutions and none of
+the reviews' fuzzing hit it), but `Level.tick`'s contract makes the bits independent. The fix lets
+the automatic-tick bit win and keeps the key. A first version recorded the full wait `_` instead;
+the hostile review showed why that is still wrong: the automatic-tick bit can only come from a
+direction Chip *chose* from the key, so both bits together mean the discard bit is the mistaken
+one — and keeping the key is safe even if it is not, since a truly ignored key is ignored again on
+replay. Checked with two planted engine defects (every discard also claiming automatic ticks; a
+half-blocked diagonal reported discarded): upstream's line records routes that replay 3 ticks short
+and one square off; the fix replays both in step. `LinkTest` confirms no class in the built jar
+still calls the boolean `tick`.
+
+**The trade-off it brings.** The move list now records what *happened*, not what was *typed*. A
+replay from the same start is unaffected, but a macro (`SavestateManager.macroRecorder` slices the
+move list) or a copy of the moves is replayed wherever Chip stands: from a square where an ignored
+key would have counted, it now waits where jc-14 moved. Upstream chose this; it is in README
+section 7 for users and pinned by `InputDiscardTest` §3.
+
+**What was measured.**
+- Corpus: identical to the deployed jc-14 jar on all 24,204 solutions; `-CrossCheck` agrees on all
+  24,203 replayable saves.
+- The final state is not where this change shows, so a one-off census (a scratch copy of
+  `CorpusCheck`, not committed) compared the move list SuperCC *records* on loading each save with
+  what jc-14 records. **40 of 1,085 Lynx routes record differently** — 2,500 keys become waits:
+  1,678 typed between tiles (in 30 routes) and 822 on forced moves; 20 of the 40 are CCLP1–5 routes
+  and 14 are JeremyLP's. **No MS route records differently.** No tick
+  set both bits, so a full move is never written as a one-tick wait. The real recording path matched
+  the prediction from the raw flags on every tick. All 40, saved as the menu saves them (through
+  JSON) and reloaded, end in the same state.
+- Tile World. Its replay keeps a key it has not consumed until Chip next chooses a move (`doturn`
+  sets `currentinput` only on recorded ticks; only `choosechipmove` clears it). So a key typed
+  between tiles and followed only by waits, exported by jc-14, looked as if Tile World would apply
+  it late. Three routes have that shape (JeremyLP #11 and #17, TomB1 #130). Each was exported by
+  both jars and replayed with `Tile World.exe -b -r` from a scratch folder, after the ZK2
+  known-answer control (91 valid / 9 invalid, as always): **all six exports are valid.** So the
+  theory did not hold on real data, and the change is claimed only as a cleaner move list, not as a
+  fix to old exports. The mechanism is real in principle — the parity review below modeled Tile
+  World's buffering on SuperCC's engine, and a synthetic key typed between tiles before a free
+  choice moved Chip late — but why it was harmless in those three was not established. The `.tws`
+  export shrinks (#17's went from 7,397 bytes to 2,885: a wait is not written as a move there); the
+  move list and the saved `.json` keep the same length, a `-` in the key's place.
+- Review (a Tile World parity pass, line by line against `lxlogic.c`): no case where SuperCC
+  reports a key discarded that Tile World would use. It traced between-tiles, tick 1, ice, force
+  floors with and without boots, the slide token's whole lifecycle (including boots picked up
+  mid-slide), teleports, traps, clone machines and diagonals, each agreeing. And independently of
+  Tile World: replaying every discarded tick with all nine possible keys over 3,000 random Lynx
+  levels (104,756 ticks, 47,201 discarded) gave **zero** differences in the full savestate — so a
+  recorded wait cannot change SuperCC's own replay — and no tick returned both bits. The only
+  disagreements run the harmless way (SuperCC records a key Tile World would drop): after Chip dies,
+  on the tick a Lynx time limit runs out, and when Chip is stuck on a teleport, which SuperCC
+  handles by killing him.
+- Found by the same review, **not fixed, pre-existing**: Tile World starts Lynx Chip facing SOUTH
+  whatever his tile (`lxlogic.c:1840`, `cr->dir = SOUTH`); SuperCC takes his facing from his tile
+  (`LynxCreature`'s constructor). On a level whose Chip tile faces another way, a first diagonal key
+  or a start on ice can go differently. Its own investigation, not a merge step.
+- Review (hostile, on every consumer of the move list): nothing breaks. No class in the jar
+  references the boolean `Level.tick`; `SuperCC.tick`'s own signature is unchanged, so `Solution`,
+  `SavestateManager`, the key listener, `MenuBar`, `GamePanel`, the TSP and variation tools,
+  `CorpusCheck` and `TraceLevel` are unaffected; save/reload, keep-moves reloads and rewind-then-branch
+  ended in the same states (end states compared, not every tick). Its fuzz (20,000 random Lynx levels, 366,456 discarded ticks, each re-run
+  with five keys) found no key that mattered. It did find the both-bits recording hole above, three
+  discard rules no fixture reached, and four wrong sentences in these docs — all fixed.
+
+**Tests.** `test/InputDiscardTest.java`, 45 assertions. Lynx flags tick by tick: two force floors
+(forced on the first; the slide token frees Chip on the second), ice with and without skates, a
+teleport (the tick after it is forced), the exit (the arrival tick's key is unused), a start ON a
+force floor (tick 1 is never forced), and two keys that bump — into a wall, and a diagonal blocked on
+one half — which are USED, never discarded. Then the safety property itself, on five of those routes:
+on every discarded tick, all nine keys from the same savestate give the same savestate and flags.
+Then what the move list records, the recorded list saved, reloaded and replayed to the same square
+and tick, the macro trade-off pinned, and MS never setting the bit — with the force-floor override
+alone recorded as a wait ending on 6,0 instead of 5,0, and an MS key on ice changing the savestate.
+Last, the both-bits rule: a real Lynx level wrapped so that every tick it reports discarded also
+claims automatic ticks, through which SuperCC must record every key and no wait.
+The expected values were derived from `lxlogic.c` before each first run, and every Lynx one held;
+the one that did not was an MS fixture of mine (the ice ran out, and the next key moved Chip on
+floor), fixed by comparing mid-slide.
+
+Planted defects, each caught: a key between tiles not discarded (11 failures), a key on a forced
+move not discarded (10), MS returning the bit as `b997c27` did (5), `SuperCC.tick` recording the
+discarded key (2), the tick after a teleport not forced (3), the exit tick not discarded (2), the
+tick-1 rule off by one (4 — it lives in `LynxCreature`, which is not spliced, so the mutation run
+had to add it to `$SPLICE_MODIFIED`, CLAUDE.md §4), a blocked key reported discarded (1), and a
+half-blocked diagonal reported discarded (1), and upstream's recorder line restored (1 — `r--UUUUUu`
+through the wrapped level; before §5 existed this one survived, since no real engine path returns
+both bits).
 
 ## jc-14 -- the window title is fully switchable
 

@@ -45,7 +45,7 @@ public class SuperCC {
      * class can NEVER be recompiled) would keep the OLD tag baked in, and the jar would report two
      * different versions depending on which window you looked at. */
     public static final String TITLE = "SuperCC";
-    public static final String BUILD_TAG = "[jc-14]";
+    public static final String BUILD_TAG = "[jc-15]";
 
     private SavestateManager savestates;
 //    SavestateCompressor savestateCompressor = new SavestateCompressor();
@@ -330,17 +330,32 @@ public class SuperCC {
         if (directions[0].isDiagonal() && !level.supportsDiagonal()) {
             directions[0] = directions[0].decompose()[0]; //take vertical
             for (char c1 : DIRECTIONS.keySet()) { //switch the char part to vertical
-                if (directions[0] == DIRECTIONS.get(c1))
+                if (directions[0] == DIRECTIONS.get(c1)) {
                     c = c1;
+                    break;
+                }
             }
         }
-        boolean tickMulti = level.tick(c, directions);
+        int levelFlags = level.tick(c, directions);
+        boolean tickMulti = (levelFlags & Level.MASK_TICK_MULTI) != 0;
         if (flags.multiTick && tickMulti) {
             for (int i=0; i < level.ticksPerMove() - 1; i++) {
                 c = capital(c);
                 level.tick(c, new Direction[] {Direction.NONE});
             }
         }
+        /* MOD (Jeremy, upstream merge): upstream replaced the key with WAIT whenever the discard bit
+         * was set, even on a tick that also reported automatic ticks -- recording one tick where the
+         * engine ran ticksPerMove, so the saved route would replay short. Here the automatic-tick bit
+         * wins and the key is kept. That is the safe side either way: the automatic-tick bit needs a
+         * direction Chip CHOSE from the key (LynxLevel: moveChip's result requires tDirection, which
+         * only selectChipMove sets from the key; MSLevel: a KEY or CLICK_EARLY move), so the key was
+         * used; and if it ever was not, replaying it is harmless, because the engine drops it again
+         * from the same state (InputDiscardTest's inertness check). No engine path returns both bits
+         * today -- the move list just should not depend on that staying true. InputDiscardTest §5
+         * pins this line through a level wrapped to return both. */
+        if ((levelFlags & Level.MASK_DISCARD_INPUT) != 0 && !tickMulti)
+            c = WAIT;
         if (flags.save) {
             savestates.addRewindState(level, c);
         }
