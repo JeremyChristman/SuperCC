@@ -12,6 +12,93 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## jc-17 — 2026-11-04 (upstream merge, step 4)
+
+### Fixed
+- **No-level-loaded guards (upstream `72476bc`, hand-merged).** With no level set open — how every
+  launch starts — these threw `NullPointerException` on the event thread, each one written to
+  jc-11's error log:
+  - Level › Restart, Next, Previous, Set RNG Seed, Change ruleset, Change Initial RFF Direction;
+  - a key press;
+  - the play button and the speed slider;
+  - `Gui.repaint(boolean)`.
+
+  All measured on jc-16 by the new `GuiWindowTest`. The maintainer's own desktop error log holds
+  Restart (twice) and Next/Previous from real use.
+  - `EmulatorKeyListener` and `Gui` take upstream's change verbatim. `EmulatorKeyListener` is now
+    spliced; `Gui` was rebuilt with `formclass.ps1`, its first rebuild of the main window.
+  - `MenuBar` is hand-merged. Skipped: upstream's `Objects.requireNonNull(openFile(…))`, which
+    would undo jc-12's cancel fix, and its `assert tws != null`, which the fork already handles.
+- **Every menu, not just the Level menu: one guard for the whole bar** (fork,
+  `MOD (Jeremy, upstream merge)`, after `/code-review`). Clicking every button in every menu with no
+  level open showed how much upstream's guards missed:
+  - **on jc-16:** 46 of the 56 menu controls threw;
+  - **after upstream's six guards:** 26 still did — most of Solution (Ctrl+S included), TWS, View ›
+    Tileset, Tools › Variation testing and TSP Solver, and every cheat; and hovering over Copy macro
+    moves threw.
+
+  `MenuBar.requireALevel()` now wraps every menu button's action listeners, so the button does
+  nothing until a level is loaded. The exceptions are controls marked `worksWithoutALevel(…)` where
+  they are made: Open levelset, Open tws, the tile sizes, the window sizes, the View toggles
+  and Tools › Controls. A new item is covered without anyone having to remember. Copy macro moves'
+  menu listener checks for itself.
+- **Canceling Go to… or Set RNG Seed no longer throws** (fork): the reply is `null` on Cancel, and
+  the code tested only for empty.
+- **A level that fails to load no longer leaves a half-loaded state** (fork, from the hostile
+  review). `SuperCC.loadLevel` assigned the level before building its savestates, whose constructor
+  throws for a title-less level (MO3 #12 and #14). That left a level loaded with no savestates, or
+  with the previous level's: measured, an untitled level 1 after level 2 ran against level 2's.
+  Now both are built, then both assigned, or neither. The hostile review's re-check then found two
+  callers that relied on the old way:
+  - **`openLevelset`.** A set whose level 1 failed kept the previous set's level under the new set's
+    file, so `getJSONPath()` pointed into the new set's save folder. Restoring the previous set
+    instead closed off the whole new set, and turned every save in such a pack into an OPENFAIL in
+    the corpus harness. It now opens the set at its first level that loads, with ONE message
+    ("Levels 1 to 3 could not be loaded: … Opened at level 4."), not one dialog per bad level.
+    `loadLevel`'s body moved into `tryLoadLevel`, which returns the failure instead of reporting
+    it; `loadLevel` still reports it exactly as before. Only a set where nothing loads leaves the
+    previous set open ("No level in … could be loaded"), which is jc-11's rule for a file that does
+    not read. A fresh open no longer throws. A failure counts only when the level did not change:
+    the repaint and title run after the level is assigned, and with the repaint made to throw, a
+    good set reported "Level 1 could not be loaded … Opened at level 1." (review; reproduced). That
+    one is now logged, not shown.
+  - **`trace/TraceLevel`.** It traced the previous level, labeled as the requested one, with exit 0.
+    It now exits 2.
+
+  `EngineTest` §6c and `GuiWindowTest` §3a cover both.
+- **TWS › Open tws and View › Tile size › custom work with no level open.** Open tws only chooses a
+  file. Custom tile size failed only because of a dead `getLevel().getKeys()` line in
+  `ChooseTileSize`, now removed (the class rebuilt with `formclass.ps1`).
+
+### Added
+- **`GuiWindowTest`**: the main window, built for real. `graphics.Gui` IS the `JFrame`, so nothing
+  headless reaches its setup. The test launches a non-headless child JVM that runs `new SuperCC()`,
+  then checks:
+  - every component `Gui.form` binds exists, and the content pane is the form's root;
+  - with no level open, EVERY button in every menu (found by walking the menu bar, so a later item
+    is covered too), every submenu hovered, a key press, the play button, the speed slider and a
+    full repaint each do nothing rather than throw;
+  - the level set then opens with no error dialog, and the full repaint works;
+  - canceling both input dialogs works, closed by a helper thread as the close box would;
+  - sets that fail to open show exactly one error each, counted by a closer that stays on for the
+    whole open, and a load whose repaint throws is not reported as failed;
+  - nothing reaches the error log except those expected failures.
+
+  Where no desktop exists, it skips. It fails 28 times on a build with only upstream's guards.
+
+### Changed
+- **`EngineTest` §7 works.** The local-only collection check read one level past the end of every
+  set (`lastLevel()` is the count plus one) and failed on all 331 sets when run on the collection
+  (2026-11-04). It now passes on all 331 (23,476 levels), and fails on an empty folder.
+- Coverage re-baselined on JDK 16.0.2. The target is unchanged at 56.5% (1505/2666); `emulator\**`
+  is 34.9% (153/438, up from 136/414: `openLevelset`'s new paths, now covered by `EngineTest` §6c),
+  and `tools\**` + `graphics\**` 2.5% (49/1931, the new guard code is reached only in
+  `GuiWindowTest`'s child JVM, which JaCoCo does not instrument). Suite: 2,232 assertions, 25 classes.
+- jc-11's startup-repaint comment in `SuperCC.java` no longer says Gui cannot be recompiled.
+  `FormClassTest`'s Gui skip now points to `GuiWindowTest`.
+
+Engine untouched (see FORK.md for the jar comparison).
+
 ## jc-16 — 2026-11-03 (upstream merge, step 3)
 
 ### Fixed
@@ -581,7 +668,7 @@ the maintainer's collection (24,204) ends identically to the deployed jc-14 jar.
 ## jc-12
 
 ### Fixed
-- **Cancelling a file chooser threw an uncaught NullPointerException.** `MenuBar.openFile` returns
+- **Canceling a file chooser threw an uncaught NullPointerException.** `MenuBar.openFile` returns
   null when the user dismisses the dialog; its other two callers test for that and
   `openFileBytes` did not, so Cancel or Escape produced `null.toPath()`. An NPE is not an
   IOException, so the catch below could not see it and it escaped onto the event thread. Affects

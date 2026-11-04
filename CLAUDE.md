@@ -50,7 +50,7 @@ powershell -ExecutionPolicy Bypass -File verify-splice.ps1
 
 It covers the two ways an edit can fail to ship, by two different mechanisms:
 
-- **Unspliced ordinary files** (64 of them) are recompiled and compared against the bytecode the
+- **Unspliced ordinary files** (63 of them since jc-17) are recompiled and compared against the bytecode the
   jar would actually contain. An edit the build ignores fails and names the file.
 - **Form-based files** — the 15 `.form` files *and their sibling `.java`* — ship as committed
   bytecode the build never recompiles, so they are hashed against `docs/form-baseline.sha256`.
@@ -241,6 +241,7 @@ test/LinkTest.java           every call between the fork's classes resolves IN T
 test/InputDiscardTest.java   which keys Level.tick reports as DISCARDED, and the WAIT the move list records
 test/SeedSearchTest.java     Seed Search through its REAL constructor, headless: stops at the top seed, threads, Pause
 test/FormClassTest.java      every form window's REAL constructor builds its components (14 of 15; Gui is the JFrame)
+test/GuiWindowTest.java      the MAIN window (Gui) built for real in a NON-headless child JVM; no-level-open guards
 ```
 
 **Testing a form-based window headless.** Its constructor builds every component
@@ -250,6 +251,15 @@ A rebuilt class with no setup call, a final bound field, or the call on one bran
 `NullPointerException` / `IllegalAccessError` instead. To drive a window's behavior,
 `SeedSearchTest` goes further: a spy `ButtonUI` installed through `UIManager` catches the button,
 whose listener is the constructor's own lambda, holding the instance.
+
+**The main window cannot be tested that way** — `Gui` IS the `JFrame`, so headless its `super()`
+throws first. `GuiWindowTest` launches a child JVM with `-Djava.awt.headless=false` in a temp
+folder, builds the real window through `new SuperCC()`, and reads back PASS/FAIL lines; without a
+desktop it skips. On a desktop, a SuperCC window appears for a few seconds during the suite. After
+any `formclass.ps1 -Rebuild graphics\Gui.java`, this is the test that matters. Its helpers that
+close modal dialogs are started and stopped around each action, so neither can close a later one.
+Where a check COUNTS dialogs, use `closeEveryDialog()`, not `closeNextDialog()`: the second stops
+after one, so a second dialog hangs the child until the 90-second kill instead of failing the count.
 
 `InputDiscardTest` is about the move list, which the corpus cannot see: a discarded key changes no
 final state, only what SuperCC records, and so what a saved `.json` or an exported `.tws` holds.
@@ -315,7 +325,7 @@ taken. JaCoCo is a test-time tool cached under `%LOCALAPPDATA%\jacoco\<version>\
 dependency**, never committed, never shipped. Output goes to `coverage-report\` (gitignored);
 `coverage.csv` is the evidence behind every percentage below.
 
-As of jc-16, with all 2,109 assertions passing, **measured on JDK 16.0.2** (Temurin 16.0.2+7, what
+As of jc-17, with all 2,232 assertions passing, **measured on JDK 16.0.2** (Temurin 16.0.2+7, what
 CI pins):
 
 | scope | branch | line | branches |
@@ -326,10 +336,10 @@ CI pins):
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\Lynx\**` | 62.8% | 70.7% | 461/734 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 54.2% | 73.0% | 186/343 |
 | &nbsp;&nbsp;`io\**` (file formats) | 72.8% | 78.5% | 305/419 |
-| `emulator\**` | 32.9% | 34.7% | 136/414 |
-| `tools\**` + `graphics\**` — *not a target* | 2.6% | 8.3% | 49/1889 |
+| `emulator\**` | 34.9% | 36.9% | 153/438 |
+| `tools\**` + `graphics\**` — *not a target* | 2.5% | 8.2% | 49/1931 |
 
-**Read this correctly.** Whole-project branch coverage is 30.4% (1802/5935), and that number is
+**Read this correctly.** Whole-project branch coverage is 30.3% (1819/6001), and that number is
 meaningless: 15 form-based classes can be rebuilt here only by copying IntelliJ's output (ADR 0010), `tools\**`
 is 35 files of upstream code this fork does not modify, `graphics\**` is Swing with no headless test
 story, and the rest is vendored `org.json` / `com.intellij`. What this fork can break is the engine
@@ -366,7 +376,7 @@ pointed at it for the one command. `build-config.ps1` lets `JAVA_HOME` win.
   solutions exported the wrong cell. What is left there is mostly `TWSReader.twsInputStream`
   (28.9%, 13/45), the byte-level reader.
 - Still at a flat **0%**: `game.Cheats` (30 branches), `game.Ruleset`, `game.Savestate`,
-  `game.Lynx.LynxSavestate`, and in `emulator\**` the `EmulatorKeyListener` (41), `ArgumentParser`
+  `game.Lynx.LynxSavestate`, and in `emulator\**` the `EmulatorKeyListener` (43), `ArgumentParser`
   (26) and `SavestateCompressor` (12). `ArgumentParser` is the one a user can reach without a GUI.
 - The suite is strongest exactly where the desyncs were: MS movement, `canEnter`, slide and leave.
   That is not an accident, and it was the right order to do it in.
@@ -695,6 +705,11 @@ covering on, off, the wrong section, and the no-space typo.
 Each of these looks like a bug or an oversight and is not. The ADRs carry the full reasoning.
 
 - **The committed `.class` baseline.** It is not build output that escaped `.gitignore`. See §1.
+- **Every menu button does nothing until a level is loaded — on purpose.** `MenuBar.requireALevel()`
+  wraps their action listeners at the end of the constructor (jc-17; 46 of 56 threw on jc-16 with no
+  level open). A new menu item is covered automatically. If it genuinely works with no level set
+  open, mark it `worksWithoutALevel(...)` where you create it; do not add a per-item
+  `isLevelLoaded()` check. `GuiWindowTest` clicks every button in the bar with no level open.
 - **`formclass/FormTransplant.java` imports `jdk.internal.org.objectweb.asm`.** That is the JDK's own
   internal ASM, chosen so this repo takes on no dependency (ADR 0002); the tool is pinned to JDK
   16.0.2, where it exists. Do not "modernize" it to a downloaded ASM or to a newer JDK's class-file

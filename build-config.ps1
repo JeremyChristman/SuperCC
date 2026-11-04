@@ -16,6 +16,7 @@ See docs\adr\0001-splice-build-not-full-recompile.md.
 #   --> Modifying a source file NOT in this list silently does nothing: the build succeeds and
 #       ships the old bytecode. Add it here, then run verify-splice.ps1.
 $SPLICE_MODIFIED = @(
+    "emulator\EmulatorKeyListener.java",
     "emulator\SuperCC.java",
     "game\Level.java",
     "game\Lynx\LynxLevel.java",

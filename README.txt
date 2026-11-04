@@ -1,5 +1,5 @@
 ==============================================================================
-  SuperCC  --  Jeremy Christman's fork                      build jc-16
+  SuperCC  --  Jeremy Christman's fork                      build jc-17
 ==============================================================================
 
   1. What this is
@@ -519,6 +519,47 @@ ShowBuildTag is on, shows the build tag compiled into the jar, which matches
 the tag for that release. Newest first.
 
 
+jc-17  --  No errors from the controls before a level is open
+--------------------------------------------------------
+
+  * NOTHING BREAKS BEFORE A LEVEL IS OPEN. SuperCC starts with no level
+    set open, and until one was, most of the menus and several controls
+    failed with an internal error (since jc-11 each one was written to the
+    succ_error log): most of the Level, Solution, TWS and Cheats menus,
+    View > Tileset, Tools > Variation testing and TSP Solver, keyboard
+    shortcuts such as Ctrl+S, the game keys, the play button and the speed
+    slider. On jc-16 that was 46 of the 56 controls in the menus alone.
+    Now anything that needs a level simply does nothing until one is
+    open, and the things that make sense without one -- opening a level
+    set or a tws file, the tile and window sizes, the View toggles and
+    Tools > Controls -- work.
+
+    Upstream fixed part of this -- the Level menu, the keys, the play
+    button and the slider -- in the change this release brings in, the
+    fourth step of bringing its newer commits into this fork. This fork
+    extends it to every menu.
+
+  * CANCELING "GO TO..." OR "SET RNG SEED" NO LONGER FAILS. Pressing
+    Cancel (or closing the box) in either dialog also hit an internal
+    error. Fixed in this fork only.
+
+  * A LEVEL THAT CANNOT BE LOADED NO LONGER LEAVES THINGS HALF-LOADED. A
+    few levels still cannot be opened at all -- MO3's levels 12 and 14
+    have no title, which SuperCC cannot handle yet. Going to one used to
+    show the error and then leave the program stuck between two levels,
+    so later actions could fail or use the wrong level's data. Now you
+    stay on the level you were on. And a level set whose FIRST level is
+    like that now opens at its first level that works, after one message
+    saying which levels were skipped, instead of leaving half of the old
+    set behind. Fixed in this fork only.
+
+  * Nothing else changes how the program behaves. The game engine in this
+    jar is byte-for-byte jc-16's. The main window is now built from this
+    fork's own copy of its code, using the tool jc-16 added, and a new test
+    opens the real main window and clicks every menu control to prove each
+    one behaves.
+
+
 jc-16  --  Seed search stops where it should
 --------------------------------------------------------
 
@@ -670,14 +711,14 @@ jc-13  --  A damaged solution file is refused instead of misread
     new check and every one was accepted.
 
 
-jc-12  --  Cancelling a file dialog no longer breaks the program
+jc-12  --  Canceling a file dialog no longer breaks the program
 --------------------------------------------------------
 
-  * CANCELLING "OPEN" NO LONGER THROWS. Solution > Open, Search for seeds,
+  * CANCELING "OPEN" NO LONGER THROWS. Solution > Open, Search for seeds,
     and Load states all put up a file chooser. If you pressed Cancel or
     Escape instead of picking a file, SuperCC threw a NullPointerException
     on the event thread. Nothing visibly crashed, but the action silently
-    died and the error went into the log. Cancelling is now what you would
+    died and the error went into the log. Canceling is now what you would
     expect: nothing happens.
 
   * ASKING FOR A SOLUTION THAT ISN'T THERE NOW SAYS SO IN WORDS. The file

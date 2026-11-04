@@ -253,6 +253,58 @@ public class EngineTest {
         Harness.eq("the previously loaded level is still there",
                    emu2.getLevel().getTitle(), "Still Here");
 
+        Harness.section("6c. a level that fails to load leaves the previous level and its savestates together");
+        /* jc-17 (MOD in SuperCC.loadLevel): a level can parse and then fail when its savestates are
+         * built -- SavestateManager calls getTitle().getBytes(), and a level with no title (MO3 #12
+         * and #14 are real ones) throws there. loadLevel used to assign `level` before that, which
+         * left a level "loaded" with no savestates, or with the PREVIOUS level's. Measured before
+         * the fix: load level 2, then an untitled level 1, and level 1 ran against level 2's
+         * savestates; on a fresh open, isLevelLoaded() was true with getSavestates() null, so every
+         * no-level guard in jc-17 was bypassed. Now the load is all or nothing. */
+        Path d6c = tempDir("untitled");
+        DatBuilder titledFirst = new DatBuilder().signature(DatBuilder.SIG_MS);
+        titledFirst.level().title("Titled").password("ABCD").chips(0).timeLimit(100).tile(3, 5, Tile.CHIP_RIGHT).end();
+        titledFirst.level().password("EFGH").chips(0).timeLimit(100).tile(3, 5, Tile.CHIP_RIGHT).end();  // no title
+        File setA = titledFirst.writeTo(d6c, "titledfirst.dat").toFile();
+        DatBuilder untitledFirst = new DatBuilder().signature(DatBuilder.SIG_MS);
+        untitledFirst.level().password("IJKL").chips(0).timeLimit(100).tile(3, 5, Tile.CHIP_RIGHT).end();  // no title
+        untitledFirst.level().title("Second").password("MNOP").chips(0).timeLimit(100).tile(3, 5, Tile.CHIP_RIGHT).end();
+        File setB = untitledFirst.writeTo(d6c, "untitledfirst.dat").toFile();
+
+        SuperCC emu3 = new SuperCC(false);
+        emu3.openLevelset(setA);
+        Harness.eq("set A opens on its titled level 1", emu3.getLevel().getTitle(), "Titled");
+        Object level1States = emu3.getSavestates();
+        emu3.loadLevel(2, 0, Step.EVEN, false, Ruleset.MS, Direction.UP);  // untitled: fails
+        Harness.eq("loading the untitled level 2 keeps level 1", emu3.getLevel().getLevelNumber(), 1);
+        Harness.check("with level 1's own savestates, not a mismatch", emu3.getSavestates() == level1States);
+
+        /* And openLevelset, where it is level 1 that fails. The set opens at its first level that
+         * loads. Two wrong answers came first, both measured by review: keeping the new file with the
+         * old level (set A's level sat under set B's file, and getJSONPath() pointed into B's save
+         * folder, so a save would have written A's route there), and restoring set A outright (all of
+         * set B unreachable, and every save in such a pack an OPENFAIL in the corpus harness). */
+        File setC = new DatBuilder().signature(DatBuilder.SIG_MS)
+                .level().password("QRST").chips(0).timeLimit(100).tile(3, 5, Tile.CHIP_RIGHT).end()  // only level: no title
+                .writeTo(d6c, "nothingloads.dat").toFile();
+        emu3.openLevelset(setB);
+        Harness.eq("opening set B, whose level 1 fails, opens it at level 2", emu3.getLevel().getTitle(), "Second");
+        Harness.eq("and it is set B's file now", emu3.getLevelsetPath(), setB.getAbsolutePath());
+        Harness.check("with level 2's own savestates", emu3.getSavestates() != level1States);
+
+        String pathB = emu3.getLevelsetPath();
+        emu3.openLevelset(setC);  // no level in it loads at all
+        Harness.eq("a set where nothing loads leaves the open set's level", emu3.getLevel().getTitle(), "Second");
+        Harness.eq("and its file", emu3.getLevelsetPath(), pathB);
+
+        SuperCC emu4 = new SuperCC(false);
+        emu4.openLevelset(setB);  // a FRESH open whose level 1 fails
+        Harness.eq("a fresh open of set B lands on level 2", emu4.getLevel().getTitle(), "Second");
+        SuperCC emu5 = new SuperCC(false);
+        emu5.openLevelset(setC);  // a fresh open where nothing loads
+        Harness.check("a fresh open where nothing loads leaves nothing loaded", !emu5.isLevelLoaded());
+        Harness.check("and no half-built savestates", emu5.getSavestates() == null);
+
         Harness.section("7. the full collection fingerprint (local only)");
         /* Synthesized fixtures catch format and edge-case regressions. They cannot speak for the
          * 21,838 levels in the real collection, and creature ORDER drives MS behavior, so any
@@ -263,12 +315,18 @@ public class EngineTest {
             Harness.skip("no -Dsupercc.collection given (level sets are not in this repo)");
         } else {
             File[] sets = new File(collection).listFiles((dir, n) -> n.toLowerCase().endsWith(".dat"));
-            int opened = 0, failed = 0;
+            int opened = 0, failed = 0, levels = 0;
             for (File set : (sets == null ? new File[0] : sets)) {
                 try {
                     DatParser parser = new DatParser(set);
-                    for (int i = 1; i <= parser.lastLevel(); i++)
+                    /* lastLevel() is the level COUNT PLUS ONE (DatParser skips index 0), so the
+                     * last level is lastLevel() - 1 -- the bound openLevelset uses. Until jc-17
+                     * this loop ran to <= lastLevel(), read one past the end of every set, and
+                     * failed on all 331 when run on the collection (2026-11-04). */
+                    for (int i = 1; i < parser.lastLevel(); i++) {
                         parser.parseLevel(i, 0, Step.EVEN, Ruleset.CURRENT, Direction.UP);
+                        levels++;
+                    }
                     opened++;
                 } catch (Exception e) {
                     failed++;
@@ -276,7 +334,8 @@ public class EngineTest {
                 }
             }
             Harness.check("every level of every set in " + collection + " opens"
-                          + " (" + opened + " sets ok, " + failed + " failed)", failed == 0);
+                          + " (" + opened + " sets ok, " + failed + " failed, " + levels + " levels)",
+                          failed == 0 && opened > 0);
         }
     }
 }

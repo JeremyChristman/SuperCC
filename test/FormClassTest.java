@@ -42,9 +42,9 @@ import java.util.zip.ZipFile;
  * PanelUI, installed through UIManager, also counts the panels built during the call: every form
  * here has a JPanel at its root, so zero means $$$setupUI$$$ never ran.
  *
- * NOT COVERED: graphics.Gui. It IS the JFrame, so its super() throws HeadlessException before any
- * of its own code runs; nothing headless can reach its setup. Launching the program is its check
- * (the release playtest does that).
+ * NOT COVERED HERE: graphics.Gui. It IS the JFrame, so its super() throws HeadlessException before
+ * any of its own code runs; nothing headless can reach its setup. GuiWindowTest builds it in a
+ * separate, non-headless JVM (and skips where there is no desktop).
  *
  * Run with -Djava.awt.headless=true and -Dsupercc.jar (run-tests.ps1 passes both).
  */
@@ -156,7 +156,7 @@ public class FormClassTest {
         construct("tools.VariationTesting",        End.RETURNS,        new Class<?>[]{ SuperCC.class, boolean.class }, emu, false);
         construct("tools.VerifyTWS",               End.WINDOW,         e, emu);
         Harness.skip("graphics.Gui: it IS the JFrame, so headless its super() throws before its setup can run "
-                     + "-- launching the program is its check");
+                     + "-- GuiWindowTest builds it in a non-headless child JVM");
 
         Harness.section("3. no form class has a constructor this test does not run");
         /* formclass.ps1 inserts $$$setupUI$$$ into EVERY constructor that calls super(...), so each one

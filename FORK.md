@@ -25,11 +25,12 @@ fork *does* change, by release:
 | jc-9 | **Opening ruleset** — an opt-in setting forces every set to open under MS. See *Always open under MS (jc-9)*. |
 | jc-10 | **Settings behavior** — the TWS folder remembers the last folder used again, reversing that part of jc-8. See *The TWS folder remembers again (jc-10)*. |
 | jc-11 | **Diagnostics** — errors are written to a log file instead of vanishing under `javaw`, and the NPE that fired on every launch is gone. The emulator is untouched: all 286 sets re-parsed and all 23,322 stored solutions re-played, byte-identical. See *The error log (jc-11)*. |
-| jc-12 | **GUI robustness** — cancelling a file chooser threw an uncaught NPE on the event thread, and a missing solution file produced a stack trace and a message that was just a path. Engine untouched. See *jc-12 -- the two ways MenuBar.openFileBytes could fail*. |
+| jc-12 | **GUI robustness** — canceling a file chooser threw an uncaught NPE on the event thread, and a missing solution file produced a stack trace and a message that was just a path. Engine untouched. See *jc-12 -- the two ways MenuBar.openFileBytes could fail*. |
 | jc-13 | **File-format robustness** — a truncated `.tws` was accepted and then misread; it is refused now, with a message. 23,967 real solution files re-verified, none rejected. Engine untouched. See *jc-13 -- a truncated .tws was accepted*. |
 | jc-14 | **Display** — every part of the window title is a setting now, and the separators are computed from what is left rather than templated. The stock title changes: it no longer names the level set. Engine untouched. See *jc-14 -- the window title is fully switchable*. |
 | jc-15 | **Upstream merge, steps 1 and 2** — upstream's trap rework (`858dbd0`) with four fixes of the fork's own, and its Lynx input discarding (`b997c27` + `98366f7`), which records a key the engine ignores as a wait. Replay-identical on all 24,204 stored solutions; 40 Lynx move lists record differently once loaded. See *Upstream merge*. |
 | jc-16 | **Upstream merge, step 3** — Seed Search stops at the last seed instead of wrapping into negative seeds forever (`40495dd`), plus three fork fixes: a negative start, threads that finished before the next one started, and an example seed that hid negative seeds. `SeedSearch` is form-based, so this added `formclass.ps1`, which rebuilds a form class whose `.form` is unchanged (ADR 0010). Engine untouched. See *Upstream merge*, step 3. |
+| jc-17 | **Upstream merge, step 4** — nothing a user can touch throws before a level set is open any more (upstream `72476bc`, hand-merged, extended by the fork to one guard over every menu — 46 of the 56 menu controls threw on jc-16 — plus canceling Go to… / Set RNG Seed no longer throws). First rebuild of the main window (`Gui`) with `formclass.ps1`, and `GuiWindowTest` builds the real window in a non-headless JVM. Engine untouched. See *Upstream merge*, step 4. |
 
 > **`settings.ini` is `succ_settings.ini` from jc-8 on.** Older sections below are left in their
 > original wording where they describe historical work; read "settings.ini" in those as the same
@@ -60,7 +61,7 @@ commit is applied as a patch (`git apply -p4 --directory=java`), not merged by g
 | `858dbd0` (+ `82198a3`, its test data) | Trap rework: one trap bit per TRAP, not per wire | **merged, jc-15** — step 1, below |
 | `b997c27`, `98366f7` | Input discarding (Lynx forced moves); the second undoes the first's MS effect | **merged, jc-15** — step 2, below |
 | `40495dd` | Seed search: an `int` overflow made long searches go negative | **merged, jc-16** — step 3, below |
-| `72476bc` | Linux test runner, plus guards for "no level loaded" in `EmulatorKeyListener`, `MenuBar` and `Gui.java` | to do — overlaps jc-11/jc-12; its `requireNonNull` around `openFile` would undo jc-12's cancel fix; `Gui.java` is form-bound, but its `.form` is untouched, so `formclass.ps1` can rebuild it |
+| `72476bc` | Linux test runner, plus guards for "no level loaded" in `EmulatorKeyListener`, `MenuBar` and `Gui.java` | **merged, jc-17** — step 4, below; hand-merged (its `requireNonNull` around `openFile` would undo jc-12's cancel fix, so it was left out); the Linux test runner and Maven workflow do not apply here |
 | `5f928e0`, `fb8fe25`, `da35e33`, `8c95b3e` | Auto-diagonals | to do — `5f928e0` edits `ControlGUI.form` itself, which still needs IntelliJ's form compiler (ADR 0010) |
 | `f701c85`, `d78f6f3`, `3e92380` | Custom tilesets | to do — touches the form-bound `Gui.java` and `ChooseTileSize.java`, `.form`s untouched: `formclass.ps1` |
 
@@ -409,7 +410,8 @@ Two limits, deliberate and documented:
 - **Nothing headless reaches `graphics.Gui`'s setup.** For Gui, a placement mistake is stopped only
   by the refusals and a real launch. Upstream's 72476bc and d78f6f3 both edit `Gui.java`, so the
   merge step that takes them should add a non-headless construction of Gui (a separate JVM,
-  skipped where no desktop exists) before it trusts a rebuilt Gui.
+  skipped where no desktop exists) before it trusts a rebuilt Gui. (Done in step 4:
+  `GuiWindowTest`.)
 
 **The checks:**
 - `formclass.ps1 -Check` (CI and the release workflow) rebuilds all fifteen and compares them with
@@ -461,6 +463,203 @@ Planted defects, each caught:
 `SuperCC.class` and `ErrorLog$Sink.class` (the build tag, inlined; `javap -v` shows nothing else),
 the two edited sources, and the three `SeedSearch` classes. No `game/**` class differs, so the corpus,
 which replays `game/**`, was not re-run.
+
+### Step 4 — no-level-loaded guards (`72476bc`), hand-merged
+
+**What upstream changed.** "Made the tests multi-platform … Fixed the commit warnings." Most of it
+does not apply here: a Linux Maven workflow, renamed test data, its own JUnit tests. What does apply
+is a set of guards for the state every launch starts in, no level set open, across three files:
+- **`EmulatorKeyListener.keyPressed`** returns at once.
+- **`Gui`**: `repaint(boolean)` and the play button, speed slider and time slider listeners return
+  early.
+- **`MenuBar`**: the Level menu's Restart, Next, Previous, Set RNG Seed, Change ruleset and Change
+  Initial RFF Direction check `isLevelLoaded()`.
+
+The rest is warning cleanup: `final` fields, `Objects.requireNonNull` around resource lookups, and
+`List.of`.
+
+**Measured before merging, on jc-16.** The new `GuiWindowTest` clicked each of those with no level
+open, and every one threw `NullPointerException` on the event thread. That is not hypothetical: the
+maintainer's desktop error log (`succ_error-JEREMYSPC.log`, jc-11 to jc-14) holds Restart twice and
+Next/Previous once.
+
+**How it was applied:**
+- **`EmulatorKeyListener` and `Gui`** are verbatim: both were byte-identical to upstream's base.
+  `EmulatorKeyListener` joined `$SPLICE_MODIFIED`. `Gui` is form-based, so its committed class was
+  rebuilt with `formclass.ps1 -Rebuild graphics\Gui.java` — the tool's first rebuild of the main
+  window. `-Check` and the new test both pass on it.
+- **`MenuBar`** is spliced and much changed by the fork, so it was hand-merged. Every guard and
+  cleanup was applied, with two exceptions:
+  - **`Objects.requireNonNull(openFile(…))` in `openFileBytes`.** It turns a canceled file chooser
+    back into an uncaught `NullPointerException`, undoing jc-12.
+  - **`assert tws != null`.** The fork's code already null-checks both `tws` and its parent (jc-8 and
+    jc-10).
+
+**The fork fixes, each reproduced on the build that had only upstream's guards:**
+- **Every menu, with one guard.** The first `/code-review` pass pointed out that upstream's six
+  guards cover only the Level menu. A probe that clicked every button in every menu with no level
+  open, after the merge, found 26 of the 56 controls still threw:
+  - most of Solution, including Ctrl+S, which a user can hit from the keyboard;
+  - TWS's write and verify items;
+  - all five View › Tileset choices, and Tile size › custom;
+  - Tools › Variation testing and TSP Solver;
+  - all six cheats;
+  - hovering over Copy macro moves.
+
+  (On jc-16 the count was 46, since its unguarded `Gui.repaint` failed the View toggles and sizes
+  too.) Guarding each by hand is the special-casing CLAUDE.md §7 warns against, and the next item
+  added would be missed. So `MenuBar.requireALevel()`, run at the end of the constructor, inverts
+  the rule:
+  - every button in every menu gets its action listeners wrapped to do nothing until a level is
+    loaded;
+  - exempt are the controls marked `worksWithoutALevel(…)` where they are made: Open levelset, Open
+    tws, the five tile sizes, the Game window size submenu, the six View toggles, and Tools ›
+    Controls (Open tws and custom tile size were added after the hostile review, below);
+  - accelerators go through the same listeners;
+  - only the fork's own action listeners are wrapped, never Swing's;
+  - the one menu listener (Copy macro moves) checks for itself.
+
+  The guard upstream left off Change stepping value is covered by the same wrapper rather than by a
+  line of its own.
+- **Canceling Go to… or Set RNG Seed** threw, because the reply is `null` and the code tested only
+  for empty. This is the input-dialog twin of jc-12's file-chooser fix.
+
+Both are marked `MOD (Jeremy, upstream merge)`. Upstream's six per-item guards stay as written.
+
+**The test that closes the Gui gap.** `graphics.Gui` is the `JFrame`, so nothing headless reaches its
+setup: ADR 0010 and step 3 named it the gap to close before Gui was rebuilt. `GuiWindowTest` closes
+it. It launches a child JVM without `java.awt.headless` that runs `new SuperCC()` in a temp folder,
+as a double-click does, and reports one line per check:
+- all 12 components `Gui.form` binds exist, and the content pane is the form's root;
+- with no level open, nothing throws:
+  - every button in every menu, found by walking the menu bar so a later item is covered too;
+  - every submenu hovered;
+  - a key press, the play button, the speed slider, and a full repaint;
+- each click runs with a helper that closes any dialog or file chooser it opens, as the close box
+  would, and is stopped afterward; tool windows a click opens are disposed;
+- the level set then opens with no error dialog, and the full repaint works;
+- canceling both input dialogs works;
+- the session writes no error log.
+
+Where there is no desktop, the child says so and the test skips. It fails 28 times on the build with
+only upstream's guards; it passes on jc-17.
+
+**What the hostile review found, each reproduced, then fixed.** It found nothing wrong in the
+rebuilt `Gui.class`: it matches IntelliJ's original apart from pool numbering, with the call at the
+same offset inside the same `catch` range. It did find:
+- **A level "loaded" without its savestates.** `loadLevel` assigned `level` before building its
+  `SavestateManager`, whose constructor throws for a level with no title (`getTitle().getBytes()`;
+  MO3 #12 and #14 are real ones). Measured: load level 2, then an untitled level 1, and level 1
+  ran against level 2's savestates. On a fresh open, `isLevelLoaded()` was true with
+  `getSavestates()` null, which slipped past every guard above. Now the load builds both and assigns
+  both, or neither (a `MOD` in `SuperCC.loadLevel`; `EngineTest` §6c). Title-less levels still
+  cannot be opened at all. That fix belongs in `SavestateManager` and is left for its own step.
+
+  The re-check found two callers that relied on the old order, and both were reproduced:
+  - **`openLevelset`.** It assigned the new set's file before loading level 1, so a set whose
+    level 1 failed kept the previous set's level under the new file. `getJSONPath()` then pointed
+    into the new set's save folder, so Ctrl+S would have written one set's route into the other's.
+    On a fresh open, it threw on a null level.
+
+    My first fix restored the previous set, and the reviewer's final pass showed what that cost:
+    all of the new set became unreachable. Its other levels were closed to the GUI, every save in
+    such a pack became an OPENFAIL in the corpus harness, and TraceLevel was refused. The set now
+    opens at its first level that loads. Only a set where nothing loads leaves the previous set
+    open, which is jc-11's rule for a file that does not read. `CorpusCheck`'s comment that "a set
+    whose level 1 fails to load is still open" is true again.
+
+    Reporting each failure as `loadLevel` does would show one dialog per bad level before the
+    first good one, and nothing bounds that count. So `loadLevel`'s body is now
+    `tryLoadLevel`, which returns the failure instead of reporting it. `loadLevel` reports it
+    exactly as before, and `openLevelset` reports once: "Levels 1 to 3 could not be loaded: <the
+    first reason> … Opened at level 4.", or "No level in <set> could be loaded" (with "-- it has no
+    levels." for an empty set). `EngineTest` §6c and `GuiWindowTest` §3a cover one bad level,
+    three bad levels, an all-bad set and an empty set; each must show exactly one dialog.
+
+    Two consequences were reproduced and left as they are:
+    - **`ArgumentParser`** (the command line; upstream code, unspliced) calls `openLevelset`, then
+      `loadLevel` on the level it was given, so a set whose level 1 fails and is named on the
+      command line without a level number reports level 1 twice: once from the open, once from its
+      own load. Nothing is left half-loaded. A scan that opened all 331 sets of the collection
+      (23,476 levels) on the jc-17 jar found no set whose level 1 fails and no set where nothing
+      loads; only MO3 #12 and #14 have no title.
+    - **`CorpusCheck`** builds a fresh emulator per pack, so a pack where NO level loads now has no
+      set open and reads `OPENFAIL` (an NPE from `lastLevelNumber()`) instead of one `LOADFAIL` per
+      save. That is a different detail on lines that fail either way, and the jc-17 corpus replay
+      below shows no such pack in the collection.
+
+    The reviewer's pass over the report-once change found two more, both low, both reproduced
+    here before they were fixed:
+    - **A level that loaded could be reported as failed.** `tryLoadLevel`'s repaint and title run
+      after it assigns the level, inside the same `try`. With the repaint made to throw (a null
+      `playButton`; the real trigger is CLAUDE.md §9's jar replaced under a running instance), a
+      good set showed "Level 1 could not be loaded … Opened at level 1." The loop now counts a
+      failure only when the level did not change, and logs the other kind. `GuiWindowTest` §5
+      pins it, and fails on the build before the fix.
+    - **`GuiWindowTest`'s "once" checks could not see a second dialog.** Each open's closer
+      dismissed one dialog and stopped, so a build that went back to a dialog per bad level hung the
+      child on the second until the parent's 90-second kill, and the count checks never ran
+      (83 passed, 3 failed, 90 s). `closeEveryDialog()` now stays on for the whole open and counts
+      each dialog once; that mutant fails both count checks in 14 seconds.
+  - **`trace/TraceLevel`.** It never checked that `loadLevel` worked, so an unloadable level 2 was
+    traced as level 1's start, labeled level 2, with exit 0. It now uses `CorpusCheck`'s identity
+    test and exits 2.
+
+  `CorpusCheck`'s own comment on the same test is updated. Its results cannot change: it reports
+  the same `LOADFAIL` either way.
+- **TWS › Open tws needs no level.** It only chooses the file, so it is marked `worksWithoutALevel`.
+- **View › Tile size › custom needed a level for one dead line.** `ChooseTileSize`'s constructor
+  read `getLevel().getKeys()` into an unused array, which threw with no level. The line is removed
+  (`MOD`; the class rebuilt with `formclass.ps1`), and the item is marked `worksWithoutALevel`.
+- **Gaps in `GuiWindowTest`:**
+  - a click that quit the program with exit code 0 skipped the remaining checks, and the run still
+    looked clean; the child now prints `END` last, and the parent requires it;
+  - the Cancel checks passed even when no dialog appeared; they now require one;
+  - a broken window was reported only as `InvocationTargetException`; the real cause is now
+    unwrapped (`this.playButton is null`).
+
+  The review's own broken builds now fail the test.
+
+The section also added a time-slider drag, clicks and moves over the game area, and a scroll of
+the move list, all with no level open. All passed already.
+
+**A test bug found on the way, and fixed.** `EngineTest` §7, the local-only check that every
+level of every set in a collection parses, looped to `i <= parser.lastLevel()`. `lastLevel()` is
+the level count plus one (`DatParser` skips index 0), so it read one past the end and failed on
+all 331 sets when run on the collection for the scan above. It now stops at `lastLevel() - 1`, as
+`openLevelset` does, counts the levels, and fails on an empty folder: 331 sets, 23,476 levels, all
+pass. It skips in CI (no level set may be committed), which is how it stayed hidden.
+
+**Left alone, found on the way.**
+- **View › Tileset with no level:** the radio mark moves to the clicked tileset though nothing is
+  applied, and corrects itself when a level opens. A cosmetic leftover, defended rather than fixed
+  with selection-restoring code.
+- **Tools › Controls** opens its window inside a `SwingWorker`, which keeps any exception to itself,
+  so `GuiWindowTest` cannot see one there.
+- **Paste solution** prints an `UnsupportedFlavorException` trace when the clipboard holds no text,
+  whether or not a level is open. That is upstream behavior and not a no-level problem.
+- **The desktop error log's most frequent entry** (18 times, `Image.getProperty` on a null image) is
+  unrelated: it is the trace CLAUDE.md §9 explains, from a jar replaced under a running instance.
+
+**Verification (JDK 16.0.2, the final tree).**
+- **The engine is untouched.** Of the jar's 530 file entries, 21 differ from the deployed jc-16 jar,
+  and none is under `game/**`:
+  - the classes of `SuperCC`, `EmulatorKeyListener` (three), `Gui`, `MenuBar` (nine) and
+    `ChooseTileSize`, and their five sources;
+  - `ErrorLog$Sink`, for the inlined build tag alone (`javap -v` shows nothing else).
+
+  `EmulatorKeyListener$Key` and `$1` differ only in the debug tables IntelliJ's build kept; their
+  code is identical now that the file is spliced.
+- **The corpus is identical:** 24,204 of 24,204 solutions end in the same state under the deployed
+  jc-16 jar and jc-17, with 23,012 reaching the exit under both. It was re-run because `loadLevel`
+  and `openLevelset` are on the replay path. No pack in the collection is one where nothing loads.
+- **All 331 sets of the collection open** through `openLevelset` (23,476 levels; none with a
+  failing level 1).
+- **The suite:** 2,232 assertions in 25 classes, all passing.
+- **The other checks:**
+  - `verify-splice` passes (15 spliced, 63 unspliced);
+  - `formclass.ps1 -Check` and `-SelfTest` pass;
+  - coverage was re-baselined (the target is unchanged at 56.5%).
 
 
 ## jc-14 -- the window title is fully switchable

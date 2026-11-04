@@ -66,8 +66,17 @@ public class TraceLevel {
         emulator.openLevelset(set);
         /* Loaded directly under the solution's own ruleset rather than through Solution.load,
          * which would ask a question the headless emulator answers "no". */
+        Level before = emulator.getLevel();
         emulator.loadLevel(levelNumber, solution.rngSeed, solution.step, false,
                            solution.ruleset, solution.initialSlide);
+        /* loadLevel reports a failure and carries on, and since jc-17 it leaves the PREVIOUS level
+         * loaded -- here, level 1 from openLevelset. Measured by review: an unloadable level 2 was
+         * traced as level 1's start, labeled level 2, exit 0. The same identity test CorpusCheck
+         * uses: a level that loaded is a new object. */
+        if (emulator.getLevel() == null || emulator.getLevel() == before) {
+            System.err.println("TraceLevel: level " + levelNumber + " of " + set + " did not load");
+            System.exit(2);
+        }
 
         PrintStream out = new PrintStream(System.out, true, StandardCharsets.UTF_8);
         Level level = emulator.getLevel();

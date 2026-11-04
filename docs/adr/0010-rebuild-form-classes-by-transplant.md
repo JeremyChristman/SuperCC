@@ -106,11 +106,11 @@ still builds.
 - **`-Check` proves a committed form class matches its `.java`, not its `.form`, and not that the
   tool is right.** Once a class has been rebuilt, both sides of its comparison came from the tool.
   So `test/FormClassTest.java` runs the real constructor of every form window that can run headless
-  (14 of the 15; `graphics.Gui` is the `JFrame` itself, and launching the program is its check).
-  The review found the defects above by constructing windows the same way, and `FormClassTest`
-  fails on the broken builds they produced (measured). **`graphics.Gui` is the gap:** nothing
-  headless reaches its setup. Before a rebuilt `Gui` is trusted (upstream's 72476bc and d78f6f3
-  edit it), add a non-headless construction of it in a separate JVM, skipped without a desktop.
+  (14 of the 15). The review found the defects above by constructing windows the same way, and
+  `FormClassTest` fails on the broken builds they produced (measured). `graphics.Gui` is the
+  `JFrame` itself, so nothing headless reaches its setup; since jc-17, `test/GuiWindowTest.java`
+  builds it in a separate non-headless JVM (skipped without a desktop). That test was written, and
+  shown to fail on jc-16, before the first rebuild of `Gui`.
 - The tool and its check need **JDK 16.0.2 exactly**, and say so instead of producing a near-miss.
   On JDK 18 javac's output differs (verify-splice's own false positives), and the internal ASM is
   not a public API — it may not exist in a much later JDK.
