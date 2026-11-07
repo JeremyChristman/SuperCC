@@ -325,21 +325,21 @@ taken. JaCoCo is a test-time tool cached under `%LOCALAPPDATA%\jacoco\<version>\
 dependency**, never committed, never shipped. Output goes to `coverage-report\` (gitignored);
 `coverage.csv` is the evidence behind every percentage below.
 
-As of jc-17, with all 2,232 assertions passing, **measured on JDK 16.0.2** (Temurin 16.0.2+7, what
-CI pins):
+As of jc-17, with all 2,249 assertions passing, **measured on JDK 16.0.2** (16.0.2+7-67 on the
+desktop; Temurin 16.0.2+7, what CI pins, gives the same figures):
 
 | scope | branch | line | branches |
 |---|---|---|---|
-| **`game\**` + `io\**` — THE TARGET** | **56.5%** | 70.4% | 1505/2666 |
+| **`game\**` + `io\**` — THE TARGET** | **56.5%** | 70.4% | 1507/2668 |
 | &nbsp;&nbsp;`game\**` (the emulator) | 53.4% | 67.7% | 1200/2247 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\MS\**` | 47.3% | 62.2% | 553/1170 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\Lynx\**` | 62.8% | 70.7% | 461/734 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 54.2% | 73.0% | 186/343 |
-| &nbsp;&nbsp;`io\**` (file formats) | 72.8% | 78.5% | 305/419 |
-| `emulator\**` | 34.9% | 36.9% | 153/438 |
-| `tools\**` + `graphics\**` — *not a target* | 2.5% | 8.2% | 49/1931 |
+| &nbsp;&nbsp;`io\**` (file formats) | 72.9% | 78.5% | 307/421 |
+| `emulator\**` | 35.7% | 37.0% | 157/440 |
+| `tools\**` + `graphics\**` — *not a target* | 2.5% | 8.7% | 49/1933 |
 
-**Read this correctly.** Whole-project branch coverage is 30.3% (1819/6001), and that number is
+**Read this correctly.** Whole-project branch coverage is 30.4% (1825/6007), and that number is
 meaningless: 15 form-based classes can be rebuilt here only by copying IntelliJ's output (ADR 0010), `tools\**`
 is 35 files of upstream code this fork does not modify, `graphics\**` is Swing with no headless test
 story, and the rest is vendored `org.json` / `com.intellij`. What this fork can break is the engine
@@ -350,7 +350,7 @@ spliced class is compiled by your `javac`, and `build-config.ps1` already notes 
 not emit identical bytecode to javac 16. That was once only the five `io\**` classes (`ErrorLog`,
 `LevelFactory`, `SuccPaths`, `TWSReader`, `TWSWriter`, 382 branches at jc-15). Since the upstream
 trap merge (2026-11-02) it is also `MSCreature`, `MSLevel` and `LynxLevel` (plus `Level` and
-`BrownButton`, which have none): another 1,162 branches — 1,544 of the target's 2,666 in all. Only the rest comes from the committed
+`BrownButton`, which have none): another 1,162 branches — 1,546 of the target's 2,668 in all. Only the rest comes from the committed
 baseline and is byte-identical on every machine. A figure that differs slightly on another JDK is not
 a bug, but it is not the baseline either: `docs/coverage-baseline.tsv` and the table above are
 measured on 16.0.2, what CI and the release workflow pin. A machine without it does not need an
@@ -584,8 +584,11 @@ Things that are load-bearing in `CorpusCheck` and `corpus.ps1`:
   harness asks `checkError()` and exits 2. A missing JDK is exit 2 too, never 1 ("differences").
 - **`loadLevel` swallows its own exceptions**, so failure is detected by IDENTITY: the level object
   unchanged means the previous level is still loaded; the savestate manager unchanged means the
-  level parsed but `SavestateManager`'s constructor threw (a level with no title does this — MO3
-  #12 and #14). Either is `LOADFAIL`. Reporting a stale level as a result is the failure to avoid.
+  level parsed but `SavestateManager`'s constructor threw (a level with no title did this — MO3
+  #12 and #14 — until jc-17 named such a level `""`, as Tile World does). Either is `LOADFAIL`.
+  Reporting a stale level as a result is the failure to avoid. From jc-17 a set opens at its first
+  level that loads, and a set where NONE loads leaves no set open on a fresh emulator, so its saves
+  read `OPENFAIL` (an NPE from `lastLevelNumber()`) instead; no set in the collection does either.
 - **The set may be `<pack>.dat` or `<pack>.ccl`** — SuperCC names the solution folder after the set
   with any extension removed. Both present is reported, not guessed.
 - **The replay loop mirrors `Solution.tickBasicMoves`** exactly, like `TraceLevel`'s, because that

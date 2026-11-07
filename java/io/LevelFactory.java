@@ -244,6 +244,23 @@ public class LevelFactory {
                              String hint, String author, int[][] monsterPositions, int rngSeed, Step step,
                              int lastLevel, Ruleset rules, Direction initialSlide) {
 
+        /* MOD (Jeremy, jc-17): a level with no title field gets an empty title, not null.
+         *
+         * Title is optional field 3, and DatParser leaves it null when the field is absent. Nearly
+         * every consumer then dereferenced it: SavestateManager's constructor (getTitle().getBytes()),
+         * getJSONPath() and so Ctrl+S and Solution > Open, Load states. The constructor's throw meant
+         * such a level could never be opened at all -- MO3 #12 and #14 are the only two among the
+         * 23,476 levels of the 331-set collection that failed to load through loadLevel (measured
+         * 2026-11-07), and both fail for exactly this reason.
+         *
+         * Tile World's reading is the reference: series.c zero-fills every level record when the
+         * series is allocated (memset at line 429), and field 3 is the only thing that writes
+         * game->name (line 310), so a title-less level there has the empty name "". Doing the same
+         * here, once, in the one constructor path every level goes through, covers every consumer at
+         * once instead of guarding each. A level that HAS a title is untouched, so no stored solution
+         * replays differently. */
+        if (title == null) title = "";
+
         Layer layerBG = new ByteLayer(byteLayerBG);
         Layer layerFG = new ByteLayer(byteLayerFG);
 

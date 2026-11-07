@@ -509,7 +509,13 @@ class MenuBar extends JMenuBar{
             TileSheet[] tileSheets = TileSheet.values();
             tilesetButtons = new JRadioButton[tilesetNames.length];
             for (int i = 0; i < tilesetNames.length; i++) {
-                JRadioButton tilesheetButton = new JRadioButton(tilesetNames[i]);
+                /* MOD (Jeremy, jc-17): works with no level open. requireALevel() would otherwise skip
+                 * this listener while the radio mark still moved, so the menu showed a tileset that
+                 * was neither drawn nor saved, and opening a set then snapped the mark back (review).
+                 * With no level there is no ruleset to file the choice under, so it is saved as the
+                 * MS tileset -- the one SuperCC draws at startup, which is what is on screen in
+                 * exactly that state. */
+                JRadioButton tilesheetButton = worksWithoutALevel(new JRadioButton(tilesetNames[i]));
                 TileSheet tileSheet = tileSheets[i];
                 tilesetButtons[i] = tilesheetButton;
                 tilesheetButton.addActionListener(e -> {
@@ -524,12 +530,12 @@ class MenuBar extends JMenuBar{
                     }
                     try {
                         BufferedImage[] tilesetImages = tileSheet.getTileSheets(tileWidth, tileHeight);
-                        window.getGamePanel().initialise(emulator, tilesetImages, tileSheet,
+                        window.getGamePanel().initialise(emulator, tilesetImages, tileSheet,  // aen-exempt: upstream method name
                                 window.getGamePanel().getTileWidth(), window.getGamePanel().getTileHeight());
-                        window.getInventoryPanel().initialise(emulator);
+                        window.getInventoryPanel().initialise(emulator);  // aen-exempt: upstream method name
                         window.repaint(true);
 
-                        if (emulator.getLevel().getRuleset() == Ruleset.MS)
+                        if (!emulator.isLevelLoaded() || emulator.getLevel().getRuleset() == Ruleset.MS)
                             emulator.getPaths().setMSTilesetNum(tileSheet.ordinal());
                         else
                             emulator.getPaths().setLynxTilesetNum(tileSheet.ordinal());
@@ -556,8 +562,8 @@ class MenuBar extends JMenuBar{
                             ts = Gui.DEFAULT_TILESHEET;
                         }
                         SmallGamePanel gamePanel = (SmallGamePanel) emulator.getMainWindow().getGamePanel();
-                        emulator.getMainWindow().getGamePanel().initialise(emulator, ts.getTileSheets(size, size), ts, size, size);
-                        window.getInventoryPanel().initialise(emulator);
+                        emulator.getMainWindow().getGamePanel().initialise(emulator, ts.getTileSheets(size, size), ts, size, size);  // aen-exempt: upstream method name
+                        window.getInventoryPanel().initialise(emulator);  // aen-exempt: upstream method name
                         window.setSize(size * gamePanel.getWindowSizeX(), size * gamePanel.getWindowSizeY());
                         window.getGamePanel().setPreferredSize(new Dimension(size * gamePanel.getWindowSizeX(), size * gamePanel.getWindowSizeY()));
                         window.getGamePanel().setSize(size * gamePanel.getWindowSizeX(), size * gamePanel.getWindowSizeY());

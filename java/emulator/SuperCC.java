@@ -282,11 +282,17 @@ public class SuperCC {
          * (repaint, title) runs after the assignment, so a throw there comes back as a failure
          * for a level that loaded -- reproduced by review with the repaint made to throw, which
          * reported "Level 1 could not be loaded ... Opened at level 1." That one is logged, not
-         * shown. */
+         * shown.
+         *
+         * Every number in the message is a POSITION in the set (what Go to... takes), never the
+         * record's own stored number, which the format lets differ from its position. The landing
+         * level is reported by the position it was loaded from, for that reason (review). */
         Exception firstFailure = null;
         int failed = 0;
+        int openedAt = 0;
         for (int n = 1; n < lastLevelNumber() && level == previousLevel; n++) {
             Exception e = tryLoadLevel(n, 0, Step.EVEN, false, startingRuleset(), Direction.UP);
+            if (level != previousLevel) openedAt = n;
             if (e == null) continue;
             if (level != previousLevel) {
                 e.printStackTrace();
@@ -296,16 +302,20 @@ public class SuperCC {
             if (firstFailure == null) firstFailure = e;
         }
         if (level == previousLevel) {
+            /* The previous set goes back BEFORE the dialog, not after it: throwError's modal dialog
+             * runs a nested event loop, and for as long as it was open the emulator paired this new
+             * set's file with the previous set's level -- the getJSONPath() mismatch the comment
+             * above exists to remove, live while a playing level kept ticking (review). */
+            dat = previousDat;
             if (firstFailure != null) firstFailure.printStackTrace();
             throwError("No level in " + levelset.getName() + " could be loaded"
                        + (firstFailure == null ? " -- it has no levels." : ":\n" + firstFailure.getMessage()));
-            dat = previousDat;
             return;
         }
         if (firstFailure != null) {
             firstFailure.printStackTrace();
             throwError((failed == 1 ? "Level 1 could not be loaded" : "Levels 1 to " + failed + " could not be loaded")
-                       + ":\n" + firstFailure.getMessage() + "\n\nOpened at level " + level.getLevelNumber() + ".");
+                       + ":\n" + firstFailure.getMessage() + "\n\nOpened at level " + openedAt + ".");
         }
         if (hasGui)
             window.swapRulesetTilesheet(level.getRuleset());

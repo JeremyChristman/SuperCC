@@ -212,8 +212,15 @@ public class CorpusCheck {
                          * no level set loaded -- so its return proves nothing, and the next call
                          * would throw outside any handler and abort the whole run. lastLevelNumber()
                          * reads the set itself, so it throws here, inside the handler, instead.
-                         * (Deliberately NOT a getLevel() check: a set whose level 1 fails to load is
-                         * still open, and its other levels deserve their own lines.) */
+                         * (Deliberately NOT a getLevel() check: on jars before jc-17 a set whose
+                         * level 1 fails to load is still open, and its other levels deserve their
+                         * own lines. From jc-17 the set opens at its first level that loads instead,
+                         * and only a set where NO level loads is left unopened -- on a fresh
+                         * emulator that leaves no set at all, so the line below throws a
+                         * NullPointerException on the parser and every save in the pack is one
+                         * OPENFAIL with that message. It is a load failure, not an engine
+                         * difference. jc-17 also opens untitled levels, the only kind that failed
+                         * in the 331-set collection, so no pack there takes this path.) */
                         emulator.lastLevelNumber();
                     } catch (Throwable t) {
                         openFailure = describe(t);

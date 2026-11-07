@@ -30,7 +30,7 @@ fork *does* change, by release:
 | jc-14 | **Display** — every part of the window title is a setting now, and the separators are computed from what is left rather than templated. The stock title changes: it no longer names the level set. Engine untouched. See *jc-14 -- the window title is fully switchable*. |
 | jc-15 | **Upstream merge, steps 1 and 2** — upstream's trap rework (`858dbd0`) with four fixes of the fork's own, and its Lynx input discarding (`b997c27` + `98366f7`), which records a key the engine ignores as a wait. Replay-identical on all 24,204 stored solutions; 40 Lynx move lists record differently once loaded. See *Upstream merge*. |
 | jc-16 | **Upstream merge, step 3** — Seed Search stops at the last seed instead of wrapping into negative seeds forever (`40495dd`), plus three fork fixes: a negative start, threads that finished before the next one started, and an example seed that hid negative seeds. `SeedSearch` is form-based, so this added `formclass.ps1`, which rebuilds a form class whose `.form` is unchanged (ADR 0010). Engine untouched. See *Upstream merge*, step 3. |
-| jc-17 | **Upstream merge, step 4** — nothing a user can touch throws before a level set is open any more (upstream `72476bc`, hand-merged, extended by the fork to one guard over every menu — 46 of the 56 menu controls threw on jc-16 — plus canceling Go to… / Set RNG Seed no longer throws). First rebuild of the main window (`Gui`) with `formclass.ps1`, and `GuiWindowTest` builds the real window in a non-headless JVM. Engine untouched. See *Upstream merge*, step 4. |
+| jc-17 | **Upstream merge, step 4** — nothing a user can touch throws before a level set is open any more (upstream `72476bc`, hand-merged, extended by the fork to one guard over every menu — 46 of the 56 menu controls threw on jc-16 — plus canceling Go to… / Set RNG Seed no longer throws). Levels with no title open (MO3 #12 and #14, the only two of 23,476 that could not), and the Black and White tileset loads (upstream `f701c85`; broken in every earlier release). First rebuild of the main window (`Gui`) with `formclass.ps1`, and `GuiWindowTest` builds the real window in a non-headless JVM. Replay-identical on all 24,212 stored solutions. See *Upstream merge*, step 4. |
 
 > **`settings.ini` is `succ_settings.ini` from jc-8 on.** Older sections below are left in their
 > original wording where they describe historical work; read "settings.ini" in those as the same
@@ -63,7 +63,8 @@ commit is applied as a patch (`git apply -p4 --directory=java`), not merged by g
 | `40495dd` | Seed search: an `int` overflow made long searches go negative | **merged, jc-16** — step 3, below |
 | `72476bc` | Linux test runner, plus guards for "no level loaded" in `EmulatorKeyListener`, `MenuBar` and `Gui.java` | **merged, jc-17** — step 4, below; hand-merged (its `requireNonNull` around `openFile` would undo jc-12's cancel fix, so it was left out); the Linux test runner and Maven workflow do not apply here |
 | `5f928e0`, `fb8fe25`, `da35e33`, `8c95b3e` | Auto-diagonals | to do — `5f928e0` edits `ControlGUI.form` itself, which still needs IntelliJ's form compiler (ADR 0010) |
-| `f701c85`, `d78f6f3`, `3e92380` | Custom tilesets | to do — touches the form-bound `Gui.java` and `ChooseTileSize.java`, `.form`s untouched: `formclass.ps1` |
+| `f701c85` | Renames `BW-overlay.png` to the `bw-overlay.png` the code asks for | **merged, jc-17** — the Black and White tileset failed in every release, since jar entries are case-sensitive (step 4, *The second review*) |
+| `d78f6f3`, `3e92380` | Custom tilesets | to do — touches the form-bound `Gui.java` and `ChooseTileSize.java`, `.form`s untouched: `formclass.ps1` |
 
 ### Step 1 — the trap rework (`858dbd0`), and four fixes to it
 
@@ -552,8 +553,8 @@ same offset inside the same `catch` range. It did find:
   MO3 #12 and #14 are real ones). Measured: load level 2, then an untitled level 1, and level 1
   ran against level 2's savestates. On a fresh open, `isLevelLoaded()` was true with
   `getSavestates()` null, which slipped past every guard above. Now the load builds both and assigns
-  both, or neither (a `MOD` in `SuperCC.loadLevel`; `EngineTest` §6c). Title-less levels still
-  cannot be opened at all. That fix belongs in `SavestateManager` and is left for its own step.
+  both, or neither (a `MOD` in `SuperCC.loadLevel`; `EngineTest` §6c). Title-less levels
+  themselves were left for their own step at first; they load now (*The second review*, below).
 
   The re-check found two callers that relied on the old order, and both were reproduced:
   - **`openLevelset`.** It assigned the new set's file before loading level 1, so a set whose
@@ -631,9 +632,9 @@ all 331 sets when run on the collection for the scan above. It now stops at `las
 pass. It skips in CI (no level set may be committed), which is how it stayed hidden.
 
 **Left alone, found on the way.**
-- **View › Tileset with no level:** the radio mark moves to the clicked tileset though nothing is
-  applied, and corrects itself when a level opens. A cosmetic leftover, defended rather than fixed
-  with selection-restoring code.
+- ~~**View › Tileset with no level:** the radio mark moves to the clicked tileset though nothing is
+  applied.~~ Fixed after the second review, without selection-restoring code: the tileset now works
+  with no level open (below).
 - **Tools › Controls** opens its window inside a `SwingWorker`, which keeps any exception to itself,
   so `GuiWindowTest` cannot see one there.
 - **Paste solution** prints an `UnsupportedFlavorException` trace when the clipboard holds no text,
@@ -641,21 +642,77 @@ pass. It skips in CI (no level set may be committed), which is how it stayed hid
 - **The desktop error log's most frequent entry** (18 times, `Image.getProperty` on a null image) is
   unrelated: it is the trace CLAUDE.md §9 explains, from a jar replaced under a running instance.
 
-**Verification (JDK 16.0.2, the final tree).**
-- **The engine is untouched.** Of the jar's 530 file entries, 21 differ from the deployed jc-16 jar,
-  and none is under `game/**`:
-  - the classes of `SuperCC`, `EmulatorKeyListener` (three), `Gui`, `MenuBar` (nine) and
-    `ChooseTileSize`, and their five sources;
-  - `ErrorLog$Sink`, for the inlined build tag alone (`javap -v` shows nothing else).
+**The second review (2026-11-07, desktop, before tagging).** jc-17 was committed on 2026-11-04 but
+never tagged, and the session that made it left no record of a final sign-off on the final code, so
+a fresh `/code-review high` of the commit gated the release. It reported ten findings. Each one
+below was reproduced first: every new check fails on the jar as committed, and passes after.
+- **Levels with no title now load** (`MOD (Jeremy, jc-17)` in `LevelFactory.makeLevel`). Four
+  findings — TWS › Verify, `testTWS`, the command line, and Next/Previous — are one pattern: each
+  loads a level and then assumes it worked. jc-17's all-or-nothing load changed what a failure
+  leaves behind for exactly one cause, `SavestateManager`'s constructor. A scan of every level of
+  the collection through `loadLevel` (not just the parser, as `EngineTest` §7 does) found two
+  failures in 23,476, MO3 #12 and #14, and both were that cause, a null title. Title is optional
+  field 3. Tile World zero-fills each level record (`series.c`, the `memset` at line 429) and only
+  field 3 writes the name (line 310), so there a title-less level is named `""`. A null title now
+  becomes `""` in the one constructor path every level passes through, which fixes every consumer
+  at once, including `getJSONPath()` and so Ctrl+S, which would have thrown on such a level too.
+  After it, all 23,476 load. A titled level is untouched, and the corpus is identical.
 
-  `EmulatorKeyListener$Key` and `$1` differ only in the debug tables IntelliJ's build kept; their
-  code is identical now that the file is spliced.
-- **The corpus is identical:** 24,204 of 24,204 solutions end in the same state under the deployed
-  jc-16 jar and jc-17, with 23,012 reaching the exit under both. It was re-run because `loadLevel`
-  and `openLevelset` are on the replay path. No pack in the collection is one where nothing loads.
-- **All 331 sets of the collection open** through `openLevelset` (23,476 levels; none with a
-  failing level 1).
-- **The suite:** 2,232 assertions in 25 classes, all passing.
+  The four callers are **defended, not changed**. For three of them (TWS › Verify, `testTWS`,
+  Next/Previous) a level that fails to PARSE already left the previous level in place on jc-16, so
+  they behaved this way for that kind of failure before jc-17. The command line is different, and
+  my first defense of it was wrong (the reviewer's re-check; confirmed in jc-16's source): on jc-16
+  a fresh open whose level 1 failed showed one dialog and then threw out of `openLevelset` at
+  `swapRulesetTilesheet(level.getRuleset())` on the null level, so `ArgumentParser`'s own load never
+  ran. jc-17 survives the open, lands on level 2, and `ArgumentParser` then fails level 1 again: a
+  second dialog where jc-16 had a crash. That is kept as the better of the two. No level in the
+  collection fails at all now, and making each caller skip a level that will not load is new
+  behavior that would want its own design. `EngineTest` §6c and
+  `GuiWindowTest` §3a, which had used an untitled level as their fixture for "cannot load", now use
+  a record whose layer does not decode (`DatBuilder.unreadable()`: runs that claim 1,025 cells).
+- **View › Tileset works with no level open.** It was the one menu `requireALevel()` skipped while
+  its radio mark still moved: the menu showed a tileset neither drawn nor saved. The first review's
+  verdict, "cosmetic, defended", is reversed by a fix simpler than restoring the selection. The
+  tileset buttons are now `worksWithoutALevel`, and with no level the choice is saved as the MS
+  tileset, the one drawn at startup and so the one on screen. `GuiWindowTest` §2 checks that the
+  last tileset its walk clicks is drawn and saved, and that the Lynx choice is untouched.
+- **That check found the Black and White tileset broken in every release** (upstream `f701c85`,
+  brought in here). The jar held `resources/BW-overlay.png` while `TileSheet` asks for
+  `bw-overlay.png`. A folder on Windows does not care about case, but a jar entry does, so
+  `getResource` returned null and choosing "MSCC (Black and White - Editor)" threw
+  `NullPointerException`. Measured on the deployed jc-16 jar, where the other four loaded. The
+  rename is upstream's, byte-identical. `EngineTest` §6e loads every tileset from the built jar.
+- **`openLevelset` restored the previous set only after its error dialog closed.** The dialog
+  runs a nested event loop, and for as long as it was open the new set's file sat under the old
+  level. `GuiWindowTest` now reads the open set from inside that loop, through a closer that runs
+  code on the event thread before disposing each dialog. On the jar as committed it saw
+  `nolevels.dat`. The set is now put back first.
+- **"Opened at level N" printed the record's own number**, while "Levels 1 to M" counts positions,
+  and the format lets a record's number differ from its position. It now prints the position
+  (`EngineTest` §6d, with a set whose landing record is numbered 7 at position 3).
+- **`CorpusCheck`'s comment** described pre-jc-17 behavior. It is corrected; no result changes.
+- **Left as it is, from the re-check of these fixes:** Solution › Load states accepts a `.ser` when
+  its stored title bytes equal the level's, and that is its only check. Every untitled level is now
+  `""`, so states saved on MO3 #12 would load into #14 without the "cannot load" message. Before
+  jc-17 neither level opened at all, two levels that share a title already had the same weakness,
+  and the file chooser opens at the level's own `.ser` (named after its number), so reaching it
+  takes picking another level's file by hand. A real fix belongs in the `.ser` format.
+- **Defended:** six per-item `isLevelLoaded()` checks in the Level menu, and `REWIND`/`FORWARD`
+  re-fetching `getSavestates()` after using a local. Both are upstream's own lines from `72476bc`,
+  merged verbatim. The extra checks are redundant under `requireALevel()`, not wrong. The re-fetch
+  happens on the event thread, where nothing can swap the manager between two statements. The fork
+  keeps upstream's lines where they do no harm, so the next diff against upstream stays readable.
+
+**Verification (JDK 16.0.2, the final tree).**
+- **The engine's behavior is unchanged for every stored solution:** 24,212 of 24,212 end in the same
+  state under the deployed jc-16 jar and jc-17, run on the desktop with the current harness on
+  both sides. (The laptop's run of the first jc-17 commit was 24,204 of 24,204; the collection has
+  grown since.) `game/**` is untouched; `LevelFactory` changes only what a level with no title is
+  called, and no stored solution is for one.
+- **Every level of all 331 sets loads** through `loadLevel`, 23,476 of 23,476. On the first jc-17
+  commit, 2 did not.
+- **The suite:** 2,249 assertions in 25 classes, all passing. All 17 new checks fail on the jar as
+  first committed.
 - **The other checks:**
   - `verify-splice` passes (15 spliced, 63 unspliced);
   - `formclass.ps1 -Check` and `-SelfTest` pass;

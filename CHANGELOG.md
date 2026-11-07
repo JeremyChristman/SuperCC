@@ -12,9 +12,30 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
-## jc-17 — 2026-11-04 (upstream merge, step 4)
+## jc-17 — 2026-11-07 (upstream merge, step 4)
 
 ### Fixed
+- **Levels with no title open** (fork, `MOD (Jeremy, jc-17)` in `LevelFactory.makeLevel`). Title is
+  optional field 3; without it the title was `null`, and `SavestateManager`'s constructor
+  (`getTitle().getBytes()`), `getJSONPath()` and Load states all dereferenced it, so such a level
+  could never be opened. Scanning every level of the collection through `loadLevel` found exactly two
+  that failed, of 23,476 in 331 sets: MO3 #12 and #14, both for this reason. A missing title is now
+  `""`, as in Tile World (`series.c` zero-fills each record, and only field 3 writes the name). All
+  23,476 now load. A titled level is untouched: the corpus is identical, 24,212 of 24,212.
+- **The Black and White tileset loads** (upstream `f701c85`). The jar held
+  `resources/BW-overlay.png` while `TileSheet` asks for `bw-overlay.png`; jar entries are
+  case-sensitive, so View › Tileset › MSCC (Black and White - Editor) threw `NullPointerException`
+  in every release (measured on the deployed jc-16; the other four loaded). The file is renamed;
+  `EngineTest` §6e loads every tileset from the built jar.
+- **View › Tileset works with no level open** (fork, after the second `/code-review`). It was the one
+  menu `requireALevel()` skipped while its radio mark still moved, so the menu showed a tileset
+  that was neither drawn nor saved. It now applies the choice and saves it as the MS tileset, the
+  one drawn at startup.
+- **Two fixes in `openLevelset`'s new message** (same review). When no level loads, the previous
+  set is put back BEFORE the error dialog, not after: the dialog's nested event loop ran with the
+  new set's file under the old level (`GuiWindowTest` reads the open set from inside that loop). And
+  "Opened at level N" names the landing level's POSITION, not its record number, which the format
+  lets differ (`EngineTest` §6d).
 - **No-level-loaded guards (upstream `72476bc`, hand-merged).** With no level set open — how every
   launch starts — these threw `NullPointerException` on the event thread, each one written to
   jc-11's error log:
@@ -46,8 +67,10 @@ measured. All three are updated together — see [`.github/RELEASING.md`](.githu
   the code tested only for empty.
 - **A level that fails to load no longer leaves a half-loaded state** (fork, from the hostile
   review). `SuperCC.loadLevel` assigned the level before building its savestates, whose constructor
-  throws for a title-less level (MO3 #12 and #14). That left a level loaded with no savestates, or
-  with the previous level's: measured, an untitled level 1 after level 2 ran against level 2's.
+  threw for a title-less level (MO3 #12 and #14, which now load — above). That left a level loaded
+  with no savestates, or with the previous level's: measured, an untitled level 1 after level 2 ran
+  against level 2's. The tests now use a level whose record does not parse
+  (`DatBuilder.unreadable()`), the kind of failure that remains.
   Now both are built, then both assigned, or neither. The hostile review's re-check then found two
   callers that relied on the old way:
   - **`openLevelset`.** A set whose level 1 failed kept the previous set's level under the new set's
@@ -90,10 +113,11 @@ measured. All three are updated together — see [`.github/RELEASING.md`](.githu
 - **`EngineTest` §7 works.** The local-only collection check read one level past the end of every
   set (`lastLevel()` is the count plus one) and failed on all 331 sets when run on the collection
   (2026-11-04). It now passes on all 331 (23,476 levels), and fails on an empty folder.
-- Coverage re-baselined on JDK 16.0.2. The target is unchanged at 56.5% (1505/2666); `emulator\**`
-  is 34.9% (153/438, up from 136/414: `openLevelset`'s new paths, now covered by `EngineTest` §6c),
-  and `tools\**` + `graphics\**` 2.5% (49/1931, the new guard code is reached only in
-  `GuiWindowTest`'s child JVM, which JaCoCo does not instrument). Suite: 2,232 assertions, 25 classes.
+- Coverage re-baselined on JDK 16.0.2. The target is unchanged at 56.5% (1507/2668); `emulator\**`
+  is 35.7% (157/440, up from 136/414: `openLevelset`'s new paths, now covered by `EngineTest` §6c
+  and §6d), and `tools\**` + `graphics\**` 2.5% (49/1933, the new guard code is reached only in
+  `GuiWindowTest`'s child JVM, which JaCoCo does not instrument). Suite: 2,249 assertions, 25 classes
+  (2,232 at the first jc-17 commit; the second review's fixes added 17, each failing on that commit).
 - jc-11's startup-repaint comment in `SuperCC.java` no longer says Gui cannot be recompiled.
   `FormClassTest`'s Gui skip now points to `GuiWindowTest`.
 

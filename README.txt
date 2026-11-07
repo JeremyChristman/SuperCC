@@ -543,21 +543,39 @@ jc-17  --  No errors from the controls before a level is open
     Cancel (or closing the box) in either dialog also hit an internal
     error. Fixed in this fork only.
 
-  * A LEVEL THAT CANNOT BE LOADED NO LONGER LEAVES THINGS HALF-LOADED. A
-    few levels still cannot be opened at all -- MO3's levels 12 and 14
-    have no title, which SuperCC cannot handle yet. Going to one used to
-    show the error and then leave the program stuck between two levels,
-    so later actions could fail or use the wrong level's data. Now you
-    stay on the level you were on. And a level set whose FIRST level is
-    like that now opens at its first level that works, after one message
-    saying which levels were skipped, instead of leaving half of the old
-    set behind. Fixed in this fork only.
+  * LEVELS WITH NO TITLE OPEN. A level's title is optional in the file
+    format, and SuperCC could not open a level without one -- MO3's levels
+    12 and 14 are two. They now open with a blank title, which is what
+    Tile World shows for them. Every level of all 331 level sets in the
+    maintainer's collection now opens. Fixed in this fork only.
 
-  * Nothing else changes how the program behaves. The game engine in this
-    jar is byte-for-byte jc-16's. The main window is now built from this
-    fork's own copy of its code, using the tool jc-16 added, and a new test
-    opens the real main window and clicks every menu control to prove each
-    one behaves.
+  * THE BLACK AND WHITE TILESET WORKS. View > Tileset > "MSCC (Black and
+    White - Editor)" has failed with an internal error in every release of
+    this fork: one of its two image files was stored under a name that
+    differed from the one the program asks for in capital letters only,
+    which Windows ignores but a jar does not. Upstream's fix, renaming the
+    file, is brought in here.
+
+  * VIEW > TILESET WORKS BEFORE A LEVEL IS OPEN. With no level open, the
+    menu used to move its mark to the tileset you picked without drawing
+    or saving it. It now applies it, and saves it as the tileset for MS
+    levels, which is the one shown before a level is open.
+
+  * A LEVEL THAT CANNOT BE LOADED NO LONGER LEAVES THINGS HALF-LOADED. A
+    level whose data is damaged still cannot be opened (none in the
+    maintainer's collection is). Going to one used to show the error and
+    then leave the program stuck between two levels, so later actions
+    could fail or use the wrong level's data. Now you stay on the level you
+    were on. And a level set whose FIRST level is like that now opens at
+    its first level that works, after one message saying which levels were
+    skipped, instead of leaving half of the old set behind. Fixed in this
+    fork only.
+
+  * Nothing else changes how the program behaves. Every one of the 24,212
+    stored solutions in the maintainer's collection replays exactly as it
+    did on jc-16. The main window is now built from this fork's own copy
+    of its code, using the tool jc-16 added, and a new test opens the real
+    main window and clicks every menu control to prove each one behaves.
 
 
 jc-16  --  Seed search stops where it should

@@ -254,29 +254,30 @@ public class EngineTest {
                    emu2.getLevel().getTitle(), "Still Here");
 
         Harness.section("6c. a level that fails to load leaves the previous level and its savestates together");
-        /* jc-17 (MOD in SuperCC.loadLevel): a level can parse and then fail when its savestates are
-         * built -- SavestateManager calls getTitle().getBytes(), and a level with no title (MO3 #12
-         * and #14 are real ones) throws there. loadLevel used to assign `level` before that, which
-         * left a level "loaded" with no savestates, or with the PREVIOUS level's. Measured before
-         * the fix: load level 2, then an untitled level 1, and level 1 ran against level 2's
-         * savestates; on a fresh open, isLevelLoaded() was true with getSavestates() null, so every
-         * no-level guard in jc-17 was bypassed. Now the load is all or nothing. */
-        Path d6c = tempDir("untitled");
-        DatBuilder titledFirst = new DatBuilder().signature(DatBuilder.SIG_MS);
-        titledFirst.level().title("Titled").password("ABCD").chips(0).timeLimit(100).tile(3, 5, Tile.CHIP_RIGHT).end();
-        titledFirst.level().password("EFGH").chips(0).timeLimit(100).tile(3, 5, Tile.CHIP_RIGHT).end();  // no title
-        File setA = titledFirst.writeTo(d6c, "titledfirst.dat").toFile();
-        DatBuilder untitledFirst = new DatBuilder().signature(DatBuilder.SIG_MS);
-        untitledFirst.level().password("IJKL").chips(0).timeLimit(100).tile(3, 5, Tile.CHIP_RIGHT).end();  // no title
-        untitledFirst.level().title("Second").password("MNOP").chips(0).timeLimit(100).tile(3, 5, Tile.CHIP_RIGHT).end();
-        File setB = untitledFirst.writeTo(d6c, "untitledfirst.dat").toFile();
+        /* jc-17 (MOD in SuperCC.loadLevel): loadLevel used to assign `level` before building its
+         * savestates, so a level whose savestates could not be built was left "loaded" with none, or
+         * with the PREVIOUS level's. Measured before the fix, with an untitled level (whose
+         * SavestateManager threw on getTitle().getBytes()): load level 2, then the untitled level 1,
+         * and level 1 ran against level 2's savestates; on a fresh open, isLevelLoaded() was true with
+         * getSavestates() null, so every no-level guard in jc-17 was bypassed. Now the load is all or
+         * nothing. The fixture here is a level whose record does not parse (DatBuilder.unreadable()),
+         * since jc-17 also makes untitled levels load -- see 6d. */
+        Path d6c = tempDir("unreadable");
+        DatBuilder goodFirst = new DatBuilder().signature(DatBuilder.SIG_MS);
+        goodFirst.level().title("Titled").password("ABCD").chips(0).timeLimit(100).tile(3, 5, Tile.CHIP_RIGHT).end();
+        goodFirst.level().title("Broken").password("EFGH").chips(0).timeLimit(100).unreadable().end();
+        File setA = goodFirst.writeTo(d6c, "goodfirst.dat").toFile();
+        DatBuilder badFirst = new DatBuilder().signature(DatBuilder.SIG_MS);
+        badFirst.level().title("Broken").password("IJKL").chips(0).timeLimit(100).unreadable().end();
+        badFirst.level().title("Second").password("MNOP").chips(0).timeLimit(100).tile(3, 5, Tile.CHIP_RIGHT).end();
+        File setB = badFirst.writeTo(d6c, "badfirst.dat").toFile();
 
         SuperCC emu3 = new SuperCC(false);
         emu3.openLevelset(setA);
-        Harness.eq("set A opens on its titled level 1", emu3.getLevel().getTitle(), "Titled");
+        Harness.eq("set A opens on its good level 1", emu3.getLevel().getTitle(), "Titled");
         Object level1States = emu3.getSavestates();
-        emu3.loadLevel(2, 0, Step.EVEN, false, Ruleset.MS, Direction.UP);  // untitled: fails
-        Harness.eq("loading the untitled level 2 keeps level 1", emu3.getLevel().getLevelNumber(), 1);
+        emu3.loadLevel(2, 0, Step.EVEN, false, Ruleset.MS, Direction.UP);  // unreadable: fails
+        Harness.eq("loading the unreadable level 2 keeps level 1", emu3.getLevel().getLevelNumber(), 1);
         Harness.check("with level 1's own savestates, not a mismatch", emu3.getSavestates() == level1States);
 
         /* And openLevelset, where it is level 1 that fails. The set opens at its first level that
@@ -285,7 +286,7 @@ public class EngineTest {
          * folder, so a save would have written A's route there), and restoring set A outright (all of
          * set B unreachable, and every save in such a pack an OPENFAIL in the corpus harness). */
         File setC = new DatBuilder().signature(DatBuilder.SIG_MS)
-                .level().password("QRST").chips(0).timeLimit(100).tile(3, 5, Tile.CHIP_RIGHT).end()  // only level: no title
+                .level().title("Only").password("QRST").chips(0).timeLimit(100).unreadable().end()  // its only level
                 .writeTo(d6c, "nothingloads.dat").toFile();
         emu3.openLevelset(setB);
         Harness.eq("opening set B, whose level 1 fails, opens it at level 2", emu3.getLevel().getTitle(), "Second");
@@ -304,6 +305,69 @@ public class EngineTest {
         emu5.openLevelset(setC);  // a fresh open where nothing loads
         Harness.check("a fresh open where nothing loads leaves nothing loaded", !emu5.isLevelLoaded());
         Harness.check("and no half-built savestates", emu5.getSavestates() == null);
+
+        Harness.section("6d. an untitled level loads, with an empty title -- as in Tile World");
+        /* jc-17 (MOD in LevelFactory.makeLevel): title is optional field 3, and a level without it
+         * used to carry a null title that SavestateManager's constructor dereferenced, so the level
+         * could never be opened -- MO3 #12 and #14, the only two of the collection's 23,476 levels
+         * that failed to load (2026-11-07). Tile World zero-fills the record, so its name is "".
+         * Before the fix every check below failed: the load was refused and level 1 stayed. */
+        Path d6d = tempDir("untitled");
+        DatBuilder untitled = new DatBuilder().signature(DatBuilder.SIG_MS);
+        untitled.level().title("Named").password("ABCD").chips(0).timeLimit(100).tile(3, 5, Tile.CHIP_RIGHT).end();
+        untitled.level().password("EFGH").chips(0).timeLimit(100).tile(3, 5, Tile.CHIP_RIGHT).end();  // no field 3
+        File setU = untitled.writeTo(d6d, "untitled.dat").toFile();
+        SuperCC emu6 = new SuperCC(false);
+        emu6.openLevelset(setU);
+        Object namedStates = emu6.getSavestates();
+        emu6.loadLevel(2, 0, Step.EVEN, false, Ruleset.MS, Direction.UP);
+        Harness.eq("the untitled level 2 loads", emu6.getLevel().getLevelNumber(), 2);
+        Harness.eq("and its title is empty, not null", emu6.getLevel().getTitle(), "");
+        Harness.check("with savestates of its own", emu6.getSavestates() != null && emu6.getSavestates() != namedStates);
+        Harness.eq("a titled level keeps its title", new DatParser(setU).parseLevel(1, 0, Step.EVEN, Ruleset.MS, Direction.UP).getTitle(), "Named");
+        SuperCC emu7 = new SuperCC(false);
+        emu7.openLevelset(setU);
+        emu7.loadLevel(2, 0, Step.EVEN, false, Ruleset.LYNX, Direction.UP);
+        Harness.eq("and under Lynx too", emu7.getLevel().getTitle(), "");
+
+        /* openLevelset's message names POSITIONS (what Go to... takes), never a record's own number,
+         * which the format lets differ. Before the fix it printed the landing level's record number:
+         * "Levels 1 to 2 could not be loaded ... Opened at level 7." (review). The headless emulator
+         * prints the message to stderr, so it is captured there. */
+        DatBuilder renumbered = new DatBuilder().signature(DatBuilder.SIG_MS);
+        renumbered.level().title("Bad A").password("IJKL").unreadable().end();
+        renumbered.level().title("Bad B").password("MNOP").unreadable().end();
+        renumbered.level().number(7).title("Lands").password("QRST").chips(0).timeLimit(100).tile(3, 5, Tile.CHIP_RIGHT).end();
+        File setR = renumbered.writeTo(d6d, "renumbered.dat").toFile();
+        java.io.PrintStream realErr = System.err;
+        java.io.ByteArrayOutputStream captured = new java.io.ByteArrayOutputStream();
+        System.setErr(new java.io.PrintStream(captured, true, "UTF-8"));
+        try {
+            new SuperCC(false).openLevelset(setR);
+        } finally {
+            System.setErr(realErr);
+        }
+        String said = captured.toString("UTF-8");
+        Harness.check("it reports the two failures by position", said.contains("Levels 1 to 2 could not be loaded"));
+        Harness.check("and the landing level by its position, 3", said.contains("Opened at level 3."));
+        Harness.check("never by its record number, 7", !said.contains("Opened at level 7"));
+
+        Harness.section("6e. every built-in tileset loads from the built jar");
+        /* Resource names in a jar are case-sensitive, unlike the Windows folder they are built from.
+         * The jar carried resources/BW-overlay.png while TileSheet asks for bw-overlay.png, so
+         * "MSCC (Black and White - Editor)" threw NullPointerException in every release before
+         * jc-17 -- measured on the deployed jc-16 jar, the other four loading. Upstream f701c85
+         * renamed the file. The suite runs against the built jar, so this sees what ships. */
+        for (graphics.TileSheet sheet : graphics.TileSheet.values()) {
+            String problem = null;
+            try {
+                java.awt.image.BufferedImage[] images = sheet.getTileSheets(16, 16);
+                if (images.length != 2 || images[0] == null || images[1] == null) problem = "missing images";
+            } catch (Throwable t) {
+                problem = t.toString();
+            }
+            Harness.check("tileset " + sheet + " loads" + (problem == null ? "" : " (" + problem + ")"), problem == null);
+        }
 
         Harness.section("7. the full collection fingerprint (local only)");
         /* Synthesized fixtures catch format and edge-case regressions. They cannot speak for the

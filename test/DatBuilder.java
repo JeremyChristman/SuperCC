@@ -61,6 +61,7 @@ public final class DatBuilder {
         private final byte[] fg = new byte[MAP_CELLS];
         private final byte[] bg = new byte[MAP_CELLS];
         private String title, password, hint, author;
+        private boolean unreadable;
         private final List<int[]> monsters = new ArrayList<>();
         private final List<int[]> traps = new ArrayList<>();
         private final List<int[]> cloners = new ArrayList<>();
@@ -125,6 +126,19 @@ public final class DatBuilder {
             return this;
         }
 
+        /**
+         * Makes this level fail to PARSE: its foreground layer is written as runs that claim 1,025
+         * cells (four runs of 255, then one of 5), so decoding writes cell 1024 of a 1,024-cell
+         * array. DatParser.readLayer does not bound a run, so parseLevel throws
+         * ArrayIndexOutOfBoundsException ("Index 1024 out of bounds for length 1024"). Tiles placed
+         * on this level's upper layer are not written.
+         *
+         * This is the fixture for a level that cannot be loaded. It used to be an UNTITLED level,
+         * whose savestates could not be built; since jc-17 an untitled level loads with an empty
+         * title, as in Tile World, and a corrupt record is what is left.
+         */
+        public Level unreadable() { this.unreadable = true; return this; }
+
         public DatBuilder end() { return DatBuilder.this; }
 
         /**
@@ -143,7 +157,15 @@ public final class DatBuilder {
             word(out, timeLimit);
             word(out, chips);
             word(out, 1);                       // map detail: always 1 for CC1
-            layer(out, fg);
+            if (unreadable) {
+                byte[] overrun = {(byte) 0xFF, (byte) 255, 0, (byte) 0xFF, (byte) 255, 0,
+                                  (byte) 0xFF, (byte) 255, 0, (byte) 0xFF, (byte) 255, 0,
+                                  (byte) 0xFF, 5, 0};  // 4 x 255 + 5 = 1,025 cells
+                word(out, overrun.length);
+                out.write(overrun);
+            } else {
+                layer(out, fg);
+            }
             layer(out, bg);
             out.write(optionalFields());
             return out.toByteArray();

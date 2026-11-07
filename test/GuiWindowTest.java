@@ -72,11 +72,11 @@ public class GuiWindowTest {
          .tile(3, 5, Tile.CHIP_RIGHT).tile(4, 5, Tile.EXIT).end();
         File dat = b.writeTo(dir, "guiprobe.dat").toFile();
         DatBuilder bad = new DatBuilder().signature(DatBuilder.SIG_MS);
-        bad.level().password("ABCD").chips(0).timeLimit(100).tile(3, 5, Tile.CHIP_RIGHT).end();  // no title: cannot load
-        File badDat = bad.writeTo(dir, "untitled.dat").toFile();
+        bad.level().title("Broken").password("ABCD").chips(0).timeLimit(100).unreadable().end();  // cannot load
+        File badDat = bad.writeTo(dir, "unreadable.dat").toFile();
         DatBuilder multi = new DatBuilder().signature(DatBuilder.SIG_MS);
         for (int i = 0; i < 3; i++)
-            multi.level().password("BAD" + i).chips(0).timeLimit(100).tile(3, 5, Tile.CHIP_RIGHT).end();  // untitled
+            multi.level().title("Broken " + i).password("BAD" + i).chips(0).timeLimit(100).unreadable().end();
         multi.level().title("Fourth").password("GOOD").chips(0).timeLimit(100).tile(3, 5, Tile.CHIP_RIGHT).end();
         File multiDat = multi.writeTo(dir, "threebad.dat").toFile();
         File emptyDat = new DatBuilder().signature(DatBuilder.SIG_MS).writeTo(dir, "nolevels.dat").toFile();
@@ -175,6 +175,15 @@ public class GuiWindowTest {
          * With this the open finishes, and the count check is what fails. Stop it with stop().
          */
         static Thread closeEveryDialog() {
+            return closeEveryDialog(() -> { });
+        }
+
+        /**
+         * The same, running {@code whileShowing} on the event thread -- inside the dialog's own
+         * nested loop, so it sees the program's state as it is while the dialog is up -- before
+         * closing each one.
+         */
+        static Thread closeEveryDialog(Runnable whileShowing) {
             Thread t = new Thread(() -> {
                 java.util.Set<java.awt.Window> seen =
                         java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
@@ -183,7 +192,7 @@ public class GuiWindowTest {
                         // seen: the dispose is queued, so a dialog can still be showing next pass.
                         if (win instanceof javax.swing.JDialog && win.isShowing() && seen.add(win)) {
                             dialogsClosed.incrementAndGet();
-                            SwingUtilities.invokeLater(win::dispose);
+                            SwingUtilities.invokeLater(() -> { whileShowing.run(); win.dispose(); });
                         }
                     }
                     try { Thread.sleep(50); } catch (InterruptedException e) { return; }
@@ -312,6 +321,17 @@ public class GuiWindowTest {
                 closeToolWindows(w);
             }
             fact("and still no level is loaded (Open levelset was canceled)", !emu.isLevelLoaded());
+
+            //    View > Tileset works with no level open (jc-17). It used to be skipped by
+            //    requireALevel() while its radio mark still moved: the menu showed a tileset that was
+            //    neither drawn nor saved (review). The walk above clicked every tileset in menu order,
+            //    so the last one -- MSCC (Black and White - Editor), whose overlay image could not be
+            //    found in any jar before jc-17 -- is the one that must now be drawn and saved, as the
+            //    MS tileset, the one drawn at startup. The Lynx choice is untouched.
+            graphics.TileSheet lastSheet = graphics.TileSheet.values()[graphics.TileSheet.values().length - 1];
+            fact("the last tileset clicked is drawn (" + lastSheet + ")", w.getGamePanel().getTileSheet() == lastSheet);
+            fact("and saved as the MS tileset", emu.getPaths().getMSTilesetNum() == lastSheet.ordinal());
+            fact("and the Lynx tileset is left alone", emu.getPaths().getLynxTilesetNum() == 0);
             for (KeyListener k : w.getKeyListeners()) {
                 noThrow("a key press (" + k.getClass().getSimpleName() + ") with no level open", () -> {
                     k.keyPressed(new KeyEvent(w, KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, KeyEvent.VK_UP, KeyEvent.CHAR_UNDEFINED));
@@ -350,7 +370,8 @@ public class GuiWindowTest {
 
             fact("nothing so far wrote to the error log", logSize() == 0);
 
-            // 3a. A set whose level 1 cannot load (no title). It used to throw on a null level right
+            // 3a. A set whose level 1 cannot load (a corrupt record -- an untitled level was the
+            //     fixture until jc-17 made those load). It used to throw on a null level right
             //     after the error; now the error is shown once and nothing is left half-open. The
             //     failed load is a real error, so it SHOULD reach the log -- and nothing else may.
             //     Each open below runs under closeEveryDialog, so a second dialog is counted, not hung on.
@@ -373,13 +394,20 @@ public class GuiWindowTest {
             fact("with one error for the three, not three", dialogsClosed.get() == beforeMulti + 1);
 
             //     A set with no levels at all: it said nothing before. Now one error, and the open
-            //     set is kept.
+            //     set is kept -- and kept WHILE the error is on screen, not only after it: the dialog
+            //     runs a nested event loop, and the previous set used to be put back only once it
+            //     closed, so for as long as it was open the new file sat under the old level (review).
+            //     The closer reads the open set's file from inside that loop, then closes it.
             int beforeEmpty = dialogsClosed.get();
-            Thread emptyCloser = closeEveryDialog();
+            String openSet = emu.getLevelsetPath();
+            List<String> duringDialog = java.util.Collections.synchronizedList(new ArrayList<>());
+            Thread emptyCloser = closeEveryDialog(() -> duringDialog.add(emu.getLevelsetPath()));
             noThrow("opening a set with no levels", () -> emu.openLevelset(new File(args[3])));
             stop(emptyCloser);
             fact("says so, once", dialogsClosed.get() == beforeEmpty + 1);
             fact("and keeps the set that was open", emu.isLevelLoaded() && emu.getLevel().getLevelNumber() == 4);
+            fact("and had already put it back while the error was showing (saw " + duringDialog + ")",
+                 duringDialog.size() == 1 && openSet.equals(duringDialog.get(0)));
             long logAfterBad = logSize();
 
             // 3. With a level set open, the full repaint path runs. Any dialog while opening it is an
