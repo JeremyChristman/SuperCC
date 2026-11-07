@@ -62,7 +62,7 @@ commit is applied as a patch (`git apply -p4 --directory=java`), not merged by g
 | `b997c27`, `98366f7` | Input discarding (Lynx forced moves); the second undoes the first's MS effect | **merged, jc-15** — step 2, below |
 | `40495dd` | Seed search: an `int` overflow made long searches go negative | **merged, jc-16** — step 3, below |
 | `72476bc` | Linux test runner, plus guards for "no level loaded" in `EmulatorKeyListener`, `MenuBar` and `Gui.java` | **merged, jc-17** — step 4, below; hand-merged (its `requireNonNull` around `openFile` would undo jc-12's cancel fix, so it was left out); the Linux test runner and Maven workflow do not apply here |
-| `5f928e0`, `fb8fe25`, `da35e33`, `8c95b3e` | Auto-diagonals | to do — `5f928e0` edits `ControlGUI.form` itself, which needed IntelliJ until `formclass.ps1 -Compile` ran JetBrains' own form compiler (ADR 0011, *Compiling a .form without IntelliJ*, below) |
+| `5f928e0`, `fb8fe25`, `da35e33`, `8c95b3e` | Auto-diagonals | **merged, jc-18** — step 6, below; the Controls window verbatim (its `.form` edit compiled by JetBrains' own form compiler, ADR 0011), the key handling rewritten |
 | `f701c85` | Renames `BW-overlay.png` to the `bw-overlay.png` the code asks for | **merged, jc-17** — the Black and White tileset failed in every release, since jar entries are case-sensitive (step 4, *The second review*) |
 | `d78f6f3`, `3e92380` | Custom tilesets | **merged, jc-18** — step 5, below; with fork fixes for paths shared between machines, Cancel, unreadable images and a missing image at startup |
 
@@ -788,6 +788,56 @@ non-image, none chosen, and the fallback for custom, 99 and -1); `SettingsTest` 
 storage inside the folder, absolute outside, one write with the slot, an old file gaining the keys);
 `GuiWindowTest` (the walk now ends on custom, whose chooser is canceled: Black and White stays drawn
 and saved, the mark returns to it, nothing is saved). Corpus identical to jc-17, 24,212 of 24,212.
+
+### Step 6 — auto-diagonals (`5f928e0`, `fb8fe25`, `da35e33`)
+
+**What upstream added.** Tools › Controls › Auto diagonals (`[Controls] AutoDiagonals`): arrows
+pressed together make a diagonal, and the diagonal keys' remap boxes gray out while it is on.
+`ControlGUI.java` and `ControlGUI.form` are taken verbatim — the `.form` edit compiled by
+`formclass.ps1 -Compile`, the first `.form` change this fork has shipped without IntelliJ — and so
+is upstream's `SuccPaths.Controls` type that window uses.
+
+**Why the key handling was rewritten.** Upstream's `EmulatorKeyListener` started a
+`java.util.Timer` per arrow press and, 50 ms later, ticked the game from that timer's own thread,
+beside the event thread, through an unsynchronized `HashSet`. The architecture review measured four
+more problems against Tile World's rule for the same job (`generic/dirinput.c`):
+- **Input jumped the queue.** Every other key ran at once while an arrow waited, so arrow then
+  Backspace rewound the move BEFORE it, arrow then Shift+1 saved the state a move early, and a click
+  on the game ticked first: the recorded moves were not what was typed.
+- **A tap made no move**, and holding Up while tapping Right made plain Up: the decision used only
+  the keys still held when the timer fired.
+- **Three keys went by table order**, not by what was pressed last.
+- **In MS it ate keys.** MS has no diagonals, so `SuperCC.tick` reduces one to its vertical half:
+  hold Up and press Right, and Chip moved Up, where Tile World's MS mode moves Right.
+
+**What it does now** (`MOD (Jeremy, upstream merge)`): a `javax.swing.Timer` on the event thread,
+started only when a window opens (auto-repeat is faster than 50 ms and would otherwise hold it off);
+only the four arrows wait; a waiting arrow's move is made at once before any other key, any mouse
+press and any loss of focus (from `keyPressed` and from an AWT event listener, which runs before the
+component sees the event); MS makes no window at all. Which move a window makes is
+`emulator/DiagonalCombiner`, pure logic after Tile World's rule: each axis is claimed by its newest
+HELD key, an axis nothing holds by its newest key tapped inside the window, and a tap never
+displaces a held key on its own axis. One deliberate difference, documented there: two keys both
+tapped in one window make a diagonal, where Tile World's per-tick poll keeps one. The switch reads
+through `optedIn()` with its own rendered line (CLAUDE.md §5), and the listener asks the cheap
+`getAutoDiagonals()` — upstream asked `getControls()` on every key press, which parses all twelve
+codes and rewrites the settings file whenever one does not parse.
+
+**Recording is untouched.** The move a window makes goes through the same `processKeyPress` →
+`tick` as the key for that move would, and Solution replay, the corpus and TWS export never pass
+through the key listener. ⚠ One interaction to know: diagonal opening moves become easier to make
+under Lynx, and FORK.md step 2 records that Tile World starts Lynx Chip facing SOUTH while SuperCC
+uses his tile's facing, so a route opening with a diagonal is likelier to meet that known,
+unfixed difference.
+
+**Verification.** `test/AutoDiagonalTest.java` (44): every combining rule, including each of the
+review's counterexamples. `GuiWindowTest` §6, against the real window with real dispatched
+`KeyEvent`s, each sequence compared with the same moves made the plain way: setting off moves at
+once; on under MS still at once; on under Lynx two arrows wait; a wait pressed meanwhile lands AFTER
+their diagonal; a mouse press and a loss of focus make the waiting move; a tap waits and then moves
+when the Swing timer fires. Four mutants — no flush before other keys, none on a mouse press, MS
+waiting too, taps ignored — each fail the checks written for them. `FormClassTest` gives ControlGUI
+an emulator with real settings, which the program always has and the headless one never did.
 
 
 ## jc-14 -- the window title is fully switchable

@@ -89,6 +89,7 @@ public class SuccPaths {
         d.put("Controls:UpRight", String.valueOf(KeyEvent.VK_I));
         d.put("Controls:Rewind", String.valueOf(KeyEvent.VK_BACK_SPACE));
         d.put("Controls:Play", String.valueOf(KeyEvent.VK_ENTER));
+        d.put("Controls:AutoDiagonals", "false");   // upstream 5f928e0: Tools > Controls > Auto diagonals
         d.put("Graphics:TilesheetNum", "0");
         d.put("Graphics:LynxTilesheetNum", "0");
         d.put("Graphics:TileWidth", "20");
@@ -141,6 +142,11 @@ public class SuccPaths {
                 "UpLeft", "DownLeft", "DownRight", "UpRight", "Rewind", "Play"}) {
             append(sb, map, c, "Controls:" + c);
         }
+        /* MOD (Jeremy, upstream merge): a switch, so written through the predicate its getter uses
+         * (CLAUDE.md section 5) -- in the loop above it would echo back "AutoDiagonals = yes" while
+         * reading OFF. Upstream put it between UpRight and Rewind; the file's order is not upstream's
+         * anyway, and the end of the section keeps the twelve key codes together. */
+        sb.append("AutoDiagonals = ").append(optedIn(map.get("Controls:AutoDiagonals"))).append('\n');
         sb.append('\n').append("[Graphics]").append(nl);
         // CustomBaseImage/CustomOverlayImage are paths, not switches, so the raw-value loop is the
         // right mechanism for them (see the note on ShowBuildTag below for the switches).
@@ -347,28 +353,44 @@ public class SuccPaths {
             return "";
         }
     }
-    public int[] getControls() {
-        String[] mapKeys = new String[] {"Controls:Up", "Controls:Left", "Controls:Down", "Controls:Right",
+    /* Upstream 5f928e0: the twelve key codes and the auto-diagonals switch, read and written as one.
+     * The field names and their meaning are upstream's, so tools\ControlGUI.java stays verbatim.
+     * MOD (Jeremy, upstream merge): keyNames is final (upstream's was a mutable public static array
+     * that any caller could reassign for everyone), and the switch goes through optedIn() like every
+     * other default-OFF switch here (upstream used Boolean.parseBoolean, which the file's "1" would
+     * not satisfy and which disagrees with how this file is rendered). */
+    public static class Controls {
+        public static final String[] keyNames = new String[] {"Controls:Up", "Controls:Left", "Controls:Down", "Controls:Right",
                 "Controls:UpLeft", "Controls:DownLeft", "Controls:DownRight", "Controls:UpRight",
                 "Controls:HalfWait", "Controls:FullWait", "Controls:Rewind", "Controls:Play"};
-        int[] controls = new int[mapKeys.length];
-        int[] defaultControls = new int[] {KeyEvent.VK_UP, KeyEvent.VK_LEFT, KeyEvent.VK_DOWN, KeyEvent.VK_RIGHT,
+        public int[] keys = new int[] {KeyEvent.VK_UP, KeyEvent.VK_LEFT, KeyEvent.VK_DOWN, KeyEvent.VK_RIGHT,
                 KeyEvent.VK_U, KeyEvent.VK_J, KeyEvent.VK_K, KeyEvent.VK_I, KeyEvent.VK_SPACE, KeyEvent.VK_ESCAPE,
                 KeyEvent.VK_BACK_SPACE, KeyEvent.VK_ENTER};
+        public boolean autoDiagonals = false;
+    }
+    public Controls getControls() {
+        Controls controls = new Controls();
         boolean error = false;
 
-        for (int i=0; i < mapKeys.length; i++) {
+        for (int i=0; i < Controls.keyNames.length; i++) {
             try {
-                controls[i] = Integer.parseInt(settingsMap.get(mapKeys[i]));
+                controls.keys[i] = Integer.parseInt(settingsMap.get(Controls.keyNames[i]));
             }
             catch (NumberFormatException e) {
-                controls[i] = defaultControls[i];
-                error = true;
+                error = true;      // the default from Controls stays
             }
         }
+        controls.autoDiagonals = getAutoDiagonals();
         if (error)
             setControls(controls);
         return controls;
+    }
+
+    /* MOD (Jeremy, upstream merge): the switch alone, for the key listener, which asks on EVERY key
+     * press. Upstream asked getControls() there, which parses all twelve codes each time and REWRITES
+     * this file whenever one of them does not parse -- a settings write per key press. */
+    public boolean getAutoDiagonals() {
+        return optedIn(settingsMap.get("Controls:AutoDiagonals"));
     }
     public int getMSTilesetNum() {
         try {
@@ -579,19 +601,12 @@ public class SuccPaths {
         settingsMap.put("Paths:succ", succPath);
         updateSettingsFile();
     }
-    public void setControls(int[] controls) {
-        settingsMap.put("Controls:Up", String.valueOf(controls[0]));
-        settingsMap.put("Controls:Left", String.valueOf(controls[1]));
-        settingsMap.put("Controls:Down", String.valueOf(controls[2]));
-        settingsMap.put("Controls:Right", String.valueOf(controls[3]));
-        settingsMap.put("Controls:UpLeft", String.valueOf(controls[4]));
-        settingsMap.put("Controls:DownLeft", String.valueOf(controls[5]));
-        settingsMap.put("Controls:DownRight", String.valueOf(controls[6]));
-        settingsMap.put("Controls:UpRight", String.valueOf(controls[7]));
-        settingsMap.put("Controls:HalfWait", String.valueOf(controls[8]));
-        settingsMap.put("Controls:FullWait", String.valueOf(controls[9]));
-        settingsMap.put("Controls:Rewind", String.valueOf(controls[10]));
-        settingsMap.put("Controls:Play", String.valueOf(controls[11]));
+    /** Upstream 5f928e0: the keys and the auto-diagonals switch in one write (Tools > Controls). */
+    public void setControls(Controls controls) {
+        for (int i = 0; i < Controls.keyNames.length; i++) {
+            settingsMap.put(Controls.keyNames[i], String.valueOf(controls.keys[i]));
+        }
+        settingsMap.put("Controls:AutoDiagonals", String.valueOf(controls.autoDiagonals));
         updateSettingsFile();
     }
     public void setMSTilesetNum(int tilesetNum) {

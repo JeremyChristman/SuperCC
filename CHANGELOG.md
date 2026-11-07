@@ -22,6 +22,15 @@ measured. All three are updated together — see [`.github/RELEASING.md`](.githu
   write; every unusable image is reported in words; and a saved tileset that cannot be drawn —
   custom images gone, or a number out of range, which used to stop startup — falls back to Tile
   World (CCEdit) with the reason, once a session. Upstream's labeled file filters come too.
+- **Auto-diagonals (upstream `5f928e0`, `fb8fe25`, `da35e33`, upstream merge step 6).** Tools ›
+  Controls › Auto diagonals (`[Controls] AutoDiagonals`, default off): arrows pressed together make
+  a diagonal. The Controls window is upstream's verbatim, its `.form` edit compiled by JetBrains'
+  form compiler. The key handling is rewritten: upstream ticked the game from a background thread,
+  let other input overtake a waiting arrow (so the recorded moves differed from what was typed),
+  lost taps, chose by table order, and ate keys under MS. Now an event-thread timer, a flush of the
+  waiting arrow before any other key, click or focus loss, Tile World's newest-per-axis rule
+  (`emulator/DiagonalCombiner`), and no waiting under MS. `AutoDiagonalTest` (44) and
+  `GuiWindowTest` §6; four mutants each caught.
 - **`formclass.ps1 -Compile` and `-DownloadCompiler`: a `.form` edit no longer needs IntelliJ**
   (ADR 0011). JetBrains' own form compiler (`java-gui-forms-compiler` 211.7628.21, six jars pinned
   by SHA-256, cached in `%LOCALAPPDATA%`, never shipped), driven as IntelliJ's IDE build drives it by

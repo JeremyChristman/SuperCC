@@ -80,12 +80,17 @@ public class GuiWindowTest {
         multi.level().title("Fourth").password("GOOD").chips(0).timeLimit(100).tile(3, 5, Tile.CHIP_RIGHT).end();
         File multiDat = multi.writeTo(dir, "threebad.dat").toFile();
         File emptyDat = new DatBuilder().signature(DatBuilder.SIG_MS).writeTo(dir, "nolevels.dat").toFile();
+        // Open floor around Chip, under Lynx, where auto-diagonals make diagonal moves.
+        File lynxDat = new DatBuilder().signature(DatBuilder.SIG_LYNX)
+                .level().title("Lynx Probe").password("WXYZ").chips(0).timeLimit(100).tile(15, 15, Tile.CHIP_DOWN).end()
+                .writeTo(dir, "lynxprobe.dat").toFile();
 
         String java = Path.of(System.getProperty("java.home"), "bin", "java").toString();
         ProcessBuilder pb = new ProcessBuilder(java, "-Djava.awt.headless=false",
                 "-Dsupercc.jar=" + System.getProperty("supercc.jar", ""),
                 "-cp", System.getProperty("java.class.path"), "GuiWindowTest$Probe", dat.getAbsolutePath(),
-                badDat.getAbsolutePath(), multiDat.getAbsolutePath(), emptyDat.getAbsolutePath());
+                badDat.getAbsolutePath(), multiDat.getAbsolutePath(), emptyDat.getAbsolutePath(),
+                lynxDat.getAbsolutePath());
         pb.directory(dir.toFile());
         pb.redirectErrorStream(true);
         Process p = pb.start();
@@ -241,6 +246,37 @@ public class GuiWindowTest {
             Field f = o.getClass().getDeclaredField(name);
             f.setAccessible(true);
             return f.get(o);
+        }
+
+        /** In ONE event-thread step, so no 50 ms window can close in between: forgets anything an
+         *  earlier run left waiting or held, opens `set` afresh, presses each key through the frame as
+         *  a real KEY_PRESSED, runs `then`, and returns the recorded moves at that instant. Then
+         *  releases the keys, so none is left "held" for the next run. */
+        static String keyRun(SuperCC emu, graphics.Gui w, File set, Runnable then, int... keys) throws Exception {
+            String[] moves = { null };
+            SwingUtilities.invokeAndWait(() -> {
+                emu.getControls().inputInterrupted();
+                emu.openLevelset(set);
+                for (int k : keys)
+                    w.dispatchEvent(new KeyEvent(w, KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, k, KeyEvent.CHAR_UNDEFINED));
+                if (then != null) then.run();
+                moves[0] = emu.getSavestates().movesToString();
+                for (int k : keys)
+                    w.dispatchEvent(new KeyEvent(w, KeyEvent.KEY_RELEASED, System.currentTimeMillis(), 0, k, KeyEvent.CHAR_UNDEFINED));
+            });
+            return moves[0];
+        }
+        static String keyRun(SuperCC emu, graphics.Gui w, File set, int... keys) throws Exception {
+            return keyRun(emu, w, set, null, keys);
+        }
+
+        /** Tools > Controls' checkbox, the way its window saves it. */
+        static void setAutoDiagonals(SuperCC emu, boolean on) throws Exception {
+            SwingUtilities.invokeAndWait(() -> {
+                io.SuccPaths.Controls c = emu.getPaths().getControls();
+                c.autoDiagonals = on;
+                emu.getPaths().setControls(c);
+            });
         }
 
         static JMenuItem item(graphics.Gui w, String menu, String text) {
@@ -471,6 +507,50 @@ public class GuiWindowTest {
             fact("and it did load", emu.getLevel() != levelBefore && emu.getSavestates() != null
                                     && "Gui Probe".equals(emu.getLevel().getTitle()));
             noThrow("and the window repaints again with its play button back", () -> w.repaint(true));
+
+            // 6. Auto-diagonals (jc-18; upstream 5f928e0/da35e33, rewritten): the key listener's
+            //    WIRING, against the real window. Which move a burst makes is AutoDiagonalTest's.
+            //    Real KeyEvents are dispatched through the frame, so the program's AWT event
+            //    listener sees them exactly as it sees a keyboard. Each sequence starts from a
+            //    freshly opened set, and its recorded moves are compared with the same moves made
+            //    the plain way -- with the setting off, or with the diagonal key -- so nothing here
+            //    depends on how a ruleset spells a move.
+            File msSet = new File(args[0]), lynxSet = new File(args[4]);
+            Component moveList = (Component) field(w, "movePanel");
+            Runnable click = () -> moveList.dispatchEvent(new java.awt.event.MouseEvent(moveList,
+                    java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(), 0, 5, 5, 1, false, java.awt.event.MouseEvent.BUTTON1));
+            // The plain way first, with the setting off.
+            String msRight    = keyRun(emu, w, msSet, KeyEvent.VK_RIGHT);
+            String plainUp    = keyRun(emu, w, lynxSet, KeyEvent.VK_UP);
+            String plainRight = keyRun(emu, w, lynxSet, KeyEvent.VK_RIGHT);
+            String plainDiag  = keyRun(emu, w, lynxSet, KeyEvent.VK_I, KeyEvent.VK_SPACE);   // the Up-Right key, then a wait
+            fact("setting OFF: an arrow moves at once, as it always has", !msRight.isEmpty() && !plainUp.isEmpty() && !plainRight.isEmpty());
+            fact("and the plain moves differ from each other (so the comparisons below can fail)",
+                 !plainUp.equals(plainRight) && !plainDiag.equals(plainUp));
+
+            setAutoDiagonals(emu, true);
+            fact("setting ON under MS: still at once -- MS cannot move diagonally, so nothing waits",
+                 keyRun(emu, w, msSet, KeyEvent.VK_RIGHT).equals(msRight));
+            fact("setting ON under Lynx: Up and Right wait for their window (nothing recorded yet)",
+                 keyRun(emu, w, lynxSet, KeyEvent.VK_UP, KeyEvent.VK_RIGHT).isEmpty());
+            String flushed = keyRun(emu, w, lynxSet, KeyEvent.VK_UP, KeyEvent.VK_RIGHT, KeyEvent.VK_SPACE);
+            fact("a wait pressed while they wait comes AFTER their diagonal, not before it (" + flushed + " vs " + plainDiag + ")",
+                 flushed.equals(plainDiag));
+            String clicked = keyRun(emu, w, lynxSet, click, KeyEvent.VK_UP);
+            fact("a mouse press anywhere makes the waiting move first (" + clicked + " vs " + plainUp + ")", clicked.equals(plainUp));
+            String interrupted = keyRun(emu, w, lynxSet, () -> emu.getControls().inputInterrupted(), KeyEvent.VK_LEFT);
+            fact("losing focus makes the waiting move at once, too", !interrupted.isEmpty());
+
+            // A TAP: pressed and released inside the window, then nothing -- the window's own timer.
+            String tapped = keyRun(emu, w, lynxSet, () -> w.dispatchEvent(new KeyEvent(w, KeyEvent.KEY_RELEASED,
+                    System.currentTimeMillis(), 0, KeyEvent.VK_RIGHT, KeyEvent.CHAR_UNDEFINED)), KeyEvent.VK_RIGHT);
+            fact("a tap waits like a press (nothing recorded yet)", tapped.isEmpty());
+            Thread.sleep(400);   // well past the 50 ms window; the Swing timer fires on the event thread
+            String[] afterTap = { null };
+            SwingUtilities.invokeAndWait(() -> afterTap[0] = emu.getSavestates().movesToString());
+            fact("and still makes its move when the window closes -- upstream made none (" + afterTap[0] + " vs " + plainRight + ")",
+                 afterTap[0].equals(plainRight));
+            setAutoDiagonals(emu, false);
 
             SwingUtilities.invokeAndWait(w::dispose);
             // The parent requires this line: a click that quit the program with exit code 0 (closing

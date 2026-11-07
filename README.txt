@@ -281,6 +281,7 @@ This is the complete stock file. Every key SuperCC knows is here:
     UpRight = 73
     Rewind = 8
     Play = 10
+    AutoDiagonals = false
 
     [Graphics]
     TilesheetNum = 0
@@ -369,6 +370,23 @@ numeric keypad 0-9 is 96-105. These are java.awt.event.KeyEvent's VK_ values;
 any table of those works.
 
 A value that is not a number is replaced by that key's default at launch.
+
+AutoDiagonals   Whether two arrow keys pressed together make a diagonal move,
+                so the four diagonal keys are not needed.
+                Values:  true or 1 turns it ON. ANYTHING ELSE IS OFF.
+                Default: false
+                Set it in the program with Tools > Controls > Auto diagonals,
+                which writes this line when the Controls window is closed
+                (the diagonal keys' boxes are grayed out while it is on).
+                How it works: an arrow waits a twentieth of a second for a
+                partner. Two arrows on different axes make the diagonal;
+                holding one arrow and pressing another makes it too; a quick
+                tap counts; with both of one axis down, the newer wins. Any
+                other key, a mouse click, or switching away makes a waiting
+                arrow's move at once, so nothing you do is recorded out of
+                order.
+                LYNX ONLY in effect. MS has no diagonal moves, so under MS the
+                arrows move at once, exactly as with this off.
 
 
 [Graphics]

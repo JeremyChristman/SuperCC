@@ -143,7 +143,16 @@ public class FormClassTest {
         construct("tools.ChangeTimer",             End.WINDOW,         e, emu);
         construct("tools.ChooseTileSize",          End.WINDOW,         new Class<?>[]{ SuperCC.class, int.class, int.class, int.class }, emu, 20, 1, 100);
         construct("tools.ChooseWindowSize",        End.NO_MAIN_WINDOW, e, emu);
-        construct("tools.ControlGUI",              End.WINDOW,         e, emu);
+        /* ControlGUI reads the auto-diagonals setting as it builds (upstream 5f928e0), so its emulator
+         * needs a settings file. The headless one never loads one; the program always has one, and
+         * ControlGUI is only ever opened from its window. So this emulator gets real SuccPaths over
+         * a scratch file, through the field the program's own constructor fills. */
+        SuperCC withSettings = new SuperCC(false);
+        java.lang.reflect.Field pathsField = SuperCC.class.getDeclaredField("paths");
+        pathsField.setAccessible(true);
+        pathsField.set(withSettings, io.SuccPaths.load(
+                Harness.tempDir("scc-forms-settings-").resolve(io.SuccPaths.SETTINGS_FILE_NAME).toFile()));
+        construct("tools.ControlGUI",              End.WINDOW,         e, withSettings);
         construct("tools.GameGifRecorder",         End.WINDOW,         e, emu);
         construct("tools.HelpWindow",              End.WINDOW,         e, emu);
         construct("tools.MonsterlistRearrangeGUI", End.WINDOW,         new Class<?>[]{ SuperCC.class, boolean.class }, emu, false);
