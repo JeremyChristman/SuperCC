@@ -18,7 +18,8 @@ wrong. Read the relevant record before changing the behavior it describes.
 | [0007](0007-synthesize-dat-fixtures.md) | Engine tests synthesize `.dat` fixtures instead of committing level sets | Accepted |
 | [0008](0008-tws-folder-remembers-again.md) | The TWS folder remembers the last folder used (reverses jc-8) | Accepted |
 | [0009](0009-the-error-log-is-not-a-setting.md) | The error log is always on, and is not a setting (carve-out from 0005) | Accepted |
-| [0010](0010-rebuild-form-classes-by-transplant.md) | Rebuild a form class whose `.form` is unchanged, without IntelliJ (amends 0001, 0002) | Accepted |
+| [0010](0010-rebuild-form-classes-by-transplant.md) | Rebuild a form class whose `.form` is unchanged, without IntelliJ (amends 0001, 0002) | Accepted; amended by 0011 |
+| [0011](0011-compile-form-classes-with-jetbrains-compiler.md) | Compile form classes with JetBrains' own form compiler, and check them byte for byte (amends 0002, 0010) | Accepted |
 
 ## Writing a new one
 

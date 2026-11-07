@@ -62,7 +62,7 @@ commit is applied as a patch (`git apply -p4 --directory=java`), not merged by g
 | `b997c27`, `98366f7` | Input discarding (Lynx forced moves); the second undoes the first's MS effect | **merged, jc-15** — step 2, below |
 | `40495dd` | Seed search: an `int` overflow made long searches go negative | **merged, jc-16** — step 3, below |
 | `72476bc` | Linux test runner, plus guards for "no level loaded" in `EmulatorKeyListener`, `MenuBar` and `Gui.java` | **merged, jc-17** — step 4, below; hand-merged (its `requireNonNull` around `openFile` would undo jc-12's cancel fix, so it was left out); the Linux test runner and Maven workflow do not apply here |
-| `5f928e0`, `fb8fe25`, `da35e33`, `8c95b3e` | Auto-diagonals | to do — `5f928e0` edits `ControlGUI.form` itself, which still needs IntelliJ's form compiler (ADR 0010) |
+| `5f928e0`, `fb8fe25`, `da35e33`, `8c95b3e` | Auto-diagonals | to do — `5f928e0` edits `ControlGUI.form` itself, which needed IntelliJ until `formclass.ps1 -Compile` ran JetBrains' own form compiler (ADR 0011, *Compiling a .form without IntelliJ*, below) |
 | `f701c85` | Renames `BW-overlay.png` to the `bw-overlay.png` the code asks for | **merged, jc-17** — the Black and White tileset failed in every release, since jar entries are case-sensitive (step 4, *The second review*) |
 | `d78f6f3`, `3e92380` | Custom tilesets | to do — touches the form-bound `Gui.java` and `ChooseTileSize.java`, `.form`s untouched: `formclass.ps1` |
 
@@ -719,6 +719,36 @@ below was reproduced first: every new check fails on the jar as committed, and p
   - `verify-splice` passes (15 spliced, 63 unspliced);
   - `formclass.ps1 -Check` and `-SelfTest` pass;
   - coverage was re-baselined (the target is unchanged at 56.5%).
+
+### Compiling a .form without IntelliJ (tooling for steps 5 and 6, docs/adr/0011)
+
+Upstream's auto-diagonals change edits `tools/ControlGUI.form`, which ADR 0010's transplant cannot
+follow. The maintainer chose, from four options, to download **JetBrains' own form compiler** as a
+hash-pinned test-time tool (2026-11-07). The measurement came first: driven exactly as IntelliJ's
+IDE build drives it (`FormsInstrumenter.java` at `idea/211.7628.21`), javac 16.0.2 plus
+`java-gui-forms-compiler` 211.7628.21 reproduce **all fifteen IntelliJ-built form classes and their
+22 inner classes byte for byte**, against the tree at `331a9bd`. The transplant had matched 4 of 15.
+
+- `formclass.ps1 -DownloadCompiler` fetches six jars by pinned SHA-256 into `%LOCALAPPDATA%`;
+  `-Compile` builds a class with them; `-Rebuild` became an alias of it.
+- `-Check` adds a BYTE comparison against javac + the compiler from the committed `.java` **and
+  `.form`**: the first check here that can see a `.form` edit. CI and the release workflow download
+  the compiler fresh (uncached, as JaCoCo is) and pass `-RequireCompiler`, so its absence fails.
+- First run of the byte check: **exactly the three classes the transplant had built failed** —
+  SeedSearch (jc-16), Gui and ChooseTileSize (jc-17) — while the other twelve passed. They were
+  recompiled; against jc-17's jar their code and strings are identical (`Get-ClassKey`), and only
+  stack-map frames and pool layout moved.
+- **The architecture review's sharpest point:** the real compiler is faithful to IntelliJ's bugs
+  too. ADR 0010's transplant refuses the constructor shapes where IntelliJ misplaces the setup call,
+  so every compile still runs it as a lint and requires the two to agree on placement.
+  `-SelfTest` proves it: JetBrains' compiler builds the `new ChangeTimer(0)` specimen without
+  complaint, and the lint refuses it. Self-test 22 of 22.
+- Found on the way: the vendored `com/intellij/uiDesigner/core` runtime, recorded as "not a
+  published artifact", is byte-identical to `java-gui-forms-rt` 211.7628.21 in JetBrains' own
+  repository (`docs/THIRD_PARTY.md`). Maven Central, the only place compared before, never had it.
+- And: the desktop's checkout still had CRLF in the fifteen `.form` files and one `.py`, left from
+  before `.gitattributes` normalized them, so a desktop-built jar's `java/**/*.form` entries differed
+  from CI's. Re-checked out as LF.
 
 
 ## jc-14 -- the window title is fully switchable

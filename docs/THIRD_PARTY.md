@@ -50,17 +50,33 @@ curl -s -X POST https://api.osv.dev/v1/query -d \
 That one command is the whole vulnerability process for this dependency. Run it when something
 prompts you to; there is no automation that can, for the reason below.
 
-### `com.intellij.uiDesigner.core` — **not a published artifact**
+### `com.intellij.uiDesigner.core` — **java-gui-forms-rt 211.7628.21**, established by byte identity
 
-Compared against every `forms_rt` release on Maven Central — `com.intellij` 4.5.4, 5.0, 5.1, 6.0.3,
-6.0.5, 7.0.3, and `com.github.adedayo.intellij.sdk` 142.1 — and `GridConstraints.class` matches
-**none** of them. That is consistent with the tree having been extracted from an IntelliJ IDEA
-installation rather than from Maven: the IDE ships this runtime inside its own jars, versioned by
-IDE build rather than by artifact version.
+All eleven vendored classes are **byte-for-byte identical** to the same classes in
+`com.jetbrains.intellij.java:java-gui-forms-rt:211.7628.21`, from JetBrains' own repository
+(`cache-redirector.jetbrains.com/intellij-repository/releases`), measured 2026-11-07. That jar has
+one class more, which nothing here uses. 211.7628.21 is the IntelliJ IDEA build line (2021.1) that
+compiled the committed form classes, and the matching form COMPILER of the same build reproduces
+them byte for byte (`docs/adr/0011`) — so the runtime and the compiler are known to be one version.
 
-So this one genuinely cannot be pinned to a published release, and saying "it is forms_rt from some
-IDEA build" is as precise as the evidence allows. It is JetBrains' own Apache-2.0 layout code, it
-has no network or file surface, and it is only reached by generated `$$$setupUI$$$()` methods.
+This section used to say the runtime "cannot be pinned to a published release": it had been
+compared against every `forms_rt` on Maven Central (`com.intellij` 4.5.4 through 7.0.3, and
+`com.github.adedayo.intellij.sdk` 142.1), and `GridConstraints.class` matches none of them. That was
+true of Maven Central. JetBrains publishes its IDE-build artifacts in its own repository, which had
+not been looked at. It is JetBrains' own Apache-2.0 layout code, it has no network or file surface,
+and it is only reached by generated `$$$setupUI$$$()` methods.
+
+## Downloaded at build time, never shipped
+
+`formclass.ps1 -DownloadCompiler` fetches **JetBrains' form compiler** — the tool IntelliJ's build
+uses to turn a `.form` into the `$$$setupUI$$$()` bytecode — so a form class can be compiled without
+IntelliJ (`docs/adr/0011`). Six jars, each pinned by SHA-256 in `formclass.ps1` and re-hashed on
+every use: `java-gui-forms-compiler`, `java-gui-forms-rt`, `java-compiler-instrumentation-util` and
+`java-compiler-instrumentation-util-java8` (all `com.jetbrains.intellij.java`, 211.7628.21, Apache-2.0),
+and `org.jetbrains.intellij.deps` `asm-all` 9.1 (BSD-3-Clause) and `jdom` 2.0.6 (the JDOM license,
+Apache-style). They are cached per machine under `%LOCALAPPDATA%\supercc-formsc\`, downloaded fresh by
+CI and the release workflow, and **never committed and never in the jar** — like JaCoCo
+(`coverage.ps1`), they are tools, not dependencies of the program.
 
 ## Why Dependabot does not cover any of this
 

@@ -57,8 +57,9 @@ form-based classes.
    and the coverage figures move (CLAUDE.md §1, §4). If you edited a `java/**` file,
    `verify-splice.ps1` is what proves the edit is actually going to ship. If you edited a
    form-based class (one with a sibling `.form`), also run
-   `powershell -ExecutionPolicy Bypass -File formclass.ps1 -Check`: it proves the committed `.class`
-   was rebuilt from that `.java` (ADR 0010). CI and the release workflow run it too.
+   `powershell -ExecutionPolicy Bypass -File formclass.ps1 -Check -RequireCompiler`: it proves the
+   committed `.class` is byte for byte what JetBrains' form compiler makes of that `.java` and its
+   `.form` (ADR 0011; `-DownloadCompiler` once per machine). CI and the release workflow run it too.
 
    **If the release touches `java/game/**`, `java/io/**` or `java/emulator/**`, also replay the
    corpus** against the previous release's jar and compare (needs the local Chip's Challenge folder,

@@ -103,19 +103,28 @@ jobs:
         shell: powershell
         run: powershell -ExecutionPolicy Bypass -File build.ps1 -Manifest dist/build-manifest.json
 
-      # The fifteen form classes ship as committed IntelliJ-built bytecode, and verify-splice can
-      # only hash their .java and .form. formclass.ps1 rebuilds each one from its .java (javac plus
-      # the generated members copied from the committed class, docs/adr/0010) and compares: a .java
-      # edit whose class was never rebuilt fails here instead of shipping the old window. -SelfTest
-      # proves the rebuild tool still refuses the inputs that would produce a window with no
-      # components. Both compile against the jar just built, so they run after the build.
+      # The fifteen form classes ship as committed bytecode, and verify-splice can only hash their
+      # .java and .form. formclass.ps1 -Check compiles each one from its committed .java AND .form
+      # with javac plus JetBrains' own form compiler (docs/adr/0011) and requires the committed
+      # classes byte for byte, so a .java or .form edit whose class was never compiled fails here
+      # instead of shipping the old window. -SelfTest proves the gate catches both, and that the
+      # lint refuses the constructor shapes IntelliJ's own placement gets wrong.
+      # The compiler is a test-time download, hash-pinned in formclass.ps1 and re-hashed on every
+      # use. Deliberately NOT cached: caching means pinning another third-party action into these
+      # workflows (the same trade release.yml declines for JaCoCo), and it is about 1 MB.
+      # -RequireCompiler makes both steps FAIL rather than fall back to the weaker check, so
+      # deleting the download step cannot quietly downgrade the gate.
+      - name: Download JetBrains' form compiler
+        shell: powershell
+        run: powershell -ExecutionPolicy Bypass -File formclass.ps1 -DownloadCompiler
+
       - name: Form classes match their source
         shell: powershell
-        run: powershell -ExecutionPolicy Bypass -File formclass.ps1 -Check -Jar SuperCC.jar
+        run: powershell -ExecutionPolicy Bypass -File formclass.ps1 -Check -RequireCompiler -Jar SuperCC.jar
 
-      - name: Form-class rebuild tool self-test
+      - name: Form-class tool self-test
         shell: powershell
-        run: powershell -ExecutionPolicy Bypass -File formclass.ps1 -SelfTest -Jar SuperCC.jar
+        run: powershell -ExecutionPolicy Bypass -File formclass.ps1 -SelfTest -RequireCompiler -Jar SuperCC.jar
 
       - name: Test
         shell: powershell

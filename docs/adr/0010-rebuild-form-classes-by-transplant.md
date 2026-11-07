@@ -1,6 +1,6 @@
 # 0010 — Rebuild a form class whose `.form` is unchanged, without IntelliJ
 
-**Status:** Accepted (2026-11-03) · **Amends:** 0001, 0002 · **Applies to:** `formclass.ps1`, `formclass/FormTransplant.java`
+**Status:** Accepted (2026-11-03); **amended by 0011** (2026-11-07: classes are now compiled by JetBrains' own form compiler, and this transplant survives as a lint) · **Amends:** 0001, 0002 · **Applies to:** `formclass.ps1`, `formclass/FormTransplant.java`
 
 ## Context
 

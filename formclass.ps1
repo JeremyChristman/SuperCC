@@ -1,5 +1,6 @@
 <#
-Rebuilds -- or checks -- the committed bytecode of a FORM-BASED class whose .form is unchanged.
+Compiles -- or checks -- the committed bytecode of a FORM-BASED class, .form edits included.
+(Until jc-18 it could only rebuild a class whose .form was unchanged; docs\adr\0011 replaced that.)
 
 WHY THIS EXISTS
 ---------------
@@ -20,25 +21,46 @@ IntelliJ's own instrumenter chooses. docs\adr\0010 records the decision and how 
   powershell -ExecutionPolicy Bypass -File formclass.ps1 -Check -Jar SuperCC.jar   # reuse a build
 
 -Rebuild <file>[,<file>...]
-    Overwrites the committed <Name>.class and every <Name>$*.class with the rebuilt set, deleting
-    any committed inner class the new source no longer produces (a leftover one would ship
-    unseen: verify-splice's orphan check only asks whether <Name>.java exists). Then re-run
-    verify-splice.ps1 -UpdateFormBaseline and commit the classes and the baseline together.
+    Since jc-18, the same as -Compile (below). It used to build the class by the transplant, which
+    keeps javac's stack-map frames where IntelliJ recomputes them, so its classes would now fail
+    -Check's byte comparison. docs\adr\0011.
 
 -Check
-    Rebuilds all fifteen into a temp folder and compares each against the committed classes, as
-    verify-splice compares ordinary files: the disassembly plus the sorted string constants, with
-    constant-pool index numbers removed (IntelliJ numbered the pool differently in the three forms
-    that use $$$getFont$$$; the code is identical). This is what proves a committed form class
-    matches its .java. It cannot prove the class matches its .form -- verify-splice's .form hash
-    does that part, and a .form edit still needs IntelliJ. Nor can it prove the TOOL right: once a
-    class has been rebuilt, both sides of the comparison came from FormTransplant. That is
-    test\FormClassTest.java's job -- it runs every form window's real constructor.
+    Two comparisons for each of the fifteen. First the transplant's: javac on the committed .java,
+    the generated members copied from the committed class, compared as verify-splice compares
+    ordinary files (disassembly plus sorted string constants, constant-pool numbers removed) -- a
+    .java edit whose class was never compiled fails here. Then the BYTE check: javac plus JetBrains'
+    compiler, from the committed .java AND .form, must reproduce every committed class exactly --
+    which is the only thing here that can see a .form edit. The byte check needs the compiler; with
+    -RequireCompiler (CI, the release workflow) its absence is a failure, without it a loud warning.
+    Neither comparison proves a window still WORKS: test\FormClassTest.java runs the real
+    constructor of every form window that can run headless, and test\GuiWindowTest.java builds the
+    main one.
 
 -SelfTest
     Eighteen checks on seventeen specimens built from tools\SeedSearch, ChangeTimer and ChangeInventory:
     each refusal that guards a window that would break when opened, and the placements that differ
-    from a naive rule.
+    from a naive rule. With the compiler, four more: it reproduces a committed class byte for byte,
+    the byte check catches an uncompiled .form edit and a transplant-built class, and -Compile's
+    lint refuses a constructor IntelliJ's own placement gets wrong.
+
+-DownloadCompiler
+    Fetches JetBrains' own form compiler -- java-gui-forms-compiler 211.7628.21, the IntelliJ line
+    that built the committed classes, and the five jars it runs with -- into
+    %LOCALAPPDATA%\supercc-formsc\211.7628.21\, checking every jar against a SHA-256 pinned below.
+    A test-time tool like JaCoCo: never committed, never shipped. Every later use re-checks the
+    hashes, so a jar changed on disk is refused, not run. docs\adr\0011.
+
+-Compile <file>[,<file>...]
+    javac compiles the .java, JetBrains' compiler reads the .form and adds the generated members --
+    exactly what IntelliJ's build does: from unchanged sources it reproduces all fifteen
+    IntelliJ-built classes byte for byte (formclass\FormCompile.java says how). Then the
+    transplant's refusals run over the same javac output as a LINT, because the real compiler
+    reproduces IntelliJ's known misplacements faithfully (docs\adr\0010), and the two must agree on
+    where the call goes. Overwrites the committed <Name>.class and every <Name>$*.class with the new
+    set, deleting any committed inner class the source no longer produces (a leftover one would ship
+    unseen). Then run verify-splice.ps1 -UpdateFormBaseline and commit the source, the classes and
+    the baseline together. Needs -DownloadCompiler once per machine.
 
 Measured on the tree this was written against (jc-15): -Check passes all fifteen, and from
 unchanged source the rebuild is BYTE-IDENTICAL to IntelliJ's output for ChangeTimer,
@@ -58,7 +80,8 @@ version of it.
 Exit code: 0 only if everything rebuilt or checked cleanly.
 #>
 [CmdletBinding()]
-param([string[]]$Rebuild, [switch]$Check, [switch]$SelfTest, [string]$Jar)
+param([string[]]$Rebuild, [string[]]$Compile, [switch]$Check, [switch]$SelfTest, [switch]$DownloadCompiler,
+      [switch]$RequireCompiler, [string]$Jar)
 
 # Native tools write notes to stderr; under "Stop" PowerShell 5.1 turns those into terminating
 # errors even on success. Exit codes are checked explicitly instead.
@@ -68,8 +91,105 @@ $root = $PSScriptRoot
 
 # Each term parenthesized: PowerShell binds the comma tighter than -gt, so `$a.Count -gt 0, $b`
 # compares against an ARRAY, fails, and under "Continue" carries on as if no mode had been given.
-$modeCount = [int]($Rebuild.Count -gt 0) + [int][bool]$Check + [int][bool]$SelfTest
-if ($modeCount -ne 1) { throw "Pass exactly one of -Rebuild <java\-relative file>, -Check or -SelfTest." }
+$modeCount = [int]($Rebuild.Count -gt 0) + [int]($Compile.Count -gt 0) + [int][bool]$Check + [int][bool]$SelfTest + [int][bool]$DownloadCompiler
+if ($modeCount -ne 1) { throw "Pass exactly one of -Rebuild <file>, -Compile <file>, -Check, -SelfTest or -DownloadCompiler." }
+
+<# JetBrains' form compiler (docs\adr\0011). The version is the IntelliJ line that built the committed
+   classes (ADR 0010 read FormConstructorVisitor at the same tag). Six jars are what it runs with
+   here; its POM also names org.jetbrains:annotations (compile-time only) and com.jgoodies:forms
+   (needed only by a form laid out with JGoodies' FormLayout, which none of the fifteen is -- such a
+   form would fail loudly with NoClassDefFoundError, not compile wrongly). Each SHA-256 was taken
+   from a download whose SHA-1 matched the one the repository publishes beside it. #>
+$FORMSC_VERSION = "211.7628.21"
+$FORMSC_DIR = Join-Path $env:LOCALAPPDATA "supercc-formsc\$FORMSC_VERSION"
+$jbJava = "https://cache-redirector.jetbrains.com/intellij-repository/releases/com/jetbrains/intellij/java"
+$jbDeps = "https://cache-redirector.jetbrains.com/intellij-dependencies/org/jetbrains/intellij/deps"
+$FORMSC_JARS = @(
+    @{ Name = "java-gui-forms-compiler-$FORMSC_VERSION.jar"; Url = "$jbJava/java-gui-forms-compiler/$FORMSC_VERSION/java-gui-forms-compiler-$FORMSC_VERSION.jar";
+       Sha256 = "23CCB811A9A49D0F5622AB9CAF47D34C020E933A042AA4A2FBC964A8D7099C60" },
+    @{ Name = "java-gui-forms-rt-$FORMSC_VERSION.jar"; Url = "$jbJava/java-gui-forms-rt/$FORMSC_VERSION/java-gui-forms-rt-$FORMSC_VERSION.jar";
+       Sha256 = "9A38EF9996B1EA6E76CAD688E9389363120AAFAB27D0892E8225365CD61EB279" },
+    @{ Name = "java-compiler-instrumentation-util-$FORMSC_VERSION.jar"; Url = "$jbJava/java-compiler-instrumentation-util/$FORMSC_VERSION/java-compiler-instrumentation-util-$FORMSC_VERSION.jar";
+       Sha256 = "927B1817F4EEFEDC0A2E545E2DB8F5356E6B73B2F0174F5BBAFF8BDD0C550489" },
+    # JrtLoader: without it the finder cannot see the JDK's own classes and every form fails.
+    @{ Name = "java-compiler-instrumentation-util-java8-$FORMSC_VERSION.jar"; Url = "$jbJava/java-compiler-instrumentation-util-java8/$FORMSC_VERSION/java-compiler-instrumentation-util-java8-$FORMSC_VERSION.jar";
+       Sha256 = "E3A3A0464C2278C278543A27666276FFE9347ADD3AE8D3638948F942A09272A0" },
+    @{ Name = "asm-all-9.1.jar"; Url = "$jbDeps/asm-all/9.1/asm-all-9.1.jar";
+       Sha256 = "C9DCB554F5E410A76D3D0DFC0B06CD6156AFDDCB31A9B3831446F4927B22CBC3" },
+    @{ Name = "jdom-2.0.6.jar"; Url = "$jbDeps/jdom/2.0.6/jdom-2.0.6.jar";
+       Sha256 = "BA6A807A6AA9FD2D034DB2B048C32DC55254172BEF3085D683516DE9E853FBD5" }
+)
+
+# The compiler's classpath, or $null with the reason in $script:formscProblem. Every jar is hashed
+# on every use: a cached jar that changed is refused, never run.
+function Get-FormsCompilerClasspath {
+    $paths = @()
+    foreach ($j in $FORMSC_JARS) {
+        $p = Join-Path $FORMSC_DIR $j.Name
+        if (-not (Test-Path -LiteralPath $p -PathType Leaf)) {
+            $script:formscProblem = "$($j.Name) is not cached in $FORMSC_DIR -- run formclass.ps1 -DownloadCompiler"
+            return $null
+        }
+        $sha = (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash
+        if ($sha -ne $j.Sha256) {
+            $script:formscProblem = "$p has SHA-256 $sha, expected $($j.Sha256) -- delete it and run formclass.ps1 -DownloadCompiler"
+            return $null
+        }
+        $paths += $p
+    }
+    return ($paths -join ";")
+}
+
+if ($DownloadCompiler) {
+    New-Item -ItemType Directory -Force -Path $FORMSC_DIR | Out-Null
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $savedProgress = $ProgressPreference
+    $ProgressPreference = 'SilentlyContinue'   # Invoke-WebRequest's progress bar is slow non-interactively
+    $failed = 0
+    foreach ($j in $FORMSC_JARS) {
+        $dest = Join-Path $FORMSC_DIR $j.Name
+        if ((Test-Path -LiteralPath $dest) -and (Get-FileHash -LiteralPath $dest -Algorithm SHA256).Hash -eq $j.Sha256) {
+            Write-Host "  ok      $($j.Name) (cached)"; continue
+        }
+        # Downloaded beside the target under a temporary name, checked, THEN moved into place, so a
+        # truncated or substituted file is never left where the compiler would find it.
+        $tmp = "$dest.part"
+        $got = $false; $lastError = ""
+        foreach ($attempt in 1..3) {   # retried: this sits on the CI and release critical paths
+            try {
+                Invoke-WebRequest -Uri $j.Url -OutFile $tmp -UseBasicParsing -ErrorAction Stop
+                $got = $true; break
+            } catch {
+                $lastError = $_.Exception.Message
+                if ($attempt -lt 3) { Start-Sleep -Seconds (3 * $attempt) }
+            }
+        }
+        if (-not $got) { Write-Host "  FAIL    $($j.Name): could not download after 3 attempts: $lastError"; $failed++; continue }
+        $sha = (Get-FileHash -LiteralPath $tmp -Algorithm SHA256).Hash
+        if ($sha -ne $j.Sha256) {
+            Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+            Write-Host "  FAIL    $($j.Name): SHA-256 $sha, expected $($j.Sha256) -- deleted, not used"
+            $failed++; continue
+        }
+        Move-Item -LiteralPath $tmp -Destination $dest -Force
+        Write-Host "  ok      $($j.Name) (downloaded, SHA-256 verified)"
+    }
+    $ProgressPreference = $savedProgress
+    $global:LASTEXITCODE = 0
+    if ($failed -gt 0) { Write-Host "`n$failed jar(s) missing: the form compiler is NOT usable."; exit 1 }
+    Write-Host "  JetBrains form compiler $FORMSC_VERSION ready in $FORMSC_DIR"
+    exit 0
+}
+
+<# -Rebuild is -Compile now (docs\adr\0011). The transplant it used to run keeps javac's stack-map
+   frames, while JetBrains' compiler -- and so -Check's byte comparison -- recomputes them as IntelliJ
+   did, so a transplanted class would fail CI the moment it was committed. FormTransplant still runs on
+   every compile, as a LINT: its refusals sit exactly where IntelliJ's own placement goes wrong. #>
+if ($Rebuild.Count -gt 0) {
+    Write-Host "  NOTE  -Rebuild is now -Compile: JetBrains' form compiler builds the class (docs\adr\0011)."
+    $Compile = $Rebuild
+    $Rebuild = @()
+}
 
 $jdkBin = Find-JdkBin -Requires "javap.exe"
 $javac = Join-Path $jdkBin "javac.exe"
@@ -145,6 +265,44 @@ try {
     New-Item -ItemType Directory -Force -Path $toolOut | Out-Null
     & $javac @asmExports -d $toolOut (Join-Path $root "formclass\FormTransplant.java")
     if ($LASTEXITCODE -ne 0) { throw "FormTransplant.java does not compile (exit $LASTEXITCODE)" }
+    # The compiler: required to compile, and for -Check / -SelfTest required when -RequireCompiler
+    # says so (CI, the release workflow). Without it locally they still run, minus the byte check,
+    # and say so loudly -- that is the weaker check, and a green run must not be mistaken for it.
+    $formscCp = Get-FormsCompilerClasspath
+    if (-not $formscCp) {
+        if ($Compile -or $RequireCompiler) { throw $script:formscProblem }
+        Write-Host ""
+        Write-Host "  WARN  JetBrains' form compiler is not available ($script:formscProblem)."
+        Write-Host "  WARN  Skipping the BYTE check -- a .form edit that was never compiled would pass. CI requires it."
+    } else {
+        & $javac -cp $formscCp -d $toolOut (Join-Path $root "formclass\FormCompile.java")
+        if ($LASTEXITCODE -ne 0) { throw "FormCompile.java does not compile (exit $LASTEXITCODE)" }
+    }
+
+    # javac's class + its .form -> JetBrains' compiler -> $OutClass; then the transplant's refusals
+    # as a lint over the same javac output, with the members taken from that fresh output. Returns
+    # $null on success, else the reason. The lint is what stops IntelliJ's own known misplacements
+    # (ADR 0010: a second setup in a this(...) constructor, a bound read before the call, a try or
+    # loop that can skip it) -- the real compiler reproduces those faithfully, bugs included -- and
+    # its result must also agree with the compiler's on where the call goes.
+    function Invoke-FormCompile {
+        param([string]$Form, [string]$JavacClass, [string]$OutClass, [string]$JavacRoot, [string]$Fqcn)
+        $msg = ((& $java -cp "$formscCp;$toolOut" FormCompile $Form $JavacClass $OutClass $JavacRoot $cp 2>&1 |
+                 ForEach-Object { "$_" }) -join "`n").Trim()
+        if ($LASTEXITCODE -ne 0) { return "JetBrains' form compiler failed: $msg" }
+        $lintRoot = Join-Path $work ("lint-" + [Guid]::NewGuid().ToString("N").Substring(0, 8))
+        $pkgPath = ($Fqcn -replace '\.[^.]+$', '') -replace '\.', '\'
+        $lintClass = Join-Path (Join-Path $lintRoot $pkgPath) ([IO.Path]::GetFileName($OutClass))
+        New-Item -ItemType Directory -Force -Path (Split-Path $lintClass) | Out-Null
+        $lint = ((& $java @asmExports -cp $toolOut FormTransplant $OutClass $JavacClass $Form $lintClass 2>&1 |
+                  ForEach-Object { "$_" }) -join "`n").Trim()
+        if ($LASTEXITCODE -ne 0) { return "refused by the lint (IntelliJ's placement is not proven safe here): $lint" }
+        $compiledRoot = $OutClass.Substring(0, $OutClass.Length - (($Fqcn -replace '\.', '\') + ".class").Length).TrimEnd([char]92)
+        if ((Get-ClassKey $lintRoot $Fqcn -IgnorePoolIndexes) -ne (Get-ClassKey $compiledRoot $Fqcn -IgnorePoolIndexes)) {
+            return "the compiler and the lint disagree on where `$`$`$setupUI`$`$`$ is called -- refused rather than guessed"
+        }
+        return $null
+    }
 
     $empty = Join-Path $work "__empty"
     New-Item -ItemType Directory -Force -Path $empty | Out-Null
@@ -292,6 +450,48 @@ try {
         $r = Test-Specimen ChangeInventory ($inv.Replace('    private ChangeInventory(){}', "    private ChangeInventory(){}`n    public ChangeInventory(SuperCC emulator, int unused) { super(new JPanel().getLayout()); }"))
         Assert-Refused "a ``new <superclass>()`` inside super(...)'s arguments (the call would precede the real super)" $r "before super"
 
+        <# JetBrains' compiler (docs\adr\0011): that -Check's byte comparison catches the two things it
+           exists for, and that -Compile's lint refuses what IntelliJ's own placement gets wrong. #>
+        if ($formscCp) {
+            function Compile-Specimen {
+                param([string]$Class, [string]$Source, [string]$Form)
+                $d = Join-Path $work ("sc-" + [Guid]::NewGuid().ToString("N").Substring(0, 8))
+                $s = Join-Path $d "src\tools"; $j = Join-Path $d "jc"; $o = Join-Path $d "out\tools"
+                New-Item -ItemType Directory -Force -Path $s, $j, $o | Out-Null
+                [IO.File]::WriteAllText((Join-Path $s "$Class.java"), $Source, $utf8)
+                & $javac -g --release $SPLICE_RELEASE -encoding $SPLICE_ENCODING -cp $cp -sourcepath $empty `
+                         -implicit:none -d $j (Join-Path $s "$Class.java") 2>&1 | Out-Null
+                if ($LASTEXITCODE -ne 0) { return @{ Why = "specimen does not compile"; Out = $null } }
+                $why = Invoke-FormCompile $Form (Join-Path $j "tools\$Class.class") (Join-Path $o "$Class.class") $j "tools.$Class"
+                return @{ Why = $why; Out = (Join-Path $o "$Class.class") }
+            }
+            function Same-Bytes { param([string]$A, [string]$B)
+                return ((Test-Path -LiteralPath $A) -and (Test-Path -LiteralPath $B) -and
+                        (Get-FileHash -LiteralPath $A -Algorithm SHA256).Hash -eq (Get-FileHash -LiteralPath $B -Algorithm SHA256).Hash) }
+
+            $cgSrc  = [IO.File]::ReadAllText((Join-Path $srcRoot "tools\ControlGUI.java"))
+            $cgForm = Join-Path $srcRoot "tools\ControlGUI.form"
+            $c = Compile-Specimen ControlGUI $cgSrc $cgForm
+            Assert-Self "JetBrains' compiler reproduces the committed ControlGUI.class byte for byte" ((-not $c.Why) -and (Same-Bytes $c.Out (Join-Path $root "tools\ControlGUI.class"))) $c.Why
+            # A one-word label edit in the .form, never compiled: the transplant check copies the
+            # generated members from the committed class and so cannot see it; the byte check must.
+            $edited = Join-Path $work "ControlGUI-edited.form"
+            [IO.File]::WriteAllText($edited, ([IO.File]::ReadAllText($cgForm)).Replace('<text value="Up Left"/>', '<text value="Up-Left"/>'), $utf8)
+            $e = Compile-Specimen ControlGUI $cgSrc $edited
+            Assert-Self "a .form edit that was never compiled is caught: the committed class is no longer what the .form makes" ((-not $e.Why) -and $e.Out -and -not (Same-Bytes $e.Out (Join-Path $root "tools\ControlGUI.class"))) $e.Why
+            # A class built by the transplant keeps javac's stack-map frames; IntelliJ recomputed them.
+            $t = Test-Specimen SeedSearch $seed
+            $tOut = if ($t.Exit -eq 0) { Join-Path $t.Out "tools\SeedSearch.class" } else { "" }
+            Assert-Self "a class built by the transplant is caught: its bytes are not the compiler's" ($t.Exit -eq 0 -and -not (Same-Bytes $tOut (Join-Path $root "tools\SeedSearch.class"))) $t.Text
+            # The lint: IntelliJ's flag mistakes `new ChangeTimer(0)` for this(...) and places the call
+            # after a bound read (NullPointerException on open, ADR 0010). JetBrains' compiler does
+            # exactly that; -Compile must refuse it.
+            $l = Compile-Specimen ChangeTimer (Timer-WithCtor '    public ChangeTimer(SuperCC emulator, String s) { new ChangeTimer(0); spinner.setValue(1.0); }') (Join-Path $srcRoot "tools\ChangeTimer.form")
+            Assert-Self "REFUSED by -Compile's lint: a ``new ChangeTimer(...)`` before the call, which IntelliJ's compiler misplaces" ($l.Why -match 'refused by the lint') $l.Why
+        } else {
+            Write-Host "  SKIP  the four JetBrains-compiler checks (no compiler; run -DownloadCompiler)"
+        }
+
         if ($problems -eq 0) { Write-Host "  PASS  self-test: $selfCount of $selfCount" }
         $targets = @()
     }
@@ -301,7 +501,7 @@ try {
         # Under -File, `-Rebuild a,b` arrives as ONE string, so commas are split here. Each name is
         # matched case-insensitively against the form classes and replaced by its true-case path.
         $targets = @()
-        foreach ($t in @($Rebuild | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
+        foreach ($t in @(@($Rebuild) + @($Compile) | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
             $want = $t -replace '/', '\' -replace '^java\\', ''
             $hit = @($formRels | Where-Object { $_ -eq $want })   # -eq ignores case
             if ($hit.Count -eq 1) { $targets += $hit[0]; continue }
@@ -313,7 +513,7 @@ try {
     }
 
     if (-not $SelfTest) {
-        Write-Host ("`n== " + $(if ($Check) { "checking" } else { "rebuilding" }) + " $($targets.Count) form class(es) on $ver ==")
+        Write-Host ("`n== " + $(if ($Check) { "checking" } elseif ($Compile) { "compiling (JetBrains form compiler $FORMSC_VERSION)" } else { "rebuilding" }) + " $($targets.Count) form class(es) on $ver ==")
     }
     foreach ($rel in $targets) {
         $src  = Join-Path $srcRoot $rel
@@ -324,7 +524,7 @@ try {
         $fqcnBase = if ($pkg) { ($pkg -replace '\\', '.') + "." } else { "" }
         $committedDir = Join-Path $root $pkg
         $committedTop = Join-Path $committedDir "$base.class"
-        if (-not (Test-Path $committedTop)) { Write-Host "  FAIL  $rel has no committed $base.class to take the generated members from"; $problems++; continue }
+        if (-not $Compile -and -not (Test-Path $committedTop)) { Write-Host "  FAIL  $rel has no committed $base.class to take the generated members from"; $problems++; continue }
 
         $one = Join-Path $work ([Guid]::NewGuid().ToString("N").Substring(0, 8))
         $jc  = Join-Path $one "javac"
@@ -356,9 +556,16 @@ try {
             Write-Host "        (a TEMP path too deep for Windows' 260-character limit does this -- use a shorter TEMP)"
             $problems++; continue
         }
-        & $java @asmExports -cp $toolOut FormTransplant $committedTop (Join-Path $newDir "$base.class") $form (Join-Path $outDir "$base.class") 2>&1 |
-            ForEach-Object { Write-Host "        $_" }
-        if ($LASTEXITCODE -ne 0) { Write-Host "  FAIL  $rel could not be rebuilt (see the message above)"; $problems++; continue }
+        if ($Compile) {
+            # The finder sees javac's output root (the inner classes) and the built jar (the program),
+            # after the JDK's own classes, which FormCompile puts first.
+            $why = Invoke-FormCompile $form (Join-Path $newDir "$base.class") (Join-Path $outDir "$base.class") $jc ($fqcnBase + $base)
+            if ($why) { Write-Host "  FAIL  $rel : $why"; $problems++; continue }
+        } else {
+            & $java @asmExports -cp $toolOut FormTransplant $committedTop (Join-Path $newDir "$base.class") $form (Join-Path $outDir "$base.class") 2>&1 |
+                ForEach-Object { Write-Host "        $_" }
+            if ($LASTEXITCODE -ne 0) { Write-Host "  FAIL  $rel could not be rebuilt (see the message above)"; $problems++; continue }
+        }
         $outSet = Get-ClassSet $outDir $base
         # And checked, not assumed: the rebuilt set must name exactly the classes javac wrote.
         if ((($newSet | ForEach-Object Name) -join " ") -ne (($outSet | ForEach-Object Name) -join " ")) {
@@ -367,7 +574,7 @@ try {
             $problems++; continue
         }
 
-        if ($Rebuild) {
+        if ($Compile) {
             # Read everything we need from the committed class BEFORE touching it -- the transplant
             # above already did. Now replace the whole set, so a dropped inner class goes too.
             #
@@ -408,13 +615,43 @@ try {
         }
         if ($differs.Count -gt 0) {
             Write-Host ("  FAIL  $rel does not match its committed bytecode (" + ($differs -join ", ") + ") -- the jar " +
-                        "would ship the old class. Rebuild it: formclass.ps1 -Rebuild $rel")
+                        "would ship the old class. Compile it: formclass.ps1 -Compile $rel")
             $problems++
-        } else {
-            Write-Verbose "  ok  $rel"
+            continue
         }
+        <# The BYTE check (docs\adr\0011): javac + JetBrains' compiler, from the committed .java AND .form,
+           must reproduce every committed class exactly. The check above copies the generated members
+           from the committed class, so it cannot see a .form edit at all; this can. Byte-identical
+           because it was measured to be: all fifteen IntelliJ originals reproduce exactly. #>
+        if ($formscCp) {
+            $bc = Join-Path $one "compiled"
+            $bcDir = Join-Path $bc $pkg
+            New-Item -ItemType Directory -Force -Path $bcDir | Out-Null
+            foreach ($c in $newSet) { [IO.File]::Copy($c.FullName, (Join-Path $bcDir $c.Name), $true) }
+            $why = Invoke-FormCompile $form (Join-Path $newDir "$base.class") (Join-Path $bcDir "$base.class") $jc ($fqcnBase + $base)
+            if ($why) { Write-Host "  FAIL  $rel : $why"; $problems++; continue }
+            $notSame = @()
+            foreach ($c in (Get-ClassSet $bcDir $base)) {
+                $mine = Join-Path $committedDir $c.Name
+                if (-not (Test-Path -LiteralPath $mine) -or
+                    (Get-FileHash -LiteralPath $c.FullName -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $mine -Algorithm SHA256).Hash) {
+                    $notSame += $c.Name
+                }
+            }
+            if ($notSame.Count -gt 0) {
+                Write-Host ("  FAIL  $rel : the committed " + ($notSame -join ", ") + " is not what javac + JetBrains' compiler " +
+                            "make from the committed .java and .form -- a .form edit never compiled, or a class built " +
+                            "another way. Compile it: formclass.ps1 -Compile $rel")
+                $problems++
+                continue
+            }
+        }
+        Write-Verbose "  ok  $rel"
     }
-    if ($Check -and $problems -eq 0) { Write-Host "  PASS  all $($targets.Count) form classes match their .java" }
+    if ($Check -and $problems -eq 0) {
+        if ($formscCp) { Write-Host "  PASS  all $($targets.Count) form classes match their .java, and byte for byte what JetBrains' compiler makes of .java + .form" }
+        else           { Write-Host "  PASS  all $($targets.Count) form classes match their .java (byte check SKIPPED: no compiler)" }
+    }
 }
 finally {
     # A cleanup failure (the same deep-TEMP case) must not hide the run's real result, so it warns.

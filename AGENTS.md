@@ -73,8 +73,9 @@ building at the same time — `SuperCC.jar` and `dist/` are shared mutable paths
    compares bytecode, and hashes the 15 form-based files (`.form` *and* their sibling `.java`,
    which the build never recompiles) against `docs/form-baseline.sha256`. Its header lists
    the narrow cases it still cannot see. A form-based file must never go in `$SPLICE_MODIFIED`:
-   if only its `.java` changed, rebuild its committed class with `formclass.ps1 -Rebuild <file>`
-   (JDK 16.0.2, ADR 0010); if its `.form` changed, that needs IntelliJ.
+   compile its committed class with `formclass.ps1 -Compile <file>` (JDK 16.0.2; JetBrains' own
+   form compiler, fetched once with `-DownloadCompiler`; ADR 0011), whether the `.java` or the
+   `.form` changed.
 
 4. **Test through the built jar, never against freshly compiled sources.** The jar is the only
    artifact whose behavior is authoritative. `run-tests.ps1` puts it on the classpath for you.

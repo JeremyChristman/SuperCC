@@ -12,6 +12,27 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## Unreleased (tooling, to ship alongside jc-18)
+
+### Added
+- **`formclass.ps1 -Compile` and `-DownloadCompiler`: a `.form` edit no longer needs IntelliJ**
+  (ADR 0011). JetBrains' own form compiler (`java-gui-forms-compiler` 211.7628.21, six jars pinned
+  by SHA-256, cached in `%LOCALAPPDATA%`, never shipped), driven as IntelliJ's IDE build drives it by
+  `formclass/FormCompile.java`. From unchanged sources it reproduces all fifteen IntelliJ-built form
+  classes and their 22 inner classes byte for byte. `-Rebuild` is now an alias of `-Compile`.
+- **`formclass.ps1 -Check` compares bytes**, from the committed `.java` and `.form`, and is the
+  first check that can see a `.form` edit nobody compiled. CI and the release workflow download the
+  compiler fresh and pass `-RequireCompiler`, so a missing compiler fails rather than falling back.
+  `-SelfTest` grows to 22: the byte check catches an uncompiled `.form` edit and a transplant-built
+  class, and `-Compile`'s lint refuses a constructor IntelliJ's own compiler misplaces.
+
+### Changed
+- `tools/SeedSearch`, `graphics/Gui` and `tools/ChooseTileSize` recompiled with the real compiler.
+  The transplant (ADR 0010) had built them with javac's stack-map frames; code and strings are
+  identical to jc-17's, and only frames and constant-pool layout differ.
+- `docs/THIRD_PARTY.md`: the vendored `com/intellij/uiDesigner/core` runtime is pinned at last —
+  byte-identical to `java-gui-forms-rt` 211.7628.21 from JetBrains' repository.
+
 ## jc-17 — 2026-11-07 (upstream merge, step 4)
 
 ### Fixed

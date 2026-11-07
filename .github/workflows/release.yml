@@ -66,11 +66,17 @@ jobs:
         shell: powershell
         run: powershell -ExecutionPolicy Bypass -File run-tests.ps1 -ResultsPath test-results
 
-      # A form class's .class is committed bytecode, so a .java edit that was never rebuilt ships
-      # the OLD class with every other gate green. See the matching step in ci.yml.
+      # A form class's .class is committed bytecode, so a .java or .form edit that was never
+      # compiled ships the OLD class with every other gate green. See the matching steps in ci.yml:
+      # the same hash-pinned, uncached compiler download, and -RequireCompiler so a missing
+      # compiler fails the release instead of falling back to the weaker check.
+      - name: Download JetBrains' form compiler
+        shell: powershell
+        run: powershell -ExecutionPolicy Bypass -File formclass.ps1 -DownloadCompiler
+
       - name: Form classes match their source
         shell: powershell
-        run: powershell -ExecutionPolicy Bypass -File formclass.ps1 -Check -Jar SuperCC.jar
+        run: powershell -ExecutionPolicy Bypass -File formclass.ps1 -Check -RequireCompiler -Jar SuperCC.jar
 
       # THE guard this workflow exists for. The git tag and the tag baked into the jar are two
       # independent facts and nothing else compares them. Push jc-11 while BUILD_TAG still reads

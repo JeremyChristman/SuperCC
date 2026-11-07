@@ -38,9 +38,9 @@ The repo therefore works like this:
 > **If you modify a source file that is not already in `$SPLICE_MODIFIED`, add it to that list in
 > `build-config.ps1`, or your edit silently does nothing.** The build will succeed and ship the old
 > behavior. Before adding it, confirm the file has no sibling `.form` — if it does, it must NEVER go
-> in that list (javac would ship it without components). A form class is rebuilt separately:
-> `formclass.ps1 -Rebuild <file>` when only its `.java` changed (ADR 0010), IntelliJ when its
-> `.form` changed.
+> in that list (javac would ship it without components). A form class is compiled separately,
+> `.java` or `.form` edit alike: `formclass.ps1 -Compile <file>`, which runs JetBrains' own form
+> compiler (ADR 0011; `formclass.ps1 -DownloadCompiler` once per machine). IntelliJ is not needed.
 
 **You do not have to take this on trust — run the check:**
 
@@ -55,20 +55,23 @@ It covers the two ways an edit can fail to ship, by two different mechanisms:
 - **Form-based files** — the 15 `.form` files *and their sibling `.java`* — ship as committed
   bytecode the build never recompiles, so they are hashed against `docs/form-baseline.sha256`.
   `graphics/Gui.java` is ordinary hand-written Java and is the likeliest of these to be edited; an
-  edit there is flagged. If only the `.java` changed, rebuild the class with
-  `formclass.ps1 -Rebuild <file>`; if the `.form` changed, rebuild it in IntelliJ. Either way,
-  commit the new `.class` files and re-run with `-UpdateFormBaseline`.
+  edit there is flagged. Compile the class with `formclass.ps1 -Compile <file>` (either edit),
+  commit the new `.class` files, and re-run with `-UpdateFormBaseline`.
 
-**The form classes have a second check of their own.** `formclass.ps1 -Check` rebuilds all fifteen
-from their `.java` (javac, plus IntelliJ's generated members copied from the committed class) and
-compares them with what is committed, so a `.java` whose class was never rebuilt fails even after
-someone has run `-UpdateFormBaseline`. CI and the release workflow run it after the build. It
-cannot see a `.form` edit — the hash does that — and it, like `-Rebuild`, needs JDK 16.0.2 exactly.
-**And it cannot vouch for the tool:** once a class has been rebuilt, both sides of its comparison
-came from `FormTransplant`. That is `test/FormClassTest.java`'s job: it runs the real constructor of
-every form window that can run headless. After any `-Rebuild`, that test and a launch of the program
-are what prove the window still builds. How the transplant was proven against IntelliJ's own output,
-how its first version was wrong, and what it refuses are in `docs/adr/0010`.
+**The form classes have a second check of their own.** `formclass.ps1 -Check` compiles all fifteen
+from their committed `.java` **and `.form`** with javac plus JetBrains' own form compiler, and
+requires the committed classes **byte for byte** — so a `.java` or `.form` edit whose class was
+never compiled fails, even after someone has run `-UpdateFormBaseline`. Byte for byte because that
+was measured: from unchanged sources the compiler reproduces all fifteen IntelliJ-built classes
+exactly (ADR 0011). CI and the release workflow run it after the build with `-RequireCompiler`, so
+a missing compiler is a failure; locally, without the compiler, it falls back to the older
+transplant comparison and says so loudly — that one cannot see a `.form` edit. It needs JDK 16.0.2
+exactly. **And a byte match is not a working window:** `test/FormClassTest.java` runs the real
+constructor of every form window that can run headless, and `GuiWindowTest` builds the main one.
+After any `-Compile`, those tests and a launch of the program are what prove the window still
+builds. `-Compile` also runs the ADR 0010 transplant over the same javac output as a LINT, because
+the real compiler reproduces IntelliJ's known misplacements of the setup call faithfully; how those
+were found is in `docs/adr/0010`.
 
 Run it after touching anything under `java/**`, before calling the change done. CI runs it too.
 **Run it on JDK 16.0.2, like CI.** On a newer `javac` it reports false edits: on JDK 18 (measured
@@ -103,8 +106,9 @@ powershell -ExecutionPolicy Bypass -File coverage.ps1               # branch cov
 powershell -ExecutionPolicy Bypass -File coverage.ps1 -CheckBaseline  # do the numbers below still hold?
 powershell -ExecutionPolicy Bypass -File coverage.ps1 -UpdateBaseline # after deliberately moving them
 powershell -ExecutionPolicy Bypass -File verify-splice.ps1 -UpdateFormBaseline     # after rebuilding a form class
-powershell -ExecutionPolicy Bypass -File formclass.ps1 -Rebuild tools\SeedSearch.java  # a form .java edit, .form unchanged (JDK 16.0.2)
-powershell -ExecutionPolicy Bypass -File formclass.ps1 -Check       # every committed form class matches its .java
+powershell -ExecutionPolicy Bypass -File formclass.ps1 -DownloadCompiler   # JetBrains' form compiler, once per machine
+powershell -ExecutionPolicy Bypass -File formclass.ps1 -Compile tools\SeedSearch.java  # a form .java or .form edit (JDK 16.0.2)
+powershell -ExecutionPolicy Bypass -File formclass.ps1 -Check       # every committed form class is byte for byte its .java + .form
 powershell -ExecutionPolicy Bypass -File formclass.ps1 -SelfTest    # the rebuild tool still refuses what it must
 powershell -ExecutionPolicy Bypass -File verify-splice.ps1 -UpdateVendorBaseline   # after a deliberate library update
 ```
@@ -115,9 +119,10 @@ Extra switches worth knowing:
   pushed git tag), and `-Manifest <path>` writes a JSON record of the build — tag, jar SHA-256,
   size, entry count, and the exact compiler used.
 - `verify-splice.ps1 -UpdateFormBaseline` regenerates `docs/form-baseline.sha256`. It is the *only*
-  correct response to a flagged form file, and only after the class has genuinely been rebuilt
-  (`formclass.ps1 -Rebuild`, or IntelliJ for a `.form` edit) and committed — running it to silence a
-  warning defeats the check for `.form` edits entirely.
+  correct response to a flagged form file, and only after the class has genuinely been compiled
+  (`formclass.ps1 -Compile`) and committed. Running it to silence a warning no longer defeats the
+  `.form` check outright — `formclass.ps1 -Check`'s byte comparison would still fail — but only
+  where the compiler runs, which CI guarantees and a local machine may not.
 - `formclass.ps1` builds a private jar to compile against unless given `-Jar <path>`; CI passes the
   jar its Build step just made. It refuses to run on anything but `javac 16.0.2`.
 - `-Isolated` and `-NoBuild` are mutually exclusive and the script rejects the pair: `-Isolated`
@@ -170,8 +175,9 @@ COPYING                GPLv2 — ships with the binary, as the license requires
 build-config.ps1       THE splice list, the JDK finder, the robocopy wrapper — one source of truth
 build.ps1              the splice build + the release packager (-Package)
 verify-splice.ps1      proves an edit will actually ship (§1)
-formclass.ps1          rebuilds / checks a FORM class whose .form is unchanged (§1, ADR 0010)
-formclass/**           its transplant tool (FormTransplant.java, JDK-internal ASM)
+formclass.ps1          compiles / checks the FORM classes with JetBrains' form compiler (§1, ADR 0011)
+formclass/**           FormCompile.java (drives that compiler as the IDE does) and FormTransplant.java
+                       (ADR 0010's transplant, now the lint on every compile; JDK-internal ASM)
 run-tests.ps1          builds, then compiles and runs everything in test\
 coverage.ps1           JaCoCo branch coverage, scoped to game\** + io\** (§4)
 docs/coverage-baseline.tsv  what the §4 table claims; the release gate checks it
@@ -256,7 +262,7 @@ whose listener is the constructor's own lambda, holding the instance.
 throws first. `GuiWindowTest` launches a child JVM with `-Djava.awt.headless=false` in a temp
 folder, builds the real window through `new SuperCC()`, and reads back PASS/FAIL lines; without a
 desktop it skips. On a desktop, a SuperCC window appears for a few seconds during the suite. After
-any `formclass.ps1 -Rebuild graphics\Gui.java`, this is the test that matters. Its helpers that
+any `formclass.ps1 -Compile graphics\Gui.java`, this is the test that matters. Its helpers that
 close modal dialogs are started and stopped around each action, so neither can close a later one.
 Where a check COUNTS dialogs, use `closeEveryDialog()`, not `closeNextDialog()`: the second stops
 after one, so a second dialog hangs the child until the 90-second kill instead of failing the count.
@@ -717,6 +723,18 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
   internal ASM, chosen so this repo takes on no dependency (ADR 0002); the tool is pinned to JDK
   16.0.2, where it exists. Do not "modernize" it to a downloaded ASM or to a newer JDK's class-file
   API without re-running the fifteen-class reproduction in ADR 0010.
+- **`formclass.ps1 -DownloadCompiler` fetches JetBrains' form compiler instead of the repo
+  committing it, and CI downloads it fresh every run instead of caching it.** It is a tool, not a
+  dependency of the program (ADR 0011), pinned by SHA-256 and re-hashed on every use; caching it
+  would mean pinning another third-party action into the workflow that produces the published bytes.
+  And `-Check -RequireCompiler` in CI is deliberately strict: without the compiler it FAILS rather
+  than falling back, because the fallback cannot see a `.form` edit. Do not drop the flag to make a
+  network blip go green; re-run the job.
+- **`formclass.ps1 -Compile` still runs the ADR 0010 transplant, and refuses what it refuses.** The
+  real compiler reproduces IntelliJ's own misplacements of the setup call (a second setup in a
+  `this(...)` constructor, a bound field read first, a try or loop that can skip it), and the
+  transplant's refusals are the only thing that sees them. Removing the "redundant" second tool
+  brings those back silently.
 - **`build.ps1` builds zip entries by hand instead of using `Compress-Archive`.** On PowerShell 5.1
   both `Compress-Archive` and `ZipFile::CreateFromDirectory` emit **backslash** entry names —
   measured here, not assumed. Explorer tolerates it; Info-ZIP `unzip` and Java's `ZipInputStream`
@@ -785,7 +803,7 @@ Assume any behavior change ships publicly. The full checklist is `.github/RELEAS
    coverage check too, so skipping it here just moves the failure to after the tag is public.
    The splice check is not optional here: it is what proves the change you are shipping is the
    change that will actually be in the jar. If the release touches a form class, add
-   `powershell -File formclass.ps1 -Check` — the release workflow runs it as well.
+   `powershell -File formclass.ps1 -Check -RequireCompiler` — the release workflow runs it as well.
 5. `powershell -File build.ps1 -Package -ExpectTag jc-N`, then actually launch the jar **from the
    built zip**, not the one in the repo root.
 6. Commit, push `main`, create and push the tag `jc-N`.
@@ -866,8 +884,8 @@ so the shipped defaults cannot drift from the program's), `README.txt`, and `COP
   jar on **every** `repaint()`, and `GamePanel.mouseMoved` repaints — so it is two zip reads and two
   image decodes per mouse motion event. Caching the two icons in fields would remove the per-repaint
   I/O and make the app immune to this after startup. `Gui.java` is form-based (§1), but this is a
-  `.java`-only edit, so since jc-16 `formclass.ps1 -Rebuild graphics\Gui.java` can ship it without
-  IntelliJ (ADR 0010). Worth doing next time someone is in there.
+  `formclass.ps1 -Compile graphics\Gui.java` ships it without IntelliJ (ADR 0011). Worth doing
+  next time someone is in there.
 - Do not commit `SuperCC.jar` or `dist/` — both are ignored, deliberately.
 
 ---
