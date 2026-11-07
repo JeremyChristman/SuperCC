@@ -17,7 +17,9 @@ import java.util.Arrays;
  *   data\Synth.dat      position 1 "Walk"   Chip at 1,1 with the exit two squares east
  *                       position 2 "Stay"   Chip at 1,1 with the exit far away
  *                       position 3 "Again"  the same as Walk
- *                       position 4  (no title -- SuperCC's SavestateManager throws on it)
+ *                       position 4  (no title, and a layer whose runs overrun the map, so it does
+ *                                   not parse; until jc-17 the missing title alone made SuperCC's
+ *                                   SavestateManager throw, but an untitled level loads now)
  *                       position 5 "Renum"  the same as Walk, but its record says it is level 9
  *                       position 6 "Click"  the same as Stay -- home for the save that throws
  *   data\Cclset.ccl     one level, "Walk" -- a set with the OTHER extension SuperCC opens
@@ -81,7 +83,7 @@ public class CorpusFixture {
         b.level().title("Walk").tile(1, 1, Tile.CHIP_DOWN).tile(3, 1, Tile.EXIT).end();
         b.level().title("Stay").tile(1, 1, Tile.CHIP_DOWN).tile(20, 20, Tile.EXIT).end();
         b.level().title("Again").tile(1, 1, Tile.CHIP_DOWN).tile(3, 1, Tile.EXIT).end();
-        b.level().tile(1, 1, Tile.CHIP_DOWN).tile(3, 1, Tile.EXIT).end();             // no title
+        b.level().unreadable().end();                     // no title, and a record that does not parse
         b.level().number(9).title("Renum").tile(1, 1, Tile.CHIP_DOWN).tile(3, 1, Tile.EXIT).end();
         b.level().title("Click").tile(1, 1, Tile.CHIP_DOWN).tile(20, 20, Tile.EXIT).end();
         b.writeTo(data, "Synth.dat");

@@ -667,9 +667,11 @@ below was reproduced first: every new check fails on the jar as committed, and p
   ran. jc-17 survives the open, lands on level 2, and `ArgumentParser` then fails level 1 again: a
   second dialog where jc-16 had a crash. That is kept as the better of the two. No level in the
   collection fails at all now, and making each caller skip a level that will not load is new
-  behavior that would want its own design. `EngineTest` §6c and
-  `GuiWindowTest` §3a, which had used an untitled level as their fixture for "cannot load", now use
-  a record whose layer does not decode (`DatBuilder.unreadable()`: runs that claim 1,025 cells).
+  behavior that would want its own design. `EngineTest` §6c, `GuiWindowTest` §3a and
+  `corpus/CorpusFixture.java`'s position 4, which had used an untitled level as their fixture for
+  "cannot load", now use a record whose layer does not decode (`DatBuilder.unreadable()`: runs that
+  claim 1,025 cells). The corpus one was missed at first and caught by CI's harness self-test, before
+  any tag: run every step of `ci.yml` locally, not just the suite.
 - **View › Tileset works with no level open.** It was the one menu `requireALevel()` skipped while
   its radio mark still moved: the menu showed a tileset neither drawn nor saved. The first review's
   verdict, "cosmetic, defended", is reversed by a fix simpler than restoring the selection. The
