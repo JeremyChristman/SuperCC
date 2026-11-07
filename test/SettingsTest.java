@@ -308,6 +308,49 @@ public class SettingsTest {
             eq("DatParser reports LYNX for it", parser.getRuleset(), game.Ruleset.LYNX);
         }
 
+        Harness.section("13. the custom tileset's images (upstream d78f6f3), stored portably");
+        /* Upstream stored the two image paths ABSOLUTE. This file is Dropbox-synced between two
+         * machines whose user folders differ, which is why Levelset and TWS are stored relative to
+         * the CC folder (jc-5); the custom images now go through the same pair of functions. */
+        Path d13 = freshDir("customtiles");
+        File f13 = d13.resolve(SuccPaths.SETTINGS_FILE_NAME).toFile();
+        SuccPaths p13 = SuccPaths.load(f13);
+        String stock13 = Files.readString(f13.toPath(), StandardCharsets.UTF_8);
+        check("the stock file lists both keys, empty",
+              stock13.contains("CustomBaseImage = \n") && stock13.contains("CustomOverlayImage = \n"));
+        check("and under [Graphics], where the getter looks",
+              stock13.indexOf("CustomBaseImage") > stock13.indexOf("[Graphics]")
+              && stock13.indexOf("CustomBaseImage") < stock13.indexOf("[Emulation]"));
+        check("none chosen reads as null", p13.getCustomTilesetImages() == null);
+        Path inBase = d13.resolve("tilesets").resolve("base.png"), inOverlay = d13.resolve("tilesets").resolve("overlay.png");
+        p13.setCustomTileset(false, 5, inBase.toString(), inOverlay.toString());
+        String[] got13 = p13.getCustomTilesetImages();
+        check("images inside the CC folder read back as the same absolute paths",
+              got13 != null && got13[0].equals(inBase.toString()) && got13[1].equals(inOverlay.toString()));
+        String file13 = Files.readString(f13.toPath(), StandardCharsets.UTF_8);
+        check("and are stored RELATIVE to it, so the file works on both machines",
+              file13.contains("CustomBaseImage = tilesets\\base.png\n") && file13.contains("CustomOverlayImage = tilesets\\overlay.png\n"));
+        String[] reread13 = SuccPaths.load(f13).getCustomTilesetImages();
+        check("and survive a reload", reread13 != null && reread13[0].equals(inBase.toString()));
+        eq("the MS tileset number is saved in the same write", SuccPaths.load(f13).getMSTilesetNum(), 5);
+        eq("and the Lynx one is left alone", SuccPaths.load(f13).getLynxTilesetNum(), 0);
+        Path outside13 = freshDir("customtiles-out").resolve("art.png");
+        p13.setCustomTileset(true, 5, outside13.toString(), inOverlay.toString());
+        check("an image outside the CC folder is stored absolute",
+              Files.readString(f13.toPath(), StandardCharsets.UTF_8).contains("CustomBaseImage = " + outside13 + "\n"));
+        eq("choosing custom under Lynx saves the Lynx number", SuccPaths.load(f13).getLynxTilesetNum(), 5);
+        Path d13b = freshDir("customtiles-half");
+        check("only one of the two given reads as null (both are needed)",
+              SuccPaths.load(settingsWith(d13b, "[Graphics]", "CustomBaseImage = a.png", "CustomOverlayImage = ")).getCustomTilesetImages() == null);
+        Path d13c = freshDir("customtiles-old");
+        File f13c = settingsWith(d13c, "[Graphics]", "TilesheetNum = 2");
+        SuccPaths p13c = SuccPaths.load(f13c);
+        check("a file from before jc-18 (no keys) reads as none chosen", p13c.getCustomTilesetImages() == null);
+        p13c.setMSTilesetNum(3);
+        String up13 = Files.readString(f13c.toPath(), StandardCharsets.UTF_8);
+        check("and gains both keys, empty, on its next write",
+              up13.contains("CustomBaseImage = \n") && up13.contains("CustomOverlayImage = \n"));
+
     }
 
     private static boolean hasMethod(String name) {

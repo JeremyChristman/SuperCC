@@ -94,6 +94,9 @@ public class SuccPaths {
         d.put("Graphics:TileWidth", "20");
         d.put("Graphics:TileHeight", "20");
         d.put("Graphics:TWSNotate", "false");
+        // Upstream d78f6f3: the two images of View > Tileset > custom. Empty = none chosen yet.
+        d.put("Graphics:CustomBaseImage", "");
+        d.put("Graphics:CustomOverlayImage", "");
         d.put("Graphics:ShowBuildTag", "false");   // MOD (Jeremy, jc-8): OFF unless asked for
         /* MOD (Jeremy, jc-14): the two halves of the title after "SuperCC" are switchable too.
          * The shipped defaults are pack OFF and level name ON -- see getShowLevelPack() and
@@ -139,7 +142,10 @@ public class SuccPaths {
             append(sb, map, c, "Controls:" + c);
         }
         sb.append('\n').append("[Graphics]").append(nl);
-        for (String g : new String[]{"TilesheetNum", "LynxTilesheetNum", "TileWidth", "TileHeight", "TWSNotate"}) {
+        // CustomBaseImage/CustomOverlayImage are paths, not switches, so the raw-value loop is the
+        // right mechanism for them (see the note on ShowBuildTag below for the switches).
+        for (String g : new String[]{"TilesheetNum", "LynxTilesheetNum", "TileWidth", "TileHeight", "TWSNotate",
+                                     "CustomBaseImage", "CustomOverlayImage"}) {
             append(sb, map, g, "Graphics:" + g);
         }
         // Rendered through the same predicate the getter uses, so the file can never disagree with
@@ -533,6 +539,23 @@ public class SuccPaths {
         return Paths.get(getSuccPath(), levelsetName, Integer.toString(levelNumber), levelName+".scc").toString();
     }
 
+    /* Upstream d78f6f3: the base and overlay images of the custom tileset, as usable absolute paths,
+     * or null when either has not been chosen.
+     *
+     * MOD (Jeremy, upstream merge): stored RELATIVE to the Chip's Challenge folder when the image is
+     * inside it, through the same toStoredPath()/toUsablePath() pair as Levelset and TWS. Upstream
+     * stored the absolute path, and this file is Dropbox-synced between two machines whose user
+     * folders differ, so an image chosen on one would be "missing" on the other (jc-5's lesson). An
+     * image outside the folder stays absolute; there is nothing to anchor it to. Upstream also
+     * caught a NullPointerException to mean "not set"; an absent key is seeded "" now, so blank is
+     * the test. */
+    public String[] getCustomTilesetImages() {
+        String base = settingsMap.get("Graphics:CustomBaseImage");
+        String overlay = settingsMap.get("Graphics:CustomOverlayImage");
+        if (base == null || base.isBlank() || overlay == null || overlay.isBlank()) return null;
+        return new String[] {toUsablePath(base), toUsablePath(overlay)};
+    }
+
     public void setLevelsetFolderPath(String levelsetFolderPath) {
         // MOD (Jeremy): stored relative to the CC folder when possible -- see getLevelsetFolderPath().
         settingsMap.put("Paths:Levelset", toStoredPath(levelsetFolderPath));
@@ -586,6 +609,17 @@ public class SuccPaths {
     }
     public void setTWSNotation(boolean twsNotation) {
         settingsMap.put("Graphics:TWSNotate", String.valueOf(twsNotation));
+        updateSettingsFile();
+    }
+    /** Upstream d78f6f3's setCustomTilesetImages, with the ruleset's tileset number in the SAME write
+     *  (MOD (Jeremy, upstream merge), from the architecture review): choosing custom saves three
+     *  values that only mean something together, and this file is rewritten whole and synced, so
+     *  two writes were two chances for the other machine to see one without the other. The paths
+     *  are stored relative where possible (getCustomTilesetImages). */
+    public void setCustomTileset(boolean lynx, int tilesetNum, String baseImage, String overlayImage) {
+        settingsMap.put("Graphics:CustomBaseImage", toStoredPath(baseImage));
+        settingsMap.put("Graphics:CustomOverlayImage", toStoredPath(overlayImage));
+        settingsMap.put(lynx ? "Graphics:LynxTilesheetNum" : "Graphics:TilesheetNum", String.valueOf(tilesetNum));
         updateSettingsFile();
     }
     public void setShowBuildTag(boolean showBuildTag) { // MOD (Jeremy): see getShowBuildTag()

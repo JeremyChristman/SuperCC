@@ -288,6 +288,8 @@ This is the complete stock file. Every key SuperCC knows is here:
     TileWidth = 20
     TileHeight = 20
     TWSNotate = false
+    CustomBaseImage =
+    CustomOverlayImage =
     ShowBuildTag = false
     ShowLevelPack = false
     ShowLevelName = true
@@ -378,12 +380,18 @@ TilesheetNum    Which tile graphics to use under the MS ruleset.
                          2 = MSCC (CCEdit)
                          3 = MSCC
                          4 = MSCC (Black and White - Editor)
+                         5 = custom (your own two images -- see
+                             CustomBaseImage below)
                 Default: 0
                 Set it in the program with View > Tileset, which writes this
-                line for you. A value that is not a number falls back to 0,
-                but STAY INSIDE 0-4 when editing by hand: a number outside
-                that range is used as a list index and stops SuperCC from
-                starting up properly. (Inherited from upstream.)
+                line for you. A value that is not a number falls back to 0.
+                A number outside 0-5, or 5 when the custom images cannot be
+                loaded, shows Tile World (CCEdit) instead, with a message
+                saying why (once per session); the line itself is left as
+                it is. Before jc-18 a number outside the range stopped
+                SuperCC from starting up properly -- so before going BACK to
+                an older build after choosing custom, set this back to 0-4,
+                or that build will not start.
 
 LynxTilesheetNum
                 The same, for the Lynx ruleset. SuperCC keeps a separate
@@ -409,6 +417,34 @@ TWSNotate       How the fractional part of the clock is displayed.
                 tws timings. The
                 toggle button "Switch Decimal Notation" in the View menu
                 writes this line for you.
+
+CustomBaseImage The two pictures of the custom tileset (TilesheetNum or
+CustomOverlayImage  LynxTilesheetNum = 5).
+                Values:  a path to an image file -- PNG is what the chooser
+                         offers -- or empty for none.
+                Default: empty.
+                SUPERCC WRITES THESE ITSELF: View > Tileset > custom asks for
+                the base image, then the overlay image, and saves both once
+                both have loaded. Canceling either chooser changes nothing.
+                An image inside SuperCC's own folder is stored relative to
+                it (for example "tilesets\mine-tiles.png"), which keeps the
+                file portable between machines; anywhere else is stored as
+                a full path. So if you share this folder between computers,
+                keep your tileset images INSIDE it: a full path names one
+                computer's folders and is missing on the other.
+                There is one custom pair, shared by MS and Lynx: choosing
+                new images while a Lynx level is open changes the custom
+                tileset for MS too.
+                Each picture is a sheet in the same layout as the built-in
+                ones: 7 tiles across and 16 down, in the same order. The base
+                image holds the tiles; the overlay holds what is drawn over
+                them, with transparency. Any size works -- SuperCC scales the
+                sheet to the tile size in use, so draw it at a multiple of
+                7 x 16 tiles to keep it sharp.
+                If an image is missing or not a picture SuperCC can read,
+                the built-in Tile World (CCEdit) tileset is shown instead and
+                a message says which file (once per session); both lines
+                are kept, so the tileset comes back when the file does.
 
 ShowBuildTag    Whether the window title shows which build of this fork you
                 are running.

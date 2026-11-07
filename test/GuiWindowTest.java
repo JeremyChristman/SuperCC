@@ -324,14 +324,22 @@ public class GuiWindowTest {
 
             //    View > Tileset works with no level open (jc-17). It used to be skipped by
             //    requireALevel() while its radio mark still moved: the menu showed a tileset that was
-            //    neither drawn nor saved (review). The walk above clicked every tileset in menu order,
-            //    so the last one -- MSCC (Black and White - Editor), whose overlay image could not be
-            //    found in any jar before jc-17 -- is the one that must now be drawn and saved, as the
-            //    MS tileset, the one drawn at startup. The Lynx choice is untouched.
-            graphics.TileSheet lastSheet = graphics.TileSheet.values()[graphics.TileSheet.values().length - 1];
-            fact("the last tileset clicked is drawn (" + lastSheet + ")", w.getGamePanel().getTileSheet() == lastSheet);
-            fact("and saved as the MS tileset", emu.getPaths().getMSTilesetNum() == lastSheet.ordinal());
+            //    neither drawn nor saved (review). The walk above clicked every tileset in menu order.
+            //    The last BUILT-IN one -- MSCC (Black and White - Editor), whose overlay image could not
+            //    be found in any jar before jc-17 -- must now be drawn and saved, as the MS tileset,
+            //    the one drawn at startup. The Lynx choice is untouched.
+            //    Then came "custom" (jc-18), whose first file chooser the closer canceled: canceling
+            //    is a no-op, so Black and White stays drawn and saved, the radio mark goes back to
+            //    it, and no image path is saved (upstream made the cancel an error dialog).
+            graphics.TileSheet bw = graphics.TileSheet.CCEDIT_BLACK_AND_WHITE;
+            fact("custom is the last tileset in the menu", graphics.TileSheet.values()[graphics.TileSheet.values().length - 1] == graphics.TileSheet.CUSTOM);
+            fact("the last built-in tileset clicked is drawn (" + bw + ")", w.getGamePanel().getTileSheet() == bw);
+            fact("and saved as the MS tileset", emu.getPaths().getMSTilesetNum() == bw.ordinal());
             fact("and the Lynx tileset is left alone", emu.getPaths().getLynxTilesetNum() == 0);
+            Object[] tilesetMarks = (Object[]) field(w.getJMenuBar(), "tilesetButtons");
+            fact("canceling custom put the radio mark back on " + bw, ((AbstractButton) tilesetMarks[bw.ordinal()]).isSelected()
+                 && !((AbstractButton) tilesetMarks[graphics.TileSheet.CUSTOM.ordinal()]).isSelected());
+            fact("and saved no custom image", emu.getPaths().getCustomTilesetImages() == null);
             for (KeyListener k : w.getKeyListeners()) {
                 noThrow("a key press (" + k.getClass().getSimpleName() + ") with no level open", () -> {
                     k.keyPressed(new KeyEvent(w, KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, KeyEvent.VK_UP, KeyEvent.CHAR_UNDEFINED));

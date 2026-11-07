@@ -12,9 +12,16 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
-## Unreleased (tooling, to ship alongside jc-18)
+## Unreleased (jc-18 in progress)
 
 ### Added
+- **Custom tilesets (upstream `d78f6f3`, upstream merge step 5).** View › Tileset › custom takes a
+  base and an overlay image of your own; `[Graphics] CustomBaseImage` / `CustomOverlayImage` hold
+  them. Fork changes: paths stored relative to the Chip's Challenge folder; Cancel is a no-op and
+  the radio mark returns; both images load before anything is saved, with the tileset number in one
+  write; every unusable image is reported in words; and a saved tileset that cannot be drawn —
+  custom images gone, or a number out of range, which used to stop startup — falls back to Tile
+  World (CCEdit) with the reason, once a session. Upstream's labeled file filters come too.
 - **`formclass.ps1 -Compile` and `-DownloadCompiler`: a `.form` edit no longer needs IntelliJ**
   (ADR 0011). JetBrains' own form compiler (`java-gui-forms-compiler` 211.7628.21, six jars pinned
   by SHA-256, cached in `%LOCALAPPDATA%`, never shipped), driven as IntelliJ's IDE build drives it by

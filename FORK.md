@@ -64,7 +64,7 @@ commit is applied as a patch (`git apply -p4 --directory=java`), not merged by g
 | `72476bc` | Linux test runner, plus guards for "no level loaded" in `EmulatorKeyListener`, `MenuBar` and `Gui.java` | **merged, jc-17** — step 4, below; hand-merged (its `requireNonNull` around `openFile` would undo jc-12's cancel fix, so it was left out); the Linux test runner and Maven workflow do not apply here |
 | `5f928e0`, `fb8fe25`, `da35e33`, `8c95b3e` | Auto-diagonals | to do — `5f928e0` edits `ControlGUI.form` itself, which needed IntelliJ until `formclass.ps1 -Compile` ran JetBrains' own form compiler (ADR 0011, *Compiling a .form without IntelliJ*, below) |
 | `f701c85` | Renames `BW-overlay.png` to the `bw-overlay.png` the code asks for | **merged, jc-17** — the Black and White tileset failed in every release, since jar entries are case-sensitive (step 4, *The second review*) |
-| `d78f6f3`, `3e92380` | Custom tilesets | to do — touches the form-bound `Gui.java` and `ChooseTileSize.java`, `.form`s untouched: `formclass.ps1` |
+| `d78f6f3`, `3e92380` | Custom tilesets | **merged, jc-18** — step 5, below; with fork fixes for paths shared between machines, Cancel, unreadable images and a missing image at startup |
 
 ### Step 1 — the trap rework (`858dbd0`), and four fixes to it
 
@@ -749,6 +749,45 @@ IDE build drives it (`FormsInstrumenter.java` at `idea/211.7628.21`), javac 16.0
 - And: the desktop's checkout still had CRLF in the fifteen `.form` files and one `.py`, left from
   before `.gitattributes` normalized them, so a desktop-built jar's `java/**/*.form` entries differed
   from CI's. Re-checked out as LF.
+
+### Step 5 — custom tilesets (`d78f6f3`)
+
+**What upstream added.** View › Tileset › custom: two file choosers ask for a base and an overlay
+image, their paths are saved as `[Graphics] CustomBaseImage` / `CustomOverlayImage`, and `TileSheet`
+gains `CUSTOM` (ordinal 5) and a `getTileSheets(SuperCC, w, h)` that reads them. Plus labeled file
+filters for every chooser ("Levelset file", "JSON route file", …), applied verbatim. Five of its
+seven files applied cleanly; `MenuBar` and `SuccPaths` were hand-merged.
+
+**What the fork changed, each `MOD (Jeremy, upstream merge)`, the design checked by an architecture
+review before any code:**
+- **Paths are stored relative to the Chip's Challenge folder** where possible, through jc-5's
+  `toStoredPath`/`toUsablePath`. Upstream stored them absolute, and this file is shared by two
+  machines whose user folders differ. The README says to keep the images inside the folder.
+- **Cancel is a no-op** at either chooser, as every chooser has been since jc-12; upstream turned it
+  into an error dialog. The radio mark goes back to the tileset still drawn (`markActiveTileset()`).
+- **Both images are loaded before anything is saved**, and the paths and the ruleset's tileset
+  number go in ONE write (`SuccPaths.setCustomTileset`). Upstream saved first, so a file that was
+  not an image was saved too and failed again at every launch.
+- **Every unusable image is an `IOException` with words:** none chosen (upstream's had no message,
+  so the user read "null"), a missing file, and a file that is not an image (upstream's was a
+  `NullPointerException` no caller catches).
+- **A saved tileset that cannot be drawn falls back** to Tile World (CCEdit) with the reason, once a
+  session (`SuperCC.throwErrorOnce`), through one loader, `TileSheet.load`, used at startup and at
+  every ruleset swap. That covers custom images moved or deleted and — a pre-existing upstream
+  crash — a tileset number out of range, which stopped startup. The setting is kept, so the
+  tileset returns when the file does. `TileSheet` and `SmallGamePanel` joined `$SPLICE_MODIFIED`;
+  `Gui` and `ChooseTileSize` were compiled with `formclass.ps1 -Compile`.
+
+**Left as they are, documented:** MS and Lynx share one custom pair (README); a build older than
+jc-18 has no tileset 5 and stops at startup on it (README says to set it back before going back —
+both of the maintainer's machines run the one jar in the shared folder, so they move together);
+re-reading the images on a tile-size change is how every tileset already works.
+
+**Verification (JDK 16.0.2).** `EngineTest` §6f (the loader: two real images, a missing one, a
+non-image, none chosen, and the fallback for custom, 99 and -1); `SettingsTest` §13 (relative
+storage inside the folder, absolute outside, one write with the slot, an old file gaining the keys);
+`GuiWindowTest` (the walk now ends on custom, whose chooser is canceled: Black and White stays drawn
+and saved, the mark returns to it, nothing is saved). Corpus identical to jc-17, 24,212 of 24,212.
 
 
 ## jc-14 -- the window title is fully switchable

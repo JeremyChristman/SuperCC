@@ -8,6 +8,7 @@ import game.Direction;
 import game.Level;
 import game.Ruleset;
 import game.Step;
+import io.SuccPaths;
 import io.TWSWriter;
 import org.json.simple.JSONObject;
 import org.json.simple.parser.JSONParser;
@@ -70,7 +71,7 @@ class MenuBar extends JMenuBar{
 
             JMenuItem openLevelset = worksWithoutALevel(new JMenuItem("Open levelset"));
             openLevelset.addActionListener(e -> {
-                File levelset = openFile(emulator.getPaths().getLevelsetFolderPath(), "dat", "ccl");
+                File levelset = openFile(emulator.getPaths().getLevelsetFolderPath(), "Levelset file", "dat", "ccl");
                 if (levelset != null) {
                     emulator.getPaths().setLevelsetFolderPath(levelset.getParent());
                     emulator.openLevelset(levelset);
@@ -235,7 +236,7 @@ class MenuBar extends JMenuBar{
             JMenuItem open = new JMenuItem("Open");
             open.setAccelerator(KeyStroke.getKeyStroke(VK_O, InputEvent.CTRL_DOWN_MASK));
             open.addActionListener(event -> {
-                byte[] fileBytes = openFileBytes(emulator.getJSONPath(), "json");
+                byte[] fileBytes = openFileBytes(emulator.getJSONPath(), "JSON route file", "json", "route");
                 if (fileBytes != null) {
                     Solution solution;
                     JSONParser parser = new JSONParser();
@@ -258,7 +259,7 @@ class MenuBar extends JMenuBar{
             
             JMenuItem seedSearch = new JMenuItem("Search for seeds");
             seedSearch.addActionListener(event -> {
-                byte[] fileBytes = openFileBytes(emulator.getJSONPath(), "json");
+                byte[] fileBytes = openFileBytes(emulator.getJSONPath(), "JSON route file", "json", "route");
                 if (fileBytes != null) {
                     Solution solution;
                     JSONParser parser = new JSONParser();
@@ -412,7 +413,7 @@ class MenuBar extends JMenuBar{
             JMenuItem loadStates = new JMenuItem("Load states from disk");
             loadStates.addActionListener(event -> {
                 try {
-                    byte[] fileBytes = openFileBytes(emulator.getSerPath(), "ser");
+                    byte[] fileBytes = openFileBytes(emulator.getSerPath(), "Savestate file", "ser");
                     if (fileBytes != null) {
                         ByteArrayInputStream bis = new ByteArrayInputStream(fileBytes);
                         SavestateManager savestates = (SavestateManager) new ObjectInputStream(bis).readObject();
@@ -467,7 +468,7 @@ class MenuBar extends JMenuBar{
 
             JMenuItem openTWS = worksWithoutALevel(new JMenuItem("Open tws"));  // it only chooses the file
             openTWS.addActionListener(e -> {
-                File file = openFile(emulator.getPaths().getTWSPath(), "tws");
+                File file = openFile(emulator.getPaths().getTWSPath(), "TWS solution file", "tws");
                 if (file != null) {
                     // MOD (Jeremy, jc-10): remember this folder too -- see the comment above.
                     // getParent() is null for a file with no parent directory, so check it.
@@ -529,18 +530,51 @@ class MenuBar extends JMenuBar{
                         tileHeight = Gui.DEFAULT_TILE_HEIGHT;
                     }
                     try {
-                        BufferedImage[] tilesetImages = tileSheet.getTileSheets(tileWidth, tileHeight);
+                        BufferedImage[] tilesetImages;
+                        File baseImage = null, overlayImage = null;
+                        if (tileSheet == TileSheet.CUSTOM) {
+                            /* Upstream d78f6f3: custom asks for its two images every time it is
+                             * picked, starting where the current ones are.
+                             * MOD (Jeremy, upstream merge), three changes:
+                             * - Cancel at either chooser is a no-op, as every other chooser has been
+                             *   since jc-12; upstream turned it into an error dialog. The radio mark
+                             *   goes back to the tileset still on screen.
+                             * - Both images are LOADED before their paths are saved. Upstream saved
+                             *   first, so a file that is not an image was saved too, and the
+                             *   tileset failed again at every launch.
+                             * - Saved relative to the Chip's Challenge folder where possible, and in
+                             *   ONE write with the ruleset's tileset number
+                             *   (SuccPaths.setCustomTileset). */
+                            SuccPaths paths = emulator.getPaths();
+                            String[] current = paths.getCustomTilesetImages();
+                            String start = new File("").getAbsolutePath();
+                            baseImage = openFile(current != null ? current[0] : start, "Tileset base image", "png");
+                            overlayImage = baseImage == null ? null
+                                    : openFile(current != null ? current[1] : baseImage.getParent(), "Tileset overlay image", "png");
+                            if (baseImage == null || overlayImage == null) {
+                                markActiveTileset();
+                                return;
+                            }
+                            tilesetImages = TileSheet.loadCustom(baseImage, overlayImage, tileWidth, tileHeight);
+                        } else {
+                            tilesetImages = tileSheet.getTileSheets(emulator, tileWidth, tileHeight);
+                        }
                         window.getGamePanel().initialise(emulator, tilesetImages, tileSheet,  // aen-exempt: upstream method name
                                 window.getGamePanel().getTileWidth(), window.getGamePanel().getTileHeight());
                         window.getInventoryPanel().initialise(emulator);  // aen-exempt: upstream method name
                         window.repaint(true);
 
-                        if (!emulator.isLevelLoaded() || emulator.getLevel().getRuleset() == Ruleset.MS)
+                        boolean lynx = emulator.isLevelLoaded() && emulator.getLevel().getRuleset() != Ruleset.MS;
+                        if (tileSheet == TileSheet.CUSTOM)
+                            emulator.getPaths().setCustomTileset(lynx, tileSheet.ordinal(),
+                                    baseImage.getAbsolutePath(), overlayImage.getAbsolutePath());
+                        else if (!lynx)
                             emulator.getPaths().setMSTilesetNum(tileSheet.ordinal());
                         else
                             emulator.getPaths().setLynxTilesetNum(tileSheet.ordinal());
                     } catch (IOException exc) {
                         emulator.throwError(exc.getMessage());
+                        markActiveTileset();  // MOD (Jeremy, upstream merge): the mark follows what is drawn
                     }
                 });
                 tilesetButtonGroup.add(tilesheetButton);
@@ -562,7 +596,7 @@ class MenuBar extends JMenuBar{
                             ts = Gui.DEFAULT_TILESHEET;
                         }
                         SmallGamePanel gamePanel = (SmallGamePanel) emulator.getMainWindow().getGamePanel();
-                        emulator.getMainWindow().getGamePanel().initialise(emulator, ts.getTileSheets(size, size), ts, size, size);  // aen-exempt: upstream method name
+                        emulator.getMainWindow().getGamePanel().initialise(emulator, ts.getTileSheets(emulator, size, size), ts, size, size);  // aen-exempt: upstream method name
                         window.getInventoryPanel().initialise(emulator);  // aen-exempt: upstream method name
                         window.setSize(size * gamePanel.getWindowSizeX(), size * gamePanel.getWindowSizeY());
                         window.getGamePanel().setPreferredSize(new Dimension(size * gamePanel.getWindowSizeX(), size * gamePanel.getWindowSizeY()));
@@ -824,8 +858,8 @@ class MenuBar extends JMenuBar{
      *
      * Callers all test the return for null already, so canceling is now simply a no-op.
      */
-    private byte[] openFileBytes(String path, String... extensions) {
-        File file = openFile(path, extensions);
+    private byte[] openFileBytes(String path, String description, String... extensions) {
+        File file = openFile(path, description, extensions);
         if (file == null) return null;      // the user canceled: not an error, nothing to report
         try {
             return Files.readAllBytes(file.toPath());
@@ -841,9 +875,18 @@ class MenuBar extends JMenuBar{
         return null;
     }
 
-    private File openFile(String path, String... extensions) {
+    /** MOD (Jeremy, upstream merge): puts View > Tileset's radio mark back on the tileset that is
+     *  actually drawn, after a choice that did not take effect (canceled, or an image that would
+     *  not load). A JRadioButton has already moved its mark by the time its listener runs. */
+    void markActiveTileset() {
+        TileSheet active = window.getGamePanel() == null ? null : window.getGamePanel().getTileSheet();
+        if (active != null && tilesetButtons != null && active.ordinal() < tilesetButtons.length)
+            tilesetButtons[active.ordinal()].setSelected(true);
+    }
+
+    private File openFile(String path, String description, String... extensions) {
         JFileChooser fc = new JFileChooser();
-        fc.setFileFilter(new FileNameExtensionFilter(extensions[0], extensions));
+        fc.setFileFilter(new FileNameExtensionFilter(description, extensions));
         File file = new File(path);
         if (file.isDirectory()) fc.setCurrentDirectory(file);
         else {

@@ -39,6 +39,16 @@ public class EngineTest {
         return Harness.tempDir("scc-engine-" + name + "-");
     }
 
+    interface IoAction { Object run() throws IOException; }
+
+    /** The message of the IOException the action throws; "(no IOException: ...)" if it throws
+     *  nothing or something else, so a check on the message fails visibly rather than passing. */
+    private static String ioMessage(IoAction a) {
+        try { a.run(); return "(no IOException: nothing thrown)"; }
+        catch (IOException e) { return String.valueOf(e.getMessage()); }
+        catch (Throwable t) { return "(no IOException: " + t + ")"; }
+    }
+
     /** Parses level 1 of a freshly written set, under the ruleset the file declares. */
     private static Level firstLevel(Path dat) throws IOException {
         return new DatParser(dat.toFile()).parseLevel(1, 0, Step.EVEN, Ruleset.CURRENT, Direction.UP);
@@ -359,15 +369,51 @@ public class EngineTest {
          * jc-17 -- measured on the deployed jc-16 jar, the other four loading. Upstream f701c85
          * renamed the file. The suite runs against the built jar, so this sees what ships. */
         for (graphics.TileSheet sheet : graphics.TileSheet.values()) {
+            if (sheet == graphics.TileSheet.CUSTOM) continue;   // its images are the user's: 6f
             String problem = null;
             try {
-                java.awt.image.BufferedImage[] images = sheet.getTileSheets(16, 16);
+                java.awt.image.BufferedImage[] images = sheet.getTileSheets(null, 16, 16);
                 if (images.length != 2 || images[0] == null || images[1] == null) problem = "missing images";
             } catch (Throwable t) {
                 problem = t.toString();
             }
             Harness.check("tileset " + sheet + " loads" + (problem == null ? "" : " (" + problem + ")"), problem == null);
         }
+
+        Harness.section("6f. the custom tileset (upstream d78f6f3) fails in words, and startup falls back");
+        /* Upstream threw an IOException with no message when no images were chosen (its callers
+         * show getMessage(), so the user read "null"), and a file that is not an image as a
+         * NullPointerException, which no caller catches. Each failure is now an IOException that
+         * says what is wrong. And a tileset number from the settings file that cannot be drawn --
+         * custom with its images gone, or a number this version does not have (which used to stop
+         * startup) -- draws the fallback and says why. */
+        Path d6f = tempDir("custom-tiles");
+        File base = d6f.resolve("base.png").toFile(), overlay = d6f.resolve("overlay.png").toFile();
+        javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(7 * 4, 16 * 4, java.awt.image.BufferedImage.TYPE_INT_ARGB), "png", base);
+        javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(7 * 4, 16 * 4, java.awt.image.BufferedImage.TYPE_INT_ARGB), "png", overlay);
+        File notImage = d6f.resolve("notes.png").toFile();
+        Files.writeString(notImage.toPath(), "this is text, not a picture");
+        java.awt.image.BufferedImage[] custom = graphics.TileSheet.loadCustom(base, overlay, 10, 12);
+        Harness.check("two real images load, scaled to 7 x 16 tiles of the asked size",
+                custom.length == 2 && custom[0].getWidth() == 70 && custom[0].getHeight() == 192
+                && custom[1].getWidth() == 70 && custom[1].getHeight() == 192);
+        Harness.check("a missing image is an IOException naming the file",
+                ioMessage(() -> graphics.TileSheet.loadCustom(base, d6f.resolve("gone.png").toFile(), 10, 10)).contains("gone.png"));
+        Harness.check("a file that is not an image is an IOException that says so",
+                ioMessage(() -> graphics.TileSheet.loadCustom(notImage, overlay, 10, 10)).startsWith("Not an image"));
+        Harness.check("custom with no images chosen says so, rather than \"null\"",
+                ioMessage(() -> graphics.TileSheet.CUSTOM.getTileSheets(null, 10, 10)).startsWith("No images have been chosen"));
+        graphics.TileSheet fallback = graphics.TileSheet.CCEDIT_TW;
+        graphics.TileSheet.Choice ok = graphics.TileSheet.load(null, graphics.TileSheet.MSCC.ordinal(), fallback, 10, 10);
+        Harness.check("a good number loads that tileset, with no problem", ok.sheet() == graphics.TileSheet.MSCC && ok.problem() == null);
+        graphics.TileSheet.Choice gone = graphics.TileSheet.load(null, graphics.TileSheet.CUSTOM.ordinal(), fallback, 10, 10);
+        Harness.check("custom that cannot load falls back, and says why",
+                gone.sheet() == fallback && gone.images().length == 2 && gone.problem() != null && gone.problem().contains("custom"));
+        graphics.TileSheet.Choice range = graphics.TileSheet.load(null, 99, fallback, 10, 10);
+        Harness.check("a number this version does not have falls back, and names the number",
+                range.sheet() == fallback && range.problem() != null && range.problem().contains("99"));
+        graphics.TileSheet.Choice negative = graphics.TileSheet.load(null, -1, fallback, 10, 10);
+        Harness.check("so does a negative one", negative.sheet() == fallback && negative.problem() != null);
 
         Harness.section("7. the full collection fingerprint (local only)");
         /* Synthesized fixtures catch format and edge-case regressions. They cannot speak for the

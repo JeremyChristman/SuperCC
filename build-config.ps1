@@ -26,6 +26,8 @@ $SPLICE_MODIFIED = @(
     "graphics\LevelPanel.java",
     "graphics\MenuBar.java",
     "graphics\GamePanel.java",
+    "graphics\SmallGamePanel.java",
+    "graphics\TileSheet.java",
     "io\ErrorLog.java",
     "io\LevelFactory.java",
     "io\SuccPaths.java",
