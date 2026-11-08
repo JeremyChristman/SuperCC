@@ -332,7 +332,8 @@ dependency**, never committed, never shipped. Output goes to `coverage-report\` 
 `coverage.csv` is the evidence behind every percentage below.
 
 As of jc-19 plus the unreleased baseline step `923d07c`, with all 2,361 assertions passing (17 of
-them `upstreamBug` pins, §6), **measured on JDK 16.0.2** (16.0.2+7-67 on the desktop; Temurin 16.0.2+7, what CI pins, gives the same figures):
+them `upstreamBug` pins, §6), **measured on JDK 16.0.2** (16.0.2+7-67 on the desktop; Temurin
+16.0.2+7, what CI pins, gives the same figures):
 
 | scope | branch | line | branches |
 |---|---|---|---|
@@ -731,7 +732,8 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
   trap index exists, so 5 levels in his collection do not open, 6 solved routes no longer solve and
   2 unsolved routes end differently; the corpus shows exactly those 13 differences against jc-18, and that is the expected result, not
   a regression. Do not fix it in passing: the fixes come back as their own step, by `git revert`
-  of the revert commit, and then this bullet and FORK.md's table are updated to match. The tests that pin the bug use `Harness.upstreamBug` — each passes only on
+  of the revert commit, and then this bullet, FORK.md's table, the coverage baseline (§4:
+  `-UpdateBaseline`, the table, the pin count) are updated to match — FORK.md lists the steps. The tests that pin the bug use `Harness.upstreamBug` — each passes only on
   upstream's own measured answer, fails "the correct answer came back" on the correct one, and
   fails as a regression on anything else. "The correct answer came back" is the cue to turn the
   pin back into a `check()` (if a fix was re-applied) or to find what moved (if not, e.g. hash

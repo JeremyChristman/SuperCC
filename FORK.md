@@ -81,8 +81,10 @@ judged wrong; most were bug fixes, and the plan is to restore them deliberately 
 
 **How a revert keeps its fix recoverable:**
 - each revert is ONE commit holding the code AND its test changes (the notes are committed
-  separately), so `git revert <that commit>` puts the fix back exactly, tests included — the notes
-  that list it as reverted (this section, CLAUDE.md §6, CHANGELOG) are then updated by hand;
+  separately), so `git revert <that commit>` puts the fix back exactly, tests included. Then, by
+  hand: the notes that list it as reverted (this section, CLAUDE.md §6, CHANGELOG), and the
+  numbers the revert moves — `coverage.ps1 -UpdateBaseline` on JDK 16.0.2, the CLAUDE.md §4
+  coverage table, and its count of `upstreamBug` pins — or the release's coverage gate fails;
 - while reverted, the fix's tests are kept as `Harness.upstreamBug(what, actual, upstream, correct)`
   pins: each PASSES only on upstream's own wrong answer, as measured on upstream's code, so it
   holds the code AT upstream's behavior rather than merely away from the correct one. The correct
@@ -108,7 +110,7 @@ at a time means re-applying it by hand from that commit's diff and turning only 
 into checks.
 
 Re-applying the recorder fix is `git revert 923d07c`, which turns `InputDiscardTest` §5 back into
-a check (then update the notes, as above).
+a check (then the notes, coverage baseline, §4 table and pin count, as above).
 
 **Still to decide, one at a time** — every other `MOD (Jeremy, upstream merge)` in `java/`:
 1. ~~**Input discarding** (`SuperCC.tick`): the key is kept when the multi-tick bit is also set.~~
