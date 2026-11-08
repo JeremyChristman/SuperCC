@@ -124,13 +124,13 @@ public class MsCloneTrapTest {
         /* ================================================================
          * 2. A clone only SURVIVES if the button is pressed during a tick
          * ================================================================
-         * addClone queues into newClones, and MSCreatureList.initialise() -- which runs at the top
+         * addClone queues into newClones, and MSCreatureList.initialise() -- which runs at the top  // aen-exempt: upstream method names
          * of every tick -- begins with newClones.clear(). So a clone queued from outside the tick
          * cycle is thrown away by the next tick before finalise() ever sees it, and the list never
          * grows.
          *
          * That is not a defect. In a real level nothing presses a button except a creature or Chip
-         * standing on it, which happens DURING a tick, after initialise() and before finalise().
+         * standing on it, which happens DURING a tick, after initialise() and before finalise().  // aen-exempt: upstream method names
          * But it means the population counted immediately after a bare press() -- which is what
          * section 1 and ButtonTest section 10 measure -- is a transient that does not necessarily
          * become a creature. Both halves are pinned here so the difference is on the record. */
@@ -142,7 +142,7 @@ public class MsCloneTrapTest {
         red(discarded, 1, 1).press(discarded);
         Harness.eq("a bare press queues one", discarded.getMonsterList().getNewClones().size(), 1);
         step(discarded, 1);
-        Harness.eq("but the next tick's initialise clears the queue",
+        Harness.eq("but the next tick's initialise clears the queue",  // aen-exempt: upstream method names
                    discarded.getMonsterList().getNewClones().size(), 0);
         Harness.eq("and it never reached the live list",
                    discarded.getMonsterList().size(), 0);

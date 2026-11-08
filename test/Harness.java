@@ -64,6 +64,42 @@ public final class Harness {
         else    { fail++; System.out.println("  FAIL  " + what); results.add(new Result(suite, what, "fail", "assertion failed")); }
     }
 
+    /**
+     * The upstream baseline's pin (FORK.md, "The upstream baseline"). Where upstream SuperCC v2.0.3
+     * gives a WRONG answer and the fork deliberately gives the same one, this passes only on
+     * UPSTREAM'S OWN ANSWER, as measured -- so it holds the code at upstream's behavior, not merely
+     * away from the correct one. The CORRECT answer fails as "the correct answer came back": the cue
+     * to turn this into an ordinary check if a fix was re-applied, or to find what upstream's bug
+     * depends on that moved (a hash order, say) if none was. Any third answer is a plain regression.
+     *
+     * The recorded name is `what` alone whatever happens, so two runs' results line up; the answers
+     * go in the detail. A pass carries a detail too, so the result files can tell a pin from a check.
+     */
+    public static void upstreamBug(String what, Object actual, Object upstream, Object correct) {
+        String values = "actual: " + actual + " | upstream v2.0.3: " + upstream + " | correct: " + correct;
+        if (java.util.Objects.equals(actual, upstream)) {
+            pass++;
+            System.out.println("  PASS  [upstream v2.0.3 bug, pinned] " + what);
+            results.add(new Result(suite, what, "pass", "pinned upstream v2.0.3 bug -- " + values));
+        } else if (java.util.Objects.equals(actual, correct)) {
+            fail++;
+            System.out.println("  FAIL  [the pinned upstream bug no longer reproduces: the CORRECT answer came back] "
+                               + what + "\n          " + values
+                               + "\n          if a fix was re-applied, make this a check(); if not, find what moved");
+            results.add(new Result(suite, what, "fail",
+                                   "the pinned upstream bug no longer reproduces: the correct answer came back -- " + values));
+        } else {
+            fail++;
+            System.out.println("  FAIL  [neither upstream's answer nor the correct one] " + what + "\n          " + values);
+            results.add(new Result(suite, what, "fail", "neither upstream's answer nor the correct one -- " + values));
+        }
+    }
+
+    /** upstreamBug() for a yes/no question whose correct answer is yes: upstream's answer is no. */
+    public static void upstreamBug(String what, boolean correctAnswerGiven) {
+        upstreamBug(what, correctAnswerGiven, false, true);
+    }
+
     public static void eq(String what, Object actual, Object expected) {
         boolean ok = (expected == null) ? actual == null : expected.equals(actual);
         if (ok) { pass++; System.out.println("  PASS  " + what); results.add(new Result(suite, what, "pass", null)); }
@@ -206,8 +242,10 @@ public final class Harness {
                 Result r = results.get(j);
                 b.append("    <testcase classname=\"").append(xml(name))
                  .append("\" name=\"").append(xml(r.name)).append("\"");
-                if ("pass".equals(r.status)) {
+                if ("pass".equals(r.status) && r.detail == null) {
                     b.append("/>\n");
+                } else if ("pass".equals(r.status)) {   // a pin (upstreamBug): say so in the report
+                    b.append(">\n      <system-out>").append(xml(r.detail)).append("</system-out>\n    </testcase>\n");
                 } else if ("skip".equals(r.status)) {
                     b.append(">\n      <skipped/>\n    </testcase>\n");
                 } else {
