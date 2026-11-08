@@ -55,7 +55,9 @@ prompts you to; there is no automation that can, for the reason below.
 All eleven vendored classes are **byte-for-byte identical** to the same classes in
 `com.jetbrains.intellij.java:java-gui-forms-rt:211.7628.21`, from JetBrains' own repository
 (`cache-redirector.jetbrains.com/intellij-repository/releases`), measured 2026-11-07. That jar has
-one class more, which nothing here uses. 211.7628.21 is the IntelliJ IDEA build line (2021.1) that
+two classes more (13 against the 11 vendored): `SupportCode$1`, a compiler-generated helper the
+vendored `SupportCode` only ever passes as null, and `com/intellij/uiDesigner/UIFormXmlConstants`.
+Nothing here uses either. 211.7628.21 is the IntelliJ IDEA build line (2021.1) that
 compiled the committed form classes, and the matching form COMPILER of the same build reproduces
 them byte for byte (`docs/adr/0011`) — so the runtime and the compiler are known to be one version.
 
@@ -70,11 +72,13 @@ and it is only reached by generated `$$$setupUI$$$()` methods.
 
 `formclass.ps1 -DownloadCompiler` fetches **JetBrains' form compiler** — the tool IntelliJ's build
 uses to turn a `.form` into the `$$$setupUI$$$()` bytecode — so a form class can be compiled without
-IntelliJ (`docs/adr/0011`). Six jars, each pinned by SHA-256 in `formclass.ps1` and re-hashed on
-every use: `java-gui-forms-compiler`, `java-gui-forms-rt`, `java-compiler-instrumentation-util` and
+IntelliJ (`docs/adr/0011`). Six jars, each pinned by SHA-256 in `formclass.ps1`, copied into each
+run's own work folder and hashed there before use: `java-gui-forms-compiler`, `java-gui-forms-rt`, `java-compiler-instrumentation-util` and
 `java-compiler-instrumentation-util-java8` (all `com.jetbrains.intellij.java`, 211.7628.21, Apache-2.0),
 and `org.jetbrains.intellij.deps` `asm-all` 9.1 (BSD-3-Clause) and `jdom` 2.0.6 (the JDOM license,
-Apache-style). They are cached per machine under `%LOCALAPPDATA%\supercc-formsc\`, downloaded fresh by
+Apache-style). None of the six jars carries a license file and no POM declares one, so those
+licenses are the source projects' (intellij-community, ASM, JDOM), not read from the artifacts —
+which matters little, since none of them is redistributed. They are cached per machine under `%LOCALAPPDATA%\supercc-formsc\`, downloaded fresh by
 CI and the release workflow, and **never committed and never in the jar** — like JaCoCo
 (`coverage.ps1`), they are tools, not dependencies of the program.
 

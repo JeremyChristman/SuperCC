@@ -47,7 +47,11 @@ public class ControlGUI {
                 krb.setText(KeyEvent.getKeyText(krb.key.getKeyCode()));
             }
         }
-        autoDiagonals.setSelected(emulator.getPaths().getControls().autoDiagonals);
+        // MOD (Jeremy, upstream merge): the switch alone. Upstream called getControls(), which REWRITES
+        // the settings file when a key code does not parse -- and Tools > Controls builds this window
+        // inside a SwingWorker, so that write ran off the event thread, against a settings map the
+        // event thread writes too (review).
+        autoDiagonals.setSelected(emulator.getPaths().getAutoDiagonals());
         updateDiagonalButtons();
 
         JFrame frame = new JFrame("Controls");

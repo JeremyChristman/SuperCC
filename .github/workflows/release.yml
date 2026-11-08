@@ -78,6 +78,12 @@ jobs:
         shell: powershell
         run: powershell -ExecutionPolicy Bypass -File formclass.ps1 -Check -RequireCompiler -Jar SuperCC.jar
 
+      # And the proof the check above still bites, here too: a tag can be pushed on a commit CI
+      # never ran (review).
+      - name: Form-class tool self-test
+        shell: powershell
+        run: powershell -ExecutionPolicy Bypass -File formclass.ps1 -SelfTest -RequireCompiler -Jar SuperCC.jar
+
       # THE guard this workflow exists for. The git tag and the tag baked into the jar are two
       # independent facts and nothing else compares them. Push jc-11 while BUILD_TAG still reads
       # [jc-10] and every other gate passes: the README check looks for jc-10 and finds it, the zip

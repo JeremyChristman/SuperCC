@@ -45,7 +45,7 @@ public class SuperCC {
      * class can NEVER be recompiled) would keep the OLD tag baked in, and the jar would report two
      * different versions depending on which window you looked at. */
     public static final String TITLE = "SuperCC";
-    public static final String BUILD_TAG = "[jc-17]";
+    public static final String BUILD_TAG = "[jc-18]";
 
     private SavestateManager savestates;
 //    SavestateCompressor savestateCompressor = new SavestateCompressor();
@@ -599,7 +599,7 @@ public class SuperCC {
         TileSheet tileSheet = Gui.DEFAULT_TILESHEET;
         BufferedImage[] tilesetImages = null;
         try {
-            TileSheet.Choice choice = TileSheet.load(this, paths.getMSTilesetNum(), Gui.DEFAULT_TILESHEET, width, height);
+            TileSheet.Choice choice = TileSheet.loadForRuleset(this, paths, false, Gui.DEFAULT_TILESHEET, width, height);
             tileSheet = choice.sheet();
             tilesetImages = choice.images();
             if (choice.problem() != null) throwErrorOnce(choice.problem());

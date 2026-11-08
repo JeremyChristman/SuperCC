@@ -1,5 +1,5 @@
 ==============================================================================
-  SuperCC  --  Jeremy Christman's fork                      build jc-17
+  SuperCC  --  Jeremy Christman's fork                      build jc-18
 ==============================================================================
 
   1. What this is
@@ -291,6 +291,8 @@ This is the complete stock file. Every key SuperCC knows is here:
     TWSNotate = false
     CustomBaseImage =
     CustomOverlayImage =
+    CustomTileset = false
+    LynxCustomTileset = false
     ShowBuildTag = false
     ShowLevelPack = false
     ShowLevelName = true
@@ -377,7 +379,9 @@ AutoDiagonals   Whether two arrow keys pressed together make a diagonal move,
                 Default: false
                 Set it in the program with Tools > Controls > Auto diagonals,
                 which writes this line when the Controls window is closed
-                (the diagonal keys' boxes are grayed out while it is on).
+                (the diagonal keys' boxes are grayed out while it is on;
+                the diagonal keys still work, so to change one, turn this
+                off, change it, and turn this back on).
                 How it works: an arrow waits a twentieth of a second for a
                 partner. Two arrows on different axes make the diagonal;
                 holding one arrow and pressing another makes it too; a quick
@@ -387,6 +391,8 @@ AutoDiagonals   Whether two arrow keys pressed together make a diagonal move,
                 order.
                 LYNX ONLY in effect. MS has no diagonal moves, so under MS the
                 arrows move at once, exactly as with this off.
+                A build older than jc-18 does not know this line and erases
+                it the next time it saves a setting.
 
 
 [Graphics]
@@ -398,18 +404,31 @@ TilesheetNum    Which tile graphics to use under the MS ruleset.
                          2 = MSCC (CCEdit)
                          3 = MSCC
                          4 = MSCC (Black and White - Editor)
-                         5 = custom (your own two images -- see
-                             CustomBaseImage below)
                 Default: 0
                 Set it in the program with View > Tileset, which writes this
                 line for you. A value that is not a number falls back to 0.
-                A number outside 0-5, or 5 when the custom images cannot be
-                loaded, shows Tile World (CCEdit) instead, with a message
-                saying why (once per session); the line itself is left as
-                it is. Before jc-18 a number outside the range stopped
-                SuperCC from starting up properly -- so before going BACK to
-                an older build after choosing custom, set this back to 0-4,
-                or that build will not start.
+                The custom tileset is NOT a number here: it is CustomTileset
+                (below), so this line always holds a tileset every build of
+                SuperCC has, and an older build reading the file still
+                starts. A number this version does not have shows Tile World
+                (CCEdit) instead, with a message saying why (once per
+                session), and the line is left as it is. Before jc-18 such a
+                number stopped SuperCC from starting up properly.
+
+CustomTileset   Whether the MS ruleset draws the custom tileset (your own
+LynxCustomTileset  two pictures, CustomBaseImage below) instead of the
+                tileset TilesheetNum names; LynxCustomTileset is the same
+                for Lynx.
+                Values:  true or 1 turns it ON. ANYTHING ELSE IS OFF.
+                Default: false
+                View > Tileset > custom turns it on for the ruleset of the
+                level open (MS when none is); choosing any other tileset
+                there turns it off. While it is on, TilesheetNum keeps the
+                tileset you had before, which is what a build older than
+                jc-18 shows -- such a build knows nothing of these lines and
+                erases them, and the CustomBaseImage lines, the next time it
+                saves a setting, so after going back to one you choose custom
+                again.
 
 LynxTilesheetNum
                 The same, for the Lynx ruleset. SuperCC keeps a separate
@@ -436,8 +455,8 @@ TWSNotate       How the fractional part of the clock is displayed.
                 toggle button "Switch Decimal Notation" in the View menu
                 writes this line for you.
 
-CustomBaseImage The two pictures of the custom tileset (TilesheetNum or
-CustomOverlayImage  LynxTilesheetNum = 5).
+CustomBaseImage The two pictures of the custom tileset (CustomTileset or
+CustomOverlayImage  LynxCustomTileset = true).
                 Values:  a path to an image file -- PNG is what the chooser
                          offers -- or empty for none.
                 Default: empty.
@@ -459,10 +478,14 @@ CustomOverlayImage  LynxTilesheetNum = 5).
                 them, with transparency. Any size works -- SuperCC scales the
                 sheet to the tile size in use, so draw it at a multiple of
                 7 x 16 tiles to keep it sharp.
-                If an image is missing or not a picture SuperCC can read,
-                the built-in Tile World (CCEdit) tileset is shown instead and
-                a message says which file (once per session); both lines
-                are kept, so the tileset comes back when the file does.
+                A picture may have up to 32 million pixels (a sheet of 7 x 16
+                tiles of 512 pixels each is 29 million); a larger one is
+                refused before it is read.
+                If an image is missing, too large, or not a picture SuperCC
+                can read, the tileset TilesheetNum names -- the one you had
+                before choosing custom -- is shown instead, and a message
+                says which file (once per session); the custom lines are
+                kept, so the tileset comes back when the file does.
 
 ShowBuildTag    Whether the window title shows which build of this fork you
                 are running.
@@ -571,6 +594,47 @@ AlwaysOpenInMS  Whether every level set opens under the MS ruleset, no matter
 Releases from jc-2 on carry a jc-N tag in the repository. The title bar, when
 ShowBuildTag is on, shows the build tag compiled into the jar, which matches
 the tag for that release. Newest first.
+
+
+jc-18  --  Custom tilesets and auto-diagonals: level with upstream at last
+------------------------------------------------------------------------
+
+  * CUSTOM TILESETS. View > Tileset > custom asks for two pictures of
+    your own -- the tiles, and the overlay drawn over them -- and draws
+    the game with them. Canceling either chooser changes nothing, a file
+    that is not a picture is refused with a message instead of being
+    saved, and the choice is remembered in a way that works on every
+    computer sharing this folder, as long as the pictures are kept inside
+    it. Going back to an older build is safe: it starts normally, with
+    the tileset you had before choosing custom. Section 6, CustomTileset
+    and CustomBaseImage, has the details. This is upstream's feature with
+    this fork's fixes.
+
+  * A TILESET THAT CANNOT BE SHOWN NO LONGER STOPS ANYTHING. If the custom
+    pictures have been moved or deleted, or succ_settings.ini names a
+    tileset this version does not have (which used to stop SuperCC from
+    starting properly), the standard Tile World (CCEdit) tileset is shown
+    instead, with one message saying why. Your choice is kept, so it comes
+    back when the pictures do. Fixed in this fork only.
+
+  * AUTO-DIAGONALS, for Lynx. Tools > Controls > Auto diagonals lets two
+    arrow keys pressed together make a diagonal move, instead of needing
+    the four diagonal keys. A quick tap counts, holding one arrow and
+    pressing another works, and anything else you do -- another key, a
+    click, switching windows -- makes the waiting move first, so your
+    moves are always recorded in the order you made them. Under MS, which
+    has no diagonal moves, arrows behave exactly as before. Off unless
+    you turn it on. This is upstream's feature, with its key handling
+    rewritten in this fork: as it came, it could record moves out of
+    order, lose quick taps, and swallow keys under MS.
+
+  * Nothing else changes how the program behaves. Every one of the 24,212
+    stored solutions in the maintainer's collection replays exactly as it
+    did on jc-17. With this release the fork contains every change of
+    upstream SuperCC v2.0.3, its latest. Behind the scenes, the windows
+    built with IntelliJ's designer are now compiled with JetBrains' own
+    tool, so the Controls window's new checkbox could be added without
+    IntelliJ; that changes nothing you can see.
 
 
 jc-17  --  No errors from the controls before a level is open

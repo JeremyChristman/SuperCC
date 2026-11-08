@@ -124,5 +124,19 @@ public class AutoDiagonalTest {
         c = new DiagonalCombiner();
         c.release(Key.LEFT);
         Harness.check("a release with nothing pressed changes nothing", !c.isOpen() && c.resolve() == null);
+
+        Harness.section("7. isHeld, which tells the key listener a press is an auto-repeat");
+        c = new DiagonalCombiner();
+        Harness.check("nothing is held at first", !c.isHeld(Key.UP));
+        c.press(Key.UP);
+        Harness.check("a pressed arrow is held", c.isHeld(Key.UP));
+        Harness.check("and only that one", !c.isHeld(Key.DOWN) && !c.isHeld(Key.LEFT));
+        c.resolve();
+        Harness.check("it stays held after its window closes (it is still down)", c.isHeld(Key.UP));
+        c.release(Key.UP);
+        Harness.check("a released arrow is not held", !c.isHeld(Key.UP));
+        c.press(Key.RIGHT);
+        c.clear();
+        Harness.check("nor is anything after a clear", !c.isHeld(Key.RIGHT));
     }
 }

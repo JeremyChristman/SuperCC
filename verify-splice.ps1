@@ -99,15 +99,16 @@ foreach ($m in $SPLICE_MODIFIED) {
 if ($problems.Count -eq 0) { Report-Ok "$($SPLICE_MODIFIED.Count) spliced files, none form-based" }
 
 Write-Host "`n== 2. the .form inventory still matches the committed baseline =="
-# A NEW .form file means a new class javac cannot build. It has to be compiled by IntelliJ and its
-# .class committed, or the build silently ships nothing for it.
+# A NEW .form file means a new class javac cannot build. It has to be compiled by formclass.ps1
+# -Compile (JetBrains' form compiler, docs\adr\0011) and its .class committed, or the build silently
+# ships nothing for it.
 $formProblems = $problems.Count
 $forms = @(Get-ChildItem $srcRoot -Recurse -Filter *.form | Sort-Object FullName)
 foreach ($f in $forms) {
     $rel = $f.FullName.Substring($srcRoot.Length + 1)
     $cls = Join-Path $root ([IO.Path]::ChangeExtension($rel, ".class"))
     if (-not (Test-Path $cls)) {
-        Add-Problem "$rel has no committed .class baseline -- it must be built in IntelliJ and committed (ADR 0002)"
+        Add-Problem "$rel has no committed .class baseline -- compile it with formclass.ps1 -Compile and commit it (ADR 0002, 0011)"
     }
 }
 
@@ -124,11 +125,11 @@ foreach ($f in $forms) {
 #
 # Both are hashed. A hash cannot produce a false green; it also cannot say whether the committed
 # class was rebuilt after the edit, which is why formclass.ps1 -Check exists (CI runs it after the
-# build -- it needs a built jar to compile against). The responses differ by file:
-#   * .java edited, .form untouched: formclass.ps1 -Rebuild <file> rebuilds the class here
-#     (javac plus IntelliJ's generated members copied from the committed class, docs\adr\0010);
-#   * .form edited: $$$setupUI$$$ itself must change, and only IntelliJ can write it.
-# Either way, commit the new .class files and re-run with -UpdateFormBaseline.
+# build -- it needs a built jar to compile against -- and since jc-18 it compares bytes against
+# what JetBrains' own form compiler makes of the committed .java AND .form, docs\adr\0011).
+# The response is the same for either file: formclass.ps1 -Compile <file> compiles the class with
+# that compiler, which writes $$$setupUI$$$ from an edited .form as IntelliJ would. Then commit the
+# new .class files and re-run with -UpdateFormBaseline.
 $baselineFile = Join-Path $root "docs\form-baseline.sha256"
 $formTracked = @()
 foreach ($f in $forms) {
@@ -156,13 +157,11 @@ else {
         $rel = $p.Substring($srcRoot.Length + 1)
         $got = Get-TextHash $p
         if (-not $expected.ContainsKey($rel)) {
-            Add-Problem "$rel is NEW and form-based -- build it in IntelliJ, commit its .class, then re-run with -UpdateFormBaseline"
+            Add-Problem "$rel is NEW and form-based -- compile it with formclass.ps1 -Compile, commit its .class, then re-run with -UpdateFormBaseline"
         }
         elseif ($expected[$rel] -ne $got) {
-            $how = if ($rel -like "*.java") {
-                       "If its .form is unchanged, rebuild it with formclass.ps1 -Rebuild $rel (JDK 16.0.2); " +
-                       "if the .form changed too, rebuild it in IntelliJ."
-                   } else { "A .form edit changes `$`$`$setupUI`$`$`$, so rebuild it in IntelliJ." }
+            $java = [IO.Path]::ChangeExtension($rel, ".java")
+            $how = "Compile it with formclass.ps1 -Compile $java (JDK 16.0.2, docs\adr\0011)."
             Add-Problem ("$rel has been EDITED, and it is form-based, so THE BUILD DOES NOT RECOMPILE IT -- the jar " +
                          "would ship the old class. $how Commit the new .class files, then re-run " +
                          "with -UpdateFormBaseline.")

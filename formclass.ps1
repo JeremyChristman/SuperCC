@@ -48,8 +48,9 @@ IntelliJ's own instrumenter chooses. docs\adr\0010 records the decision and how 
     Fetches JetBrains' own form compiler -- java-gui-forms-compiler 211.7628.21, the IntelliJ line
     that built the committed classes, and the five jars it runs with -- into
     %LOCALAPPDATA%\supercc-formsc\211.7628.21\, checking every jar against a SHA-256 pinned below.
-    A test-time tool like JaCoCo: never committed, never shipped. Every later use re-checks the
-    hashes, so a jar changed on disk is refused, not run. docs\adr\0011.
+    A test-time tool like JaCoCo: never committed, never shipped. Every run COPIES the jars into its
+    own work folder, hashes the copies and uses only those, so a jar changed on disk is refused, and
+    one changed during a run is never the one run. docs\adr\0011.
 
 -Compile <file>[,<file>...]
     javac compiles the .java, JetBrains' compiler reads the .form and adds the generated members --
@@ -96,12 +97,14 @@ if ($modeCount -ne 1) { throw "Pass exactly one of -Rebuild <file>, -Compile <fi
 
 <# JetBrains' form compiler (docs\adr\0011). The version is the IntelliJ line that built the committed
    classes (ADR 0010 read FormConstructorVisitor at the same tag). Six jars are what it runs with
-   here; its POM also names org.jetbrains:annotations (compile-time only) and com.jgoodies:forms
+   here; its POM also names org.jetbrains:annotations (runtime scope there, but measured unneeded) and com.jgoodies:forms
    (needed only by a form laid out with JGoodies' FormLayout, which none of the fifteen is -- such a
    form would fail loudly with NoClassDefFoundError, not compile wrongly). Each SHA-256 was taken
    from a download whose SHA-1 matched the one the repository publishes beside it. #>
 $FORMSC_VERSION = "211.7628.21"
-$FORMSC_DIR = Join-Path $env:LOCALAPPDATA "supercc-formsc\$FORMSC_VERSION"
+# Without LOCALAPPDATA there is no per-machine cache: Join-Path on $null once made -DownloadCompiler
+# write into the CURRENT folder and report success (review). $null here refuses instead, below.
+$FORMSC_DIR = if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA "supercc-formsc\$FORMSC_VERSION" } else { $null }
 $jbJava = "https://cache-redirector.jetbrains.com/intellij-repository/releases/com/jetbrains/intellij/java"
 $jbDeps = "https://cache-redirector.jetbrains.com/intellij-dependencies/org/jetbrains/intellij/deps"
 $FORMSC_JARS = @(
@@ -120,9 +123,20 @@ $FORMSC_JARS = @(
        Sha256 = "BA6A807A6AA9FD2D034DB2B048C32DC55254172BEF3085D683516DE9E853FBD5" }
 )
 
-# The compiler's classpath, or $null with the reason in $script:formscProblem. Every jar is hashed
-# on every use: a cached jar that changed is refused, never run.
+# The compiler's classpath, or $null with the reason in $script:formscProblem.
+# Each cached jar is COPIED into $Into -- this run's private work folder -- and the COPY is hashed
+# and used. Hashing the cache and then running the cache left the whole run between the check and
+# the use: a jar swapped in after the hash ran fifteen times, and with a planted FormCompile.class
+# inside it, -Check passed an uncompiled .form edit (review, reproduced). This closes that window
+# on the shared cache. It cannot stop a process running as the same user from writing this run's own
+# work folder under %TEMP% -- nothing a script does can -- and so it does not claim to.
 function Get-FormsCompilerClasspath {
+    param([Parameter(Mandatory)][string]$Into)
+    if (-not $FORMSC_DIR) {
+        $script:formscProblem = "LOCALAPPDATA is not set, so there is no compiler cache to read"
+        return $null
+    }
+    New-Item -ItemType Directory -Force -Path $Into | Out-Null
     $paths = @()
     foreach ($j in $FORMSC_JARS) {
         $p = Join-Path $FORMSC_DIR $j.Name
@@ -130,17 +144,21 @@ function Get-FormsCompilerClasspath {
             $script:formscProblem = "$($j.Name) is not cached in $FORMSC_DIR -- run formclass.ps1 -DownloadCompiler"
             return $null
         }
-        $sha = (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash
+        $copy = Join-Path $Into $j.Name
+        try { [IO.File]::Copy($p, $copy, $true) }
+        catch { $script:formscProblem = "could not copy $p to $copy -- $($_.Exception.Message)"; return $null }
+        $sha = (Get-FileHash -LiteralPath $copy -Algorithm SHA256).Hash
         if ($sha -ne $j.Sha256) {
             $script:formscProblem = "$p has SHA-256 $sha, expected $($j.Sha256) -- delete it and run formclass.ps1 -DownloadCompiler"
             return $null
         }
-        $paths += $p
+        $paths += $copy
     }
     return ($paths -join ";")
 }
 
 if ($DownloadCompiler) {
+    if (-not $FORMSC_DIR) { throw "LOCALAPPDATA is not set: there is nowhere to cache the form compiler." }
     New-Item -ItemType Directory -Force -Path $FORMSC_DIR | Out-Null
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     $savedProgress = $ProgressPreference
@@ -171,7 +189,18 @@ if ($DownloadCompiler) {
             Write-Host "  FAIL    $($j.Name): SHA-256 $sha, expected $($j.Sha256) -- deleted, not used"
             $failed++; continue
         }
-        Move-Item -LiteralPath $tmp -Destination $dest -Force
+        # [IO.File] calls THROW; Move-Item under "Continue" failed quietly and this still said "ok"
+        # (review). And "ok" is said only for what is really in place, hashed again where it landed.
+        try {
+            if (Test-Path -LiteralPath $dest) { [IO.File]::Delete($dest) }
+            [IO.File]::Move($tmp, $dest)
+        } catch {
+            Write-Host "  FAIL    $($j.Name): could not move it into $FORMSC_DIR -- $($_.Exception.Message)"
+            $failed++; continue
+        }
+        if ((Get-FileHash -LiteralPath $dest -Algorithm SHA256).Hash -ne $j.Sha256) {
+            Write-Host "  FAIL    $($j.Name): not intact after the move"; $failed++; continue
+        }
         Write-Host "  ok      $($j.Name) (downloaded, SHA-256 verified)"
     }
     $ProgressPreference = $savedProgress
@@ -268,7 +297,7 @@ try {
     # The compiler: required to compile, and for -Check / -SelfTest required when -RequireCompiler
     # says so (CI, the release workflow). Without it locally they still run, minus the byte check,
     # and say so loudly -- that is the weaker check, and a green run must not be mistaken for it.
-    $formscCp = Get-FormsCompilerClasspath
+    $formscCp = Get-FormsCompilerClasspath -Into (Join-Path $work "formsc")
     if (-not $formscCp) {
         if ($Compile -or $RequireCompiler) { throw $script:formscProblem }
         Write-Host ""
@@ -287,7 +316,8 @@ try {
     # its result must also agree with the compiler's on where the call goes.
     function Invoke-FormCompile {
         param([string]$Form, [string]$JavacClass, [string]$OutClass, [string]$JavacRoot, [string]$Fqcn)
-        $msg = ((& $java -cp "$formscCp;$toolOut" FormCompile $Form $JavacClass $OutClass $JavacRoot $cp 2>&1 |
+        # The repo's own driver FIRST: a jar earlier on the path could otherwise shadow FormCompile.
+        $msg = ((& $java -cp "$toolOut;$formscCp" FormCompile $Form $JavacClass $OutClass $JavacRoot $cp 2>&1 |
                  ForEach-Object { "$_" }) -join "`n").Trim()
         if ($LASTEXITCODE -ne 0) { return "JetBrains' form compiler failed: $msg" }
         $lintRoot = Join-Path $work ("lint-" + [Guid]::NewGuid().ToString("N").Substring(0, 8))
@@ -300,6 +330,38 @@ try {
         $compiledRoot = $OutClass.Substring(0, $OutClass.Length - (($Fqcn -replace '\.', '\') + ".class").Length).TrimEnd([char]92)
         if ((Get-ClassKey $lintRoot $Fqcn -IgnorePoolIndexes) -ne (Get-ClassKey $compiledRoot $Fqcn -IgnorePoolIndexes)) {
             return "the compiler and the lint disagree on where `$`$`$setupUI`$`$`$ is called -- refused rather than guessed"
+        }
+        return $null
+    }
+
+    <# The BYTE check (docs\adr\0011), in ONE function that -Check and -SelfTest both call. -SelfTest
+       used to carry its own copy of the comparison, and with -Check's made to compare a hash with
+       itself, -SelfTest still reported 22 of 22 while -Check passed an uncompiled .form edit
+       (review, reproduced). Compiles <Base> from javac's output under $JavacRoot plus $Form, and
+       compares the whole class set -- names and bytes -- with $CommittedDir. $null when they match,
+       otherwise the reason. #>
+    function Test-CompiledBytes {
+        param([string]$Form, [string]$JavacRoot, [string]$Pkg, [string]$Base, [string]$CommittedDir, [string]$Scratch)
+        $newDir = if ($Pkg) { Join-Path $JavacRoot $Pkg } else { $JavacRoot }
+        $bcDir  = if ($Pkg) { Join-Path $Scratch $Pkg } else { $Scratch }
+        New-Item -ItemType Directory -Force -Path $bcDir | Out-Null
+        foreach ($c in (Get-ClassSet $newDir $Base)) { [IO.File]::Copy($c.FullName, (Join-Path $bcDir $c.Name), $true) }
+        $fqcn = if ($Pkg) { ($Pkg -replace '\\', '.') + ".$Base" } else { $Base }
+        $why = Invoke-FormCompile $Form (Join-Path $newDir "$Base.class") (Join-Path $bcDir "$Base.class") $JavacRoot $fqcn
+        if ($why) { return $why }
+        $made = @(Get-ClassSet $bcDir $Base); $have = @(Get-ClassSet $CommittedDir $Base)
+        if ((($made | ForEach-Object Name) -join " ") -ne (($have | ForEach-Object Name) -join " ")) {
+            return ("compiles to [" + (($made | ForEach-Object Name) -join " ") + "] but the committed classes are [" +
+                    (($have | ForEach-Object Name) -join " ") + "]")
+        }
+        $notSame = @()
+        foreach ($c in $made) {
+            if ((Get-FileHash -LiteralPath $c.FullName -Algorithm SHA256).Hash -ne
+                (Get-FileHash -LiteralPath (Join-Path $CommittedDir $c.Name) -Algorithm SHA256).Hash) { $notSame += $c.Name }
+        }
+        if ($notSame.Count -gt 0) {
+            return ("the committed " + ($notSame -join ", ") + " is not what javac + JetBrains' compiler make from the " +
+                    "committed .java and .form -- a .form edit never compiled, or a class built another way")
         }
         return $null
     }
@@ -453,36 +515,49 @@ try {
         <# JetBrains' compiler (docs\adr\0011): that -Check's byte comparison catches the two things it
            exists for, and that -Compile's lint refuses what IntelliJ's own placement gets wrong. #>
         if ($formscCp) {
-            function Compile-Specimen {
-                param([string]$Class, [string]$Source, [string]$Form)
+            # javac on a specimen source, into a fresh folder; returns that folder (javac's root).
+            function Javac-Specimen {
+                param([string]$Class, [string]$Source)
                 $d = Join-Path $work ("sc-" + [Guid]::NewGuid().ToString("N").Substring(0, 8))
-                $s = Join-Path $d "src\tools"; $j = Join-Path $d "jc"; $o = Join-Path $d "out\tools"
-                New-Item -ItemType Directory -Force -Path $s, $j, $o | Out-Null
+                $s = Join-Path $d "src\tools"; $j = Join-Path $d "jc"
+                New-Item -ItemType Directory -Force -Path $s, $j | Out-Null
                 [IO.File]::WriteAllText((Join-Path $s "$Class.java"), $Source, $utf8)
                 & $javac -g --release $SPLICE_RELEASE -encoding $SPLICE_ENCODING -cp $cp -sourcepath $empty `
                          -implicit:none -d $j (Join-Path $s "$Class.java") 2>&1 | Out-Null
-                if ($LASTEXITCODE -ne 0) { return @{ Why = "specimen does not compile"; Out = $null } }
-                $why = Invoke-FormCompile $Form (Join-Path $j "tools\$Class.class") (Join-Path $o "$Class.class") $j "tools.$Class"
-                return @{ Why = $why; Out = (Join-Path $o "$Class.class") }
+                if ($LASTEXITCODE -ne 0) { return $null }
+                return $j
             }
-            function Same-Bytes { param([string]$A, [string]$B)
-                return ((Test-Path -LiteralPath $A) -and (Test-Path -LiteralPath $B) -and
-                        (Get-FileHash -LiteralPath $A -Algorithm SHA256).Hash -eq (Get-FileHash -LiteralPath $B -Algorithm SHA256).Hash) }
-
+            function Compile-Specimen {
+                param([string]$Class, [string]$Source, [string]$Form)
+                $j = Javac-Specimen $Class $Source
+                if (-not $j) { return @{ Why = "specimen does not compile" } }
+                $o = Join-Path (Split-Path $j) "out\tools"
+                New-Item -ItemType Directory -Force -Path $o | Out-Null
+                return @{ Why = (Invoke-FormCompile $Form (Join-Path $j "tools\$Class.class") (Join-Path $o "$Class.class") $j "tools.$Class") }
+            }
+            # The three byte-check cases go through Test-CompiledBytes -- the function -Check itself
+            # runs -- so a broken comparison fails here too (review).
             $cgSrc  = [IO.File]::ReadAllText((Join-Path $srcRoot "tools\ControlGUI.java"))
             $cgForm = Join-Path $srcRoot "tools\ControlGUI.form"
-            $c = Compile-Specimen ControlGUI $cgSrc $cgForm
-            Assert-Self "JetBrains' compiler reproduces the committed ControlGUI.class byte for byte" ((-not $c.Why) -and (Same-Bytes $c.Out (Join-Path $root "tools\ControlGUI.class"))) $c.Why
+            $cgJc   = Javac-Specimen ControlGUI $cgSrc
+            $why = if ($cgJc) { Test-CompiledBytes $cgForm $cgJc "tools" "ControlGUI" (Join-Path $root "tools") (Join-Path $work "bc-ok") } else { "does not compile" }
+            Assert-Self "the byte check passes the committed ControlGUI (JetBrains' compiler reproduces it exactly)" (-not $why) $why
             # A one-word label edit in the .form, never compiled: the transplant check copies the
             # generated members from the committed class and so cannot see it; the byte check must.
             $edited = Join-Path $work "ControlGUI-edited.form"
             [IO.File]::WriteAllText($edited, ([IO.File]::ReadAllText($cgForm)).Replace('<text value="Up Left"/>', '<text value="Up-Left"/>'), $utf8)
-            $e = Compile-Specimen ControlGUI $cgSrc $edited
-            Assert-Self "a .form edit that was never compiled is caught: the committed class is no longer what the .form makes" ((-not $e.Why) -and $e.Out -and -not (Same-Bytes $e.Out (Join-Path $root "tools\ControlGUI.class"))) $e.Why
+            $why = if ($cgJc) { Test-CompiledBytes $edited $cgJc "tools" "ControlGUI" (Join-Path $root "tools") (Join-Path $work "bc-form") } else { $null }
+            Assert-Self "the byte check FAILS a .form edit that was never compiled" ($why -match 'is not what javac') $why
             # A class built by the transplant keeps javac's stack-map frames; IntelliJ recomputed them.
+            # Put it where the committed classes would be, beside the real committed inner classes.
             $t = Test-Specimen SeedSearch $seed
-            $tOut = if ($t.Exit -eq 0) { Join-Path $t.Out "tools\SeedSearch.class" } else { "" }
-            Assert-Self "a class built by the transplant is caught: its bytes are not the compiler's" ($t.Exit -eq 0 -and -not (Same-Bytes $tOut (Join-Path $root "tools\SeedSearch.class"))) $t.Text
+            $fake = Join-Path $work "fake-committed\tools"
+            New-Item -ItemType Directory -Force -Path $fake | Out-Null
+            foreach ($c in (Get-ClassSet (Join-Path $root "tools") "SeedSearch")) { [IO.File]::Copy($c.FullName, (Join-Path $fake $c.Name), $true) }
+            if ($t.Exit -eq 0) { [IO.File]::Copy((Join-Path $t.Out "tools\SeedSearch.class"), (Join-Path $fake "SeedSearch.class"), $true) }
+            $ssJc = Javac-Specimen SeedSearch $seed
+            $why = if ($t.Exit -eq 0 -and $ssJc) { Test-CompiledBytes (Join-Path $srcRoot "tools\SeedSearch.form") $ssJc "tools" "SeedSearch" $fake (Join-Path $work "bc-tp") } else { $null }
+            Assert-Self "the byte check FAILS a class built by the transplant" ($why -match 'SeedSearch\.class is not what javac') ("$why $($t.Text)")
             # The lint: IntelliJ's flag mistakes `new ChangeTimer(0)` for this(...) and places the call
             # after a bound read (NullPointerException on open, ADR 0010). JetBrains' compiler does
             # exactly that; -Compile must refuse it.
@@ -624,27 +699,10 @@ try {
            from the committed class, so it cannot see a .form edit at all; this can. Byte-identical
            because it was measured to be: all fifteen IntelliJ originals reproduce exactly. #>
         if ($formscCp) {
-            $bc = Join-Path $one "compiled"
-            $bcDir = Join-Path $bc $pkg
-            New-Item -ItemType Directory -Force -Path $bcDir | Out-Null
-            foreach ($c in $newSet) { [IO.File]::Copy($c.FullName, (Join-Path $bcDir $c.Name), $true) }
-            $why = Invoke-FormCompile $form (Join-Path $newDir "$base.class") (Join-Path $bcDir "$base.class") $jc ($fqcnBase + $base)
-            if ($why) { Write-Host "  FAIL  $rel : $why"; $problems++; continue }
-            $notSame = @()
-            foreach ($c in (Get-ClassSet $bcDir $base)) {
-                $mine = Join-Path $committedDir $c.Name
-                if (-not (Test-Path -LiteralPath $mine) -or
-                    (Get-FileHash -LiteralPath $c.FullName -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $mine -Algorithm SHA256).Hash) {
-                    $notSame += $c.Name
-                }
-            }
-            if ($notSame.Count -gt 0) {
-                Write-Host ("  FAIL  $rel : the committed " + ($notSame -join ", ") + " is not what javac + JetBrains' compiler " +
-                            "make from the committed .java and .form -- a .form edit never compiled, or a class built " +
-                            "another way. Compile it: formclass.ps1 -Compile $rel")
-                $problems++
-                continue
-            }
+            $why = Test-CompiledBytes $form $jc $pkg $base $committedDir (Join-Path $one "compiled")
+            # The ONE line -SelfTest does not reach: it proves Test-CompiledBytes, not this call site
+            # (review: making this `if` ignore $why passed -SelfTest). Keep it this small.
+            if ($why) { Write-Host "  FAIL  $rel : $why. Compile it: formclass.ps1 -Compile $rel"; $problems++; continue }
         }
         Write-Verbose "  ok  $rel"
     }

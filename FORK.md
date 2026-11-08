@@ -31,6 +31,7 @@ fork *does* change, by release:
 | jc-15 | **Upstream merge, steps 1 and 2** — upstream's trap rework (`858dbd0`) with four fixes of the fork's own, and its Lynx input discarding (`b997c27` + `98366f7`), which records a key the engine ignores as a wait. Replay-identical on all 24,204 stored solutions; 40 Lynx move lists record differently once loaded. See *Upstream merge*. |
 | jc-16 | **Upstream merge, step 3** — Seed Search stops at the last seed instead of wrapping into negative seeds forever (`40495dd`), plus three fork fixes: a negative start, threads that finished before the next one started, and an example seed that hid negative seeds. `SeedSearch` is form-based, so this added `formclass.ps1`, which rebuilds a form class whose `.form` is unchanged (ADR 0010). Engine untouched. See *Upstream merge*, step 3. |
 | jc-17 | **Upstream merge, step 4** — nothing a user can touch throws before a level set is open any more (upstream `72476bc`, hand-merged, extended by the fork to one guard over every menu — 46 of the 56 menu controls threw on jc-16 — plus canceling Go to… / Set RNG Seed no longer throws). Levels with no title open (MO3 #12 and #14, the only two of 23,476 that could not), and the Black and White tileset loads (upstream `f701c85`; broken in every earlier release). First rebuild of the main window (`Gui`) with `formclass.ps1`, and `GuiWindowTest` builds the real window in a non-headless JVM. Replay-identical on all 24,212 stored solutions. See *Upstream merge*, step 4. |
+| jc-18 | **Upstream merge, steps 5 and 6 — the fork now carries every upstream commit through v2.0.3.** Custom tilesets (`d78f6f3`) with fork fixes for shared paths, Cancel, unreadable images, and a fallback when a saved tileset cannot be drawn (a number out of range used to stop startup). Auto-diagonals (`5f928e0`, `fb8fe25`, `da35e33`) with the key handling rewritten: upstream ticked from a background thread, let other input overtake a waiting arrow, lost taps and ate keys under MS. Form classes are now compiled by JetBrains' own form compiler and checked byte for byte (ADR 0011). Replay-identical on all 24,212 stored solutions. See *Upstream merge*, steps 5 and 6. |
 
 > **`settings.ini` is `succ_settings.ini` from jc-8 on.** Older sections below are left in their
 > original wording where they describe historical work; read "settings.ini" in those as the same
@@ -50,8 +51,8 @@ fork *does* change, by release:
 ## Upstream merge
 
 The fork was imported from upstream commit `e34672b` (2021-09-10), 13 commits short of upstream's
-latest release, v2.0.3 (2024-06-23, still its master tip). Those commits are being brought in one
-logical change at a time, each replayed against the corpus before it lands, because SuperCC is the
+latest release, v2.0.3 (2024-06-23, still its master tip). **All of them are in as of jc-18.** They
+were brought in one logical change at a time, each replayed against the corpus before it landed, because SuperCC is the
 reference engine the Tile World desync work was measured against: an engine commit moves the
 yardstick. Upstream lays its source out under `src/main/java`, this repo under `java/`, so each
 commit is applied as a patch (`git apply -p4 --directory=java`), not merged by git.
@@ -765,9 +766,19 @@ review before any code:**
   machines whose user folders differ. The README says to keep the images inside the folder.
 - **Cancel is a no-op** at either chooser, as every chooser has been since jc-12; upstream turned it
   into an error dialog. The radio mark goes back to the tileset still drawn (`markActiveTileset()`).
-- **Both images are loaded before anything is saved**, and the paths and the ruleset's tileset
-  number go in ONE write (`SuccPaths.setCustomTileset`). Upstream saved first, so a file that was
+- **Both images are loaded before anything is saved**, and the paths and the ruleset's custom
+  switch go in ONE write (`SuccPaths.setCustomTileset`). Upstream saved first, so a file that was
   not an image was saved too and failed again at every launch.
+- **Custom is a switch per ruleset (`CustomTileset`, `LynxCustomTileset`), not tileset number 5.**
+  Upstream stored it as the number. The first version here did too, with a README warning, and two
+  reviews flagged it; the second measured it by building jc-17 and running it on a file jc-18 had
+  written: `ArrayIndexOutOfBoundsException` at startup (a half-built window) and at every level set
+  opened, and jc-17's next settings write erased the custom keys, after which jc-18 claimed "your
+  choice is kept" about images that were gone. This file is shared by two machines, and going back
+  a build is the usual answer to a bad one, so `TilesheetNum` now always holds a built-in sheet:
+  the one chosen before custom, which an older build simply shows. `TileSheet.settingsNumber`
+  turns a ruleset's switch and number into the tileset to draw; choosing a built-in tileset
+  (`SuccPaths.setBuiltInTileset`) saves its number and turns the switch off in one write.
 - **Every unusable image is an `IOException` with words:** none chosen (upstream's had no message,
   so the user read "null"), a missing file, and a file that is not an image (upstream's was a
   `NullPointerException` no caller catches).
@@ -778,14 +789,41 @@ review before any code:**
   tileset returns when the file does. `TileSheet` and `SmallGamePanel` joined `$SPLICE_MODIFIED`;
   `Gui` and `ChooseTileSize` were compiled with `formclass.ps1 -Compile`.
 
-**Left as they are, documented:** MS and Lynx share one custom pair (README); a build older than
-jc-18 has no tileset 5 and stops at startup on it (README says to set it back before going back —
-both of the maintainer's machines run the one jar in the shared folder, so they move together);
-re-reading the images on a tile-size change is how every tileset already works.
+**From the release reviews, also fixed:**
+- **Oversized images.** An image whose header claims 50000 x 50000 made `ImageIO` throw
+  `IllegalArgumentException`, past every fallback; one claiming 46000 x 46000 stays under ImageIO's
+  own overflow check and asks for about 8 GB. `loadTilesetImage` now reads the dimensions first
+  and refuses more than 32 million pixels before decoding (`EngineTest` §6f builds both files, with
+  real CRCs, as the review did). Rewriting it introduced a leak — closing an `ImageInputStream` does
+  not close the stream it wraps, so every image read left a handle open, which on Windows LOCKS
+  the user's own file — and §6f's move of a loaded image is what caught it, before any commit.
+  And ANY runtime exception from the image reader is now that file's problem, said in words: the
+  last review found a GIF that ends with no image in it throws `IndexOutOfBoundsException` from
+  `getWidth(0)`, past every fallback (§6f builds that file too, named `.png`).
+- **One loader for what a ruleset's settings say, `TileSheet.loadForRuleset`.** A custom tileset
+  that fails now falls back to the ruleset's own built-in choice (what an older build shows from the
+  same file), not always to Tile World (CCEdit); and a stored `TilesheetNum = 5` (left by the
+  unreleased build that kept custom as a number, or written by hand) is refused like any number out
+  of range instead of being taken as custom against the switch.
+- **View › Game window size** swallowed a tileset failure and left the panel's buffers at the old
+  size; it now goes through the same loaders and re-marks View › Tileset itself, so the custom size
+  dialog does too.
+- The custom-tileset message no longer says "no images chosen" when the settings are simply not
+  loaded; and a `SettingsTest` check that matched "TilesheetNum = 0" inside "LynxTilesheetNum = 0"
+  (it passed with MS's line reading 5) now compares whole lines and parsed values.
+Each was shown to fail on its mutant: the number-5 write, a stored 5 read as custom, no size cap, the
+leaked handle.
+
+**Left as they are, documented:** MS and Lynx share one custom pair (README; upstream's design); a
+build older than jc-18 erases the custom lines on its next settings write, so after going back to
+one, custom is chosen again (README); re-reading the images on a tile-size change is how every
+tileset already works.
 
 **Verification (JDK 16.0.2).** `EngineTest` §6f (the loader: two real images, a missing one, a
 non-image, none chosen, and the fallback for custom, 99 and -1); `SettingsTest` §13 (relative
-storage inside the folder, absolute outside, one write with the slot, an old file gaining the keys);
+storage inside the folder, absolute outside, the switch in the same write, `TilesheetNum` still a
+built-in number with custom on for both rulesets, a built-in choice turning the switch off, an old
+file gaining the keys);
 `GuiWindowTest` (the walk now ends on custom, whose chooser is canceled: Black and White stays drawn
 and saved, the mark returns to it, nothing is saved). Corpus identical to jc-17, 24,212 of 24,212.
 
@@ -830,7 +868,7 @@ under Lynx, and FORK.md step 2 records that Tile World starts Lynx Chip facing S
 uses his tile's facing, so a route opening with a diagonal is likelier to meet that known,
 unfixed difference.
 
-**Verification.** `test/AutoDiagonalTest.java` (44): every combining rule, including each of the
+**Verification.** `test/AutoDiagonalTest.java` (50): every combining rule, including each of the
 review's counterexamples. `GuiWindowTest` §6, against the real window with real dispatched
 `KeyEvent`s, each sequence compared with the same moves made the plain way: setting off moves at
 once; on under MS still at once; on under Lynx two arrows wait; a wait pressed meanwhile lands AFTER
@@ -838,6 +876,28 @@ their diagonal; a mouse press and a loss of focus make the waiting move; a tap w
 when the Swing timer fires. Four mutants — no flush before other keys, none on a mouse press, MS
 waiting too, taps ignored — each fail the checks written for them. `FormClassTest` gives ControlGUI
 an emulator with real settings, which the program always has and the headless one never did.
+
+**The release reviews (2026-11-07), and what they changed.** Three reviewers ran on the merged
+range before tagging: a `/code-review`, a hostile failure-mode and concurrency review, and a
+supply-chain review.
+- **Auto-repeat (failure-mode review, reproduced in the real window).** Windows repeats a held key
+  about every 33 ms; each repeat joined the open 50 ms window, so a held arrow moved at half speed
+  (four key events, two moves), and the held key, released inside a window it had repeated into,
+  counted as a tap — running Up then turning Right came out Up, Up-Right. Now a press of an arrow
+  already held is a move of its own at once, from what is held (holding Up and Right still repeats
+  as the diagonal). `GuiWindowTest` §6 sends real repeats and compares each run with the setting off.
+- **Drags and wheel turns flush too.** A drag of the time slider rewinds at every step and a wheel
+  over the move list moves through it, so a waiting arrow must land before them.
+- **Focus.** Forgetting held keys on every component focus change (`/code-review`) dropped a held
+  arrow when focus merely moved inside the program; releases anywhere in it are seen anyway. Now
+  only focus leaving the program forgets them; any focus change still flushes.
+- **Tools › Controls** now reads `getAutoDiagonals()`. Upstream's `getControls()` there could
+  rewrite the settings file, and that window is built inside a `SwingWorker`, off the event thread.
+- **Defended:** the diagonal keys' remap boxes gray out while the switch is on, as upstream made
+  them (the README says how to change one); `keyPressed`'s flush repeats the AWT listener's on
+  purpose, because code and tests call it directly; the program-wide listener is never removed,
+  because the program has one main window; two Controls windows open at once save whichever closes
+  last, as the key codes always have.
 
 
 ## jc-14 -- the window title is fully switchable

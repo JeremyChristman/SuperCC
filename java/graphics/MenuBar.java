@@ -565,13 +565,12 @@ class MenuBar extends JMenuBar{
                         window.repaint(true);
 
                         boolean lynx = emulator.isLevelLoaded() && emulator.getLevel().getRuleset() != Ruleset.MS;
+                        // Custom is a switch beside the ruleset's built-in number, never the number
+                        // itself, so a build before jc-18 can still read the file (SuccPaths.getCustomTileset).
                         if (tileSheet == TileSheet.CUSTOM)
-                            emulator.getPaths().setCustomTileset(lynx, tileSheet.ordinal(),
-                                    baseImage.getAbsolutePath(), overlayImage.getAbsolutePath());
-                        else if (!lynx)
-                            emulator.getPaths().setMSTilesetNum(tileSheet.ordinal());
+                            emulator.getPaths().setCustomTileset(lynx, baseImage.getAbsolutePath(), overlayImage.getAbsolutePath());
                         else
-                            emulator.getPaths().setLynxTilesetNum(tileSheet.ordinal());
+                            emulator.getPaths().setBuiltInTileset(lynx, tileSheet.ordinal());
                     } catch (IOException exc) {
                         emulator.throwError(exc.getMessage());
                         markActiveTileset();  // MOD (Jeremy, upstream merge): the mark follows what is drawn

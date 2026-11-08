@@ -60,8 +60,9 @@ would fail the byte check the moment it was committed.
 **The download.** Six jars — the compiler, its runtime (`java-gui-forms-rt`), the instrumentation
 utilities and their JDK-9+ loader (`…-java8`, without which the finder cannot see `java.*`),
 `asm-all` 9.1 and `jdom` 2.0.6 — each pinned by SHA-256 (taken from a download whose published SHA-1
-matched) and re-hashed on every use. The compiler's POM also names `org.jetbrains:annotations`
-(compile-time only) and `com.jgoodies:forms` (needed only for a form laid out with JGoodies'
+matched), copied into each run's own work folder and hashed there, so the jars used are the jars
+checked. The compiler's POM also names `org.jetbrains:annotations`
+(at runtime scope, but measured unneeded) and `com.jgoodies:forms` (needed only for a form laid out with JGoodies'
 FormLayout, which none of these is; such a form would fail loudly, not compile wrongly); both were
 measured unnecessary and are not fetched. Cached per machine in
 `%LOCALAPPDATA%\supercc-formsc\211.7628.21\`, never committed, never shipped.

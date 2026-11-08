@@ -98,6 +98,9 @@ public class SuccPaths {
         // Upstream d78f6f3: the two images of View > Tileset > custom. Empty = none chosen yet.
         d.put("Graphics:CustomBaseImage", "");
         d.put("Graphics:CustomOverlayImage", "");
+        // MOD (Jeremy, upstream merge): whether each ruleset draws them -- see getCustomTileset().
+        d.put("Graphics:CustomTileset", "false");
+        d.put("Graphics:LynxCustomTileset", "false");
         d.put("Graphics:ShowBuildTag", "false");   // MOD (Jeremy, jc-8): OFF unless asked for
         /* MOD (Jeremy, jc-14): the two halves of the title after "SuperCC" are switchable too.
          * The shipped defaults are pack OFF and level name ON -- see getShowLevelPack() and
@@ -156,6 +159,9 @@ public class SuccPaths {
         }
         // Rendered through the same predicate the getter uses, so the file can never disagree with
         // what getShowBuildTag() will read back out of it.
+        // MOD (Jeremy, upstream merge): switches, so through optedIn() like the ones below.
+        sb.append("CustomTileset = ").append(optedIn(map.get("Graphics:CustomTileset"))).append('\n');
+        sb.append("LynxCustomTileset = ").append(optedIn(map.get("Graphics:LynxCustomTileset"))).append('\n');
         sb.append("ShowBuildTag = ").append(showBuildTagOf(map.get("Graphics:ShowBuildTag"))).append('\n');
         /* MOD (Jeremy, jc-14): written through the same predicates the getters use, for the same
          * reason ShowBuildTag is -- the file must never disagree with what is read back out of it.
@@ -626,15 +632,37 @@ public class SuccPaths {
         settingsMap.put("Graphics:TWSNotate", String.valueOf(twsNotation));
         updateSettingsFile();
     }
-    /** Upstream d78f6f3's setCustomTilesetImages, with the ruleset's tileset number in the SAME write
-     *  (MOD (Jeremy, upstream merge), from the architecture review): choosing custom saves three
-     *  values that only mean something together, and this file is rewritten whole and synced, so
-     *  two writes were two chances for the other machine to see one without the other. The paths
-     *  are stored relative where possible (getCustomTilesetImages). */
-    public void setCustomTileset(boolean lynx, int tilesetNum, String baseImage, String overlayImage) {
+    /** Upstream d78f6f3's setCustomTilesetImages, with the ruleset's custom switch turned on in the
+     *  SAME write (MOD (Jeremy, upstream merge), from the architecture review): choosing custom saves
+     *  three values that only mean something together, and this file is rewritten whole and synced,
+     *  so two writes were two chances for the other machine to see one without the other. The
+     *  ruleset's TilesheetNum is left as it is (getCustomTileset says why). The paths are stored
+     *  relative where possible (getCustomTilesetImages). */
+    public void setCustomTileset(boolean lynx, String baseImage, String overlayImage) {
         settingsMap.put("Graphics:CustomBaseImage", toStoredPath(baseImage));
         settingsMap.put("Graphics:CustomOverlayImage", toStoredPath(overlayImage));
+        settingsMap.put(lynx ? "Graphics:LynxCustomTileset" : "Graphics:CustomTileset", "true");
+        updateSettingsFile();
+    }
+
+    /* MOD (Jeremy, upstream merge): whether a ruleset draws the CUSTOM tileset, as a switch of its
+     * own -- NOT as tileset number 5 in TilesheetNum, which is how upstream stored it. A build
+     * before jc-18 has five tilesets; reading 5 there threw ArrayIndexOutOfBoundsException at startup
+     * and at every level set opened, and its next settings write then erased the custom keys it did
+     * not know, after which jc-18 claimed "your choice is kept" about images that were gone (two
+     * reviews; measured by building jc-17 and running it on a jc-18 file). This file is shared by
+     * two machines and going back a build is the usual answer to a bad one, so TilesheetNum keeps
+     * the last BUILT-IN choice, which every build can read, and custom sits beside it: an older build
+     * draws that tileset, and simply forgets custom. */
+    public boolean getCustomTileset(boolean lynx) {
+        return optedIn(settingsMap.get(lynx ? "Graphics:LynxCustomTileset" : "Graphics:CustomTileset"));
+    }
+
+    /** A built-in tileset chosen in View > Tileset: its number, and custom OFF for that ruleset, in
+     *  one write. (setMSTilesetNum alone keeps its old meaning: the number, nothing else.) */
+    public void setBuiltInTileset(boolean lynx, int tilesetNum) {
         settingsMap.put(lynx ? "Graphics:LynxTilesheetNum" : "Graphics:TilesheetNum", String.valueOf(tilesetNum));
+        settingsMap.put(lynx ? "Graphics:LynxCustomTileset" : "Graphics:CustomTileset", "false");
         updateSettingsFile();
     }
     public void setShowBuildTag(boolean showBuildTag) { // MOD (Jeremy): see getShowBuildTag()

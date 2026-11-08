@@ -375,7 +375,8 @@ public class GuiWindowTest {
             Object[] tilesetMarks = (Object[]) field(w.getJMenuBar(), "tilesetButtons");
             fact("canceling custom put the radio mark back on " + bw, ((AbstractButton) tilesetMarks[bw.ordinal()]).isSelected()
                  && !((AbstractButton) tilesetMarks[graphics.TileSheet.CUSTOM.ordinal()]).isSelected());
-            fact("and saved no custom image", emu.getPaths().getCustomTilesetImages() == null);
+            fact("and saved no custom image, nor turned custom on", emu.getPaths().getCustomTilesetImages() == null
+                 && !emu.getPaths().getCustomTileset(false) && !emu.getPaths().getCustomTileset(true));
             for (KeyListener k : w.getKeyListeners()) {
                 noThrow("a key press (" + k.getClass().getSimpleName() + ") with no level open", () -> {
                     k.keyPressed(new KeyEvent(w, KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, KeyEvent.VK_UP, KeyEvent.CHAR_UNDEFINED));
@@ -540,6 +541,29 @@ public class GuiWindowTest {
             fact("a mouse press anywhere makes the waiting move first (" + clicked + " vs " + plainUp + ")", clicked.equals(plainUp));
             String interrupted = keyRun(emu, w, lynxSet, () -> emu.getControls().inputInterrupted(), KeyEvent.VK_LEFT);
             fact("losing focus makes the waiting move at once, too", !interrupted.isEmpty());
+
+            // AUTO-REPEAT: a second KEY_PRESSED of an arrow with no release between is Windows
+            // repeating a held key. The review measured the first version making two moves of four
+            // repeats (half speed), and a run-then-turn coming out as a diagonal. Each sequence
+            // below must record exactly what the setting-off run records.
+            setAutoDiagonals(emu, false);
+            String offRun   = keyRun(emu, w, lynxSet, KeyEvent.VK_UP, KeyEvent.VK_UP, KeyEvent.VK_UP, KeyEvent.VK_UP);
+            String offDiags = keyRun(emu, w, lynxSet, KeyEvent.VK_I, KeyEvent.VK_I, KeyEvent.VK_I);
+            Runnable turn = () -> {
+                w.dispatchEvent(new KeyEvent(w, KeyEvent.KEY_RELEASED, System.currentTimeMillis(), 0, KeyEvent.VK_UP, KeyEvent.CHAR_UNDEFINED));
+                w.dispatchEvent(new KeyEvent(w, KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, KeyEvent.VK_RIGHT, KeyEvent.CHAR_UNDEFINED));
+                emu.getControls().inputInterrupted();   // close Right's window now, without a timer
+            };
+            String offTurn  = keyRun(emu, w, lynxSet, turn, KeyEvent.VK_UP, KeyEvent.VK_UP);
+            setAutoDiagonals(emu, true);
+            String onRun = keyRun(emu, w, lynxSet, KeyEvent.VK_UP, KeyEvent.VK_UP, KeyEvent.VK_UP, KeyEvent.VK_UP);
+            fact("Up held through three repeats: four moves, as with the setting off (" + onRun + " vs " + offRun + ")", onRun.equals(offRun));
+            String onDiags = keyRun(emu, w, lynxSet, KeyEvent.VK_UP, KeyEvent.VK_RIGHT, KeyEvent.VK_RIGHT, KeyEvent.VK_RIGHT);
+            fact("Up held, Right pressed and repeating twice: three diagonals, like three presses of the diagonal key ("
+                 + onDiags + " vs " + offDiags + ")", onDiags.equals(offDiags));
+            String onTurn = keyRun(emu, w, lynxSet, turn, KeyEvent.VK_UP, KeyEvent.VK_UP);
+            fact("Up held (one repeat), let go, then Right: up, up, right -- not a diagonal (" + onTurn + " vs " + offTurn + ")",
+                 onTurn.equals(offTurn));
 
             // A TAP: pressed and released inside the window, then nothing -- the window's own timer.
             String tapped = keyRun(emu, w, lynxSet, () -> w.dispatchEvent(new KeyEvent(w, KeyEvent.KEY_RELEASED,

@@ -323,7 +323,7 @@ public class SettingsTest {
               && stock13.indexOf("CustomBaseImage") < stock13.indexOf("[Emulation]"));
         check("none chosen reads as null", p13.getCustomTilesetImages() == null);
         Path inBase = d13.resolve("tilesets").resolve("base.png"), inOverlay = d13.resolve("tilesets").resolve("overlay.png");
-        p13.setCustomTileset(false, 5, inBase.toString(), inOverlay.toString());
+        p13.setCustomTileset(false, inBase.toString(), inOverlay.toString());
         String[] got13 = p13.getCustomTilesetImages();
         check("images inside the CC folder read back as the same absolute paths",
               got13 != null && got13[0].equals(inBase.toString()) && got13[1].equals(inOverlay.toString()));
@@ -332,13 +332,34 @@ public class SettingsTest {
               file13.contains("CustomBaseImage = tilesets\\base.png\n") && file13.contains("CustomOverlayImage = tilesets\\overlay.png\n"));
         String[] reread13 = SuccPaths.load(f13).getCustomTilesetImages();
         check("and survive a reload", reread13 != null && reread13[0].equals(inBase.toString()));
-        eq("the MS tileset number is saved in the same write", SuccPaths.load(f13).getMSTilesetNum(), 5);
-        eq("and the Lynx one is left alone", SuccPaths.load(f13).getLynxTilesetNum(), 0);
+        eq("the MS custom switch is turned on in the same write", SuccPaths.load(f13).getCustomTileset(false), true);
+        eq("and the Lynx one is left alone", SuccPaths.load(f13).getCustomTileset(true), false);
         Path outside13 = freshDir("customtiles-out").resolve("art.png");
-        p13.setCustomTileset(true, 5, outside13.toString(), inOverlay.toString());
+        p13.setCustomTileset(true, outside13.toString(), inOverlay.toString());
         check("an image outside the CC folder is stored absolute",
               Files.readString(f13.toPath(), StandardCharsets.UTF_8).contains("CustomBaseImage = " + outside13 + "\n"));
-        eq("choosing custom under Lynx saves the Lynx number", SuccPaths.load(f13).getLynxTilesetNum(), 5);
+        eq("choosing custom under Lynx turns on the Lynx switch", SuccPaths.load(f13).getCustomTileset(true), true);
+        /* The downgrade guarantee (two reviews; measured by running jc-17 on a jc-18 file): custom is
+         * NEVER stored as tileset number 5, which a build before jc-18 indexes out of bounds at
+         * startup. TilesheetNum keeps the last built-in choice, which every build can read. */
+        String both13 = Files.readString(f13.toPath(), StandardCharsets.UTF_8);
+        // WHOLE lines, not substrings: "TilesheetNum = 0" is inside "LynxTilesheetNum = 0", and a
+        // contains() check passed with MS's line reading 5 (review).
+        java.util.List<String> lines13 = java.util.Arrays.asList(both13.split("\\R"));
+        SuccPaths parsed13 = SuccPaths.load(f13);
+        check("with custom on for both, TilesheetNum and LynxTilesheetNum are still built-in numbers",
+              lines13.contains("TilesheetNum = 0") && lines13.contains("LynxTilesheetNum = 0")
+              && parsed13.getMSTilesetNum() == 0 && parsed13.getLynxTilesetNum() == 0);
+        check("and the switches are their own lines, through optedIn",
+              lines13.contains("CustomTileset = true") && lines13.contains("LynxCustomTileset = true"));
+        p13.setBuiltInTileset(false, 3);
+        SuccPaths r13 = SuccPaths.load(f13);
+        check("choosing a built-in tileset for MS turns MS custom off and saves its number, in one write",
+              !r13.getCustomTileset(false) && r13.getMSTilesetNum() == 3 && r13.getCustomTileset(true));
+        eq("an unrecognized switch value reads OFF",
+           SuccPaths.load(settingsWith(freshDir("ct-yes"), "[Graphics]", "CustomTileset = yes")).getCustomTileset(false), false);
+        eq("and a switch under the wrong section is another key",
+           SuccPaths.load(settingsWith(freshDir("ct-wrong"), "[Paths]", "CustomTileset = true")).getCustomTileset(false), false);
         Path d13b = freshDir("customtiles-half");
         check("only one of the two given reads as null (both are needed)",
               SuccPaths.load(settingsWith(d13b, "[Graphics]", "CustomBaseImage = a.png", "CustomOverlayImage = ")).getCustomTilesetImages() == null);
@@ -350,6 +371,52 @@ public class SettingsTest {
         String up13 = Files.readString(f13c.toPath(), StandardCharsets.UTF_8);
         check("and gains both keys, empty, on its next write",
               up13.contains("CustomBaseImage = \n") && up13.contains("CustomOverlayImage = \n"));
+
+        Harness.section("14. AutoDiagonals (upstream 5f928e0) is strictly opt-in, in [Controls]");
+        /* A default-OFF switch, so it goes through optedIn() and is rendered through it (CLAUDE.md
+         * section 5): the file and the getter can never disagree. Section 11's pattern -- on, off,
+         * the wrong section, the no-space typo -- plus the two things specific to this one: the key
+         * listener's cheap getter never writes the file, and Tools > Controls writes keys and switch
+         * together. */
+        Path d14 = freshDir("autodiag");
+        File f14 = d14.resolve(SuccPaths.SETTINGS_FILE_NAME).toFile();
+        SuccPaths p14 = SuccPaths.load(f14);
+        String stock14 = Files.readString(f14.toPath(), StandardCharsets.UTF_8);
+        check("the stock file says AutoDiagonals = false", stock14.contains("AutoDiagonals = false\n"));
+        check("under [Controls]", stock14.indexOf("AutoDiagonals") > stock14.indexOf("[Controls]")
+                                  && stock14.indexOf("AutoDiagonals") < stock14.indexOf("[Graphics]"));
+        eq("absent from the stock file's meaning: OFF", p14.getAutoDiagonals(), false);
+        eq("true is ON", SuccPaths.load(settingsWith(freshDir("ad-true"), "[Controls]", "AutoDiagonals = true")).getAutoDiagonals(), true);
+        eq("TRUE (any casing) is ON", SuccPaths.load(settingsWith(freshDir("ad-TRUE"), "[Controls]", "AutoDiagonals = TRUE")).getAutoDiagonals(), true);
+        eq("1 is ON", SuccPaths.load(settingsWith(freshDir("ad-1"), "[Controls]", "AutoDiagonals = 1")).getAutoDiagonals(), true);
+        eq("yes is OFF (a typo cannot switch it on)", SuccPaths.load(settingsWith(freshDir("ad-yes"), "[Controls]", "AutoDiagonals = yes")).getAutoDiagonals(), false);
+        eq("under [Graphics] it is another key, and OFF", SuccPaths.load(settingsWith(freshDir("ad-wrong"), "[Graphics]", "AutoDiagonals = true")).getAutoDiagonals(), false);
+        eq("AutoDiagonals=true (no space) is OFF", SuccPaths.load(settingsWith(freshDir("ad-nospace"), "[Controls]", "AutoDiagonals=true")).getAutoDiagonals(), false);
+        File f14y = settingsWith(freshDir("ad-yes-rw"), "[Controls]", "AutoDiagonals = yes");
+        SuccPaths p14y = SuccPaths.load(f14y);
+        p14y.setMSTilesetNum(1);
+        check("an unrecognized value is rewritten as the false the getter reads",
+              Files.readString(f14y.toPath(), StandardCharsets.UTF_8).contains("AutoDiagonals = false\n"));
+        SuccPaths.Controls ctl = p14.getControls();
+        eq("getControls() carries the switch", ctl.autoDiagonals, false);
+        ctl.autoDiagonals = true;
+        ctl.keys[0] = java.awt.event.KeyEvent.VK_W;
+        p14.setControls(ctl);
+        String written14 = Files.readString(f14.toPath(), StandardCharsets.UTF_8);
+        check("setControls() writes the switch and the keys together",
+              written14.contains("AutoDiagonals = true\n") && written14.contains("Up = " + java.awt.event.KeyEvent.VK_W + "\n"));
+        eq("and it reads back ON after a reload", SuccPaths.load(f14).getAutoDiagonals(), true);
+        // The key listener asks on every key press; upstream's getControls() there rewrote the file
+        // whenever a key code did not parse.
+        File f14g = settingsWith(freshDir("ad-garbled"), "[Controls]", "Up = x", "AutoDiagonals = true");
+        SuccPaths p14g = SuccPaths.load(f14g);
+        byte[] before14 = Files.readAllBytes(f14g.toPath());
+        for (int i = 0; i < 5; i++) p14g.getAutoDiagonals();
+        check("getAutoDiagonals() never writes, even with a garbled key code beside it",
+              java.util.Arrays.equals(before14, Files.readAllBytes(f14g.toPath())));
+        p14g.getControls();
+        check("(getControls() does repair it -- which is why the listener must not call it per key)",
+              !java.util.Arrays.equals(before14, Files.readAllBytes(f14g.toPath())));
 
     }
 

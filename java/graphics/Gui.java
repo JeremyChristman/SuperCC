@@ -144,18 +144,13 @@ public class Gui extends JFrame{
             return;
         try {
             SuccPaths paths = emulator.getPaths();
-            int tilesheetNum;
-            if (ruleset == Ruleset.MS)
-                tilesheetNum = paths.getMSTilesetNum();
-            else
-                tilesheetNum = paths.getLynxTilesetNum();
-            /* MOD (Jeremy, upstream merge): through TileSheet.load, as at startup. A saved custom
-             * tileset whose images are gone, or a number this version does not have, draws the
-             * default tileset instead -- with the reason said once a session, not at every set
-             * opened -- where this used to index values() directly and, when the images failed,
-             * keep the previous ruleset's tileset under a message that named no reason. The radio
-             * mark follows what is drawn. */
-            TileSheet.Choice choice = TileSheet.load(emulator, tilesheetNum, DEFAULT_TILESHEET,
+            /* MOD (Jeremy, upstream merge): through TileSheet.loadForRuleset, as at startup. A custom
+             * tileset whose images are gone draws the ruleset's built-in choice instead, and a number
+             * this version does not have draws the default -- with the reason said once a session,
+             * not at every set opened -- where this used to index values() directly and, when the
+             * images failed, keep the previous ruleset's tileset under a message that named no
+             * reason. The radio mark follows what is drawn. */
+            TileSheet.Choice choice = TileSheet.loadForRuleset(emulator, paths, ruleset != Ruleset.MS, DEFAULT_TILESHEET,
                     paths.getTileSizes()[0], paths.getTileSizes()[1]);
             TileSheet tileSheet = choice.sheet();
             BufferedImage[] tilesetImages = choice.images();

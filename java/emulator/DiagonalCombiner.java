@@ -64,6 +64,12 @@ public final class DiagonalCombiner {
         if (open && when != null && pressedThisWindow.contains(k)) struck.put(k, when);
     }
 
+    /** Whether this arrow is down now. A press of one that is already down is an AUTO-REPEAT, which
+     *  the key listener turns into a move of its own at once (see EmulatorKeyListener). */
+    public boolean isHeld(Key k) {
+        return held.containsKey(k);
+    }
+
     public boolean isOpen() {
         return open;
     }

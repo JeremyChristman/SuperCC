@@ -39,6 +39,37 @@ public class EngineTest {
         return Harness.tempDir("scc-engine-" + name + "-");
     }
 
+    /** A PNG that is well-formed in every byte but claims a width x height of its choosing. */
+    private static byte[] pngClaiming(int width, int height) throws IOException {
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        out.write(new byte[] {(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10});
+        java.io.ByteArrayOutputStream ihdr = new java.io.ByteArrayOutputStream();
+        java.io.DataOutputStream h = new java.io.DataOutputStream(ihdr);
+        h.writeInt(width); h.writeInt(height);
+        h.writeByte(8); h.writeByte(6); h.writeByte(0); h.writeByte(0); h.writeByte(0);   // 8-bit RGBA
+        pngChunk(out, "IHDR", ihdr.toByteArray());
+        java.util.zip.Deflater deflater = new java.util.zip.Deflater();
+        deflater.setInput(new byte[4096]);
+        deflater.finish();
+        byte[] z = new byte[8192];
+        int n = deflater.deflate(z);
+        pngChunk(out, "IDAT", java.util.Arrays.copyOf(z, n));
+        pngChunk(out, "IEND", new byte[0]);
+        return out.toByteArray();
+    }
+
+    private static void pngChunk(java.io.ByteArrayOutputStream out, String type, byte[] data) throws IOException {
+        java.io.DataOutputStream d = new java.io.DataOutputStream(out);
+        byte[] t = type.getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+        d.writeInt(data.length);
+        d.write(t);
+        d.write(data);
+        java.util.zip.CRC32 crc = new java.util.zip.CRC32();
+        crc.update(t);
+        crc.update(data);
+        d.writeInt((int) crc.getValue());
+    }
+
     interface IoAction { Object run() throws IOException; }
 
     /** The message of the IOException the action throws; "(no IOException: ...)" if it throws
@@ -401,8 +432,62 @@ public class EngineTest {
                 ioMessage(() -> graphics.TileSheet.loadCustom(base, d6f.resolve("gone.png").toFile(), 10, 10)).contains("gone.png"));
         Harness.check("a file that is not an image is an IOException that says so",
                 ioMessage(() -> graphics.TileSheet.loadCustom(notImage, overlay, 10, 10)).startsWith("Not an image"));
-        Harness.check("custom with no images chosen says so, rather than \"null\"",
-                ioMessage(() -> graphics.TileSheet.CUSTOM.getTileSheets(null, 10, 10)).startsWith("No images have been chosen"));
+        Harness.check("custom with no settings loaded says that, not that no images were chosen",
+                ioMessage(() -> graphics.TileSheet.CUSTOM.getTileSheets(null, 10, 10)).contains("not loaded here"));
+        SuperCC withSettings = new SuperCC(false);
+        java.lang.reflect.Field pathsField = SuperCC.class.getDeclaredField("paths");
+        pathsField.setAccessible(true);
+        pathsField.set(withSettings, io.SuccPaths.load(d6f.resolve(io.SuccPaths.SETTINGS_FILE_NAME).toFile()));
+        Harness.check("custom with settings but no images chosen says so, rather than \"null\"",
+                ioMessage(() -> graphics.TileSheet.CUSTOM.getTileSheets(withSettings, 10, 10)).startsWith("No images have been chosen"));
+        /* loadForRuleset: what a ruleset's settings say to draw. Custom is a switch; the number beside
+         * it is always a built-in tileset, and it is what an older build shows from the same file. */
+        io.SuccPaths sp = withSettings.getPaths();
+        graphics.TileSheet dflt = graphics.TileSheet.CCEDIT_TW;
+        // A fallback DIFFERENT from tileset 0, so "drew the stored number" cannot pass as "fell back" (review).
+        graphics.TileSheet other = graphics.TileSheet.TW;
+        graphics.TileSheet.Choice fresh6 = graphics.TileSheet.loadForRuleset(withSettings, sp, false, other, 10, 10);
+        Harness.check("a fresh settings file draws built-in tileset 0 for MS, with no problem",
+                fresh6.sheet() == graphics.TileSheet.values()[0] && fresh6.problem() == null);
+        sp.setBuiltInTileset(false, graphics.TileSheet.MSCC.ordinal());
+        sp.setCustomTileset(false, base.getAbsolutePath(), overlay.getAbsolutePath());
+        graphics.TileSheet.Choice drawn = graphics.TileSheet.loadForRuleset(withSettings, sp, false, dflt, 10, 10);
+        Harness.check("with MS's custom switch on, MS draws the chosen images, with no problem", drawn.sheet() == graphics.TileSheet.CUSTOM && drawn.problem() == null);
+        graphics.TileSheet.Choice lynx6 = graphics.TileSheet.loadForRuleset(withSettings, sp, true, other, 10, 10);
+        Harness.check("and Lynx still draws its own built-in tileset, with no problem",
+                lynx6.sheet() == graphics.TileSheet.values()[0] && lynx6.problem() == null);
+        Files.move(base.toPath(), d6f.resolve("moved-away.png"));
+        graphics.TileSheet.Choice gone6 = graphics.TileSheet.loadForRuleset(withSettings, sp, false, dflt, 10, 10);
+        Harness.check("custom whose image is gone falls back to the ruleset's BUILT-IN choice, MSCC -- what an older build shows -- not the default ("
+                + gone6.sheet() + ")", gone6.sheet() == graphics.TileSheet.MSCC && gone6.problem() != null && gone6.problem().contains("MSCC"));
+        Files.move(d6f.resolve("moved-away.png"), base.toPath());
+        File five = Harness.tempDir("scc-engine-five-").resolve(io.SuccPaths.SETTINGS_FILE_NAME).toFile();
+        Files.writeString(five.toPath(), "[Graphics]\nTilesheetNum = 5\nCustomBaseImage = " + base.getAbsolutePath()
+                + "\nCustomOverlayImage = " + overlay.getAbsolutePath() + "\n");
+        graphics.TileSheet.Choice stored5 = graphics.TileSheet.loadForRuleset(withSettings, io.SuccPaths.load(five), false, dflt, 10, 10);
+        Harness.check("a stored TilesheetNum = 5 is NOT taken as custom (the switch is off): it is refused like any number out of range ("
+                + stored5.sheet() + ")", stored5.sheet() == dflt && stored5.problem() != null && stored5.problem().contains("not a built-in tileset"));
+
+        java.io.File huge = d6f.resolve("huge.png").toFile();
+        // Well-formed PNGs (real CRCs, a deflated IDAT; the review's construction) whose headers claim
+        // more pixels than a tileset image may have. 50000 x 50000 made ImageIO throw
+        // IllegalArgumentException, past every fallback; 46000 x 46000 stays under ImageIO's own
+        // overflow check and asked for about 8 GB -- an OutOfMemoryError. Both are refused from the
+        // header now, before anything is decoded.
+        // A GIF that ends (trailer 0x3B) right after its screen descriptor, named .png (ImageIO sniffs content, not the name):
+        // its reader throws IndexOutOfBoundsException from getWidth(0) -- a RuntimeException that
+        // skipped every fallback until the loader turned any of them into an IOException (review).
+        java.io.File gif = d6f.resolve("truncated.png").toFile();
+        Files.write(gif.toPath(), new byte[] {'G', 'I', 'F', '8', '9', 'a', 10, 0, 10, 0, 0, 0, 0, 0x3B});
+        String gifMsg = ioMessage(() -> graphics.TileSheet.loadCustom(gif, overlay, 10, 10));
+        Harness.check("a GIF with no image in it is an IOException that says so (" + gifMsg + ")",
+                gifMsg.startsWith("Not an image") && gifMsg.contains("truncated.png"));
+        for (int side : new int[] {50000, 46000}) {
+            Files.write(huge.toPath(), pngClaiming(side, side));
+            String hugeMsg = ioMessage(() -> graphics.TileSheet.loadCustom(huge, overlay, 10, 10));
+            Harness.check("an image whose header claims " + side + " x " + side + " is refused, unread, in words (" + hugeMsg + ")",
+                    hugeMsg.startsWith("Too large") && hugeMsg.contains("huge.png") && hugeMsg.contains(side + " x " + side));
+        }
         graphics.TileSheet fallback = graphics.TileSheet.CCEDIT_TW;
         graphics.TileSheet.Choice ok = graphics.TileSheet.load(null, graphics.TileSheet.MSCC.ordinal(), fallback, 10, 10);
         Harness.check("a good number loads that tileset, with no problem", ok.sheet() == graphics.TileSheet.MSCC && ok.problem() == null);

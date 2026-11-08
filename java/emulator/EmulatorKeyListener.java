@@ -91,6 +91,18 @@ public class EmulatorKeyListener extends KeyAdapter {
     public void keyPressed(KeyEvent e) {
         Key k = keyMap.getOrDefault(e.getKeyCode(), null); //Checks if the pressed key is one of the 'action' keys
         if (k != null && DiagonalCombiner.isArrow(k) && autoDiagonalsActive()) {
+            /* A press of an arrow that is already down is Windows' auto-repeat (about every 33 ms).
+             * It makes a move of its own AT ONCE, from what is held: joining the open window, as it
+             * did, halved the speed of a held arrow (Up held: four key events, two moves), and
+             * marked the held key as pressed in that window, so letting go of it before the window
+             * closed counted as a TAP and turned a run-then-turn into a diagonal (review,
+             * reproduced in the real window). Holding Up and Right still repeats as the diagonal. */
+            if (combiner.isHeld(k)) {
+                flushPending();
+                combiner.press(k);
+                flushPending();
+                return;
+            }
             if (combiner.press(k)) window.start();
             return;
         }
@@ -98,16 +110,22 @@ public class EmulatorKeyListener extends KeyAdapter {
         processKeyPress(k, e.getKeyCode(), e.isControlDown(), e.isShiftDown());
     }
 
+    /* keyPressed's flush and this release repeat what onAnyEvent does for the same event, on
+     * purpose: a KeyEvent dispatched through AWT reaches both, but code that calls keyPressed or
+     * keyReleased directly -- as GuiWindowTest's section 2 does for every key listener on the frame
+     * -- reaches only these. Both operations are idempotent, so the second run of either is a
+     * no-op. (One main window, so one listener, per JVM; the AWT listener lives as long as it.) */
     @Override
     public void keyReleased(KeyEvent e) {
         Key k = keyMap.getOrDefault(e.getKeyCode(), null);
         if (k != null && DiagonalCombiner.isArrow(k)) combiner.release(k);
     }
 
-    /* The other input that must not jump a waiting arrow, and the focus changes that can swallow a
-     * key release (a modal dialog, another window). Releases are tracked here too, because a release
-     * delivered to some other component of the program never reaches keyReleased. All of it runs on
-     * the event thread, like the timer, so none of it needs a lock. */
+    /* The other input that must not jump a waiting arrow, and focus changes. Releases are tracked
+     * here, for EVERY component of the program -- a release delivered to a button, a dialog or a tool
+     * window never reaches keyReleased -- which is why only focus leaving the program can lose one,
+     * and only that forgets what is held (see the WINDOW_LOST_FOCUS branch). All of it runs on the
+     * event thread, like the timer, so none of it needs a lock. */
     private void onAnyEvent(AWTEvent ev) {
         int id = ev.getID();
         if (id == KeyEvent.KEY_PRESSED) {
@@ -116,16 +134,30 @@ public class EmulatorKeyListener extends KeyAdapter {
         } else if (id == KeyEvent.KEY_RELEASED) {
             Key k = keyMap.getOrDefault(((KeyEvent) ev).getKeyCode(), null);
             if (k != null && DiagonalCombiner.isArrow(k)) combiner.release(k);
-        } else if (id == MouseEvent.MOUSE_PRESSED) {
+        } else if (id == MouseEvent.MOUSE_PRESSED || id == MouseEvent.MOUSE_DRAGGED || id == MouseEvent.MOUSE_WHEEL) {
+            // A drag of the time slider rewinds at every step, and a wheel turn over the move list
+            // moves through it: an arrow pressed in the middle of either must land where it was
+            // pressed, not after the next step (review).
             flushPending();
-        } else if (id == FocusEvent.FOCUS_LOST || id == WindowEvent.WINDOW_LOST_FOCUS) {
-            inputInterrupted();
+        } else if (id == FocusEvent.FOCUS_LOST) {
+            flushPending();
+        } else if (id == WindowEvent.WINDOW_LOST_FOCUS) {
+            /* Only focus leaving the PROGRAM forgets what is held: a release then goes to another
+             * application, where this listener cannot see it. Focus moving inside the program -- to
+             * a button, a dialog, a tool window -- loses no release, because this listener sees key
+             * releases anywhere in it, so held arrows stay held (review: forgetting them there made
+             * a held Up plus Right come out as plain Right). Either way the waiting arrow moves now. */
+            if (((WindowEvent) ev).getOppositeWindow() == null) inputInterrupted();
+            else flushPending();
         }
     }
 
-    /** Focus left: a waiting arrow makes its move now, and nothing is trusted to be still held,
-     *  because the releases may go to another window. Public so a test can drive it directly: a
-     *  synthetic FOCUS_LOST is swallowed by Swing's focus manager whenever no component owns focus. */
+    /** Focus left the PROGRAM: a waiting arrow makes its move now, and nothing is trusted to be still
+     *  held, because the releases go to another application, where this listener cannot see them.
+     *  (Focus moving inside the program only flushes.) Called for a WINDOW_LOST_FOCUS whose opposite
+     *  window is null. Public so a test can drive it directly: a synthetic window-focus event cannot
+     *  reliably claim that focus went to another application, and Swing's focus manager swallows
+     *  synthetic focus events whenever no component owns focus. */
     public void inputInterrupted() {
         flushPending();
         combiner.clear();
@@ -214,8 +246,8 @@ public class EmulatorKeyListener extends KeyAdapter {
         }
         window.setRepeats(false);
         Toolkit.getDefaultToolkit().addAWTEventListener(this::onAnyEvent,
-                AWTEvent.KEY_EVENT_MASK | AWTEvent.MOUSE_EVENT_MASK | AWTEvent.FOCUS_EVENT_MASK
-                | AWTEvent.WINDOW_FOCUS_EVENT_MASK);
+                AWTEvent.KEY_EVENT_MASK | AWTEvent.MOUSE_EVENT_MASK | AWTEvent.MOUSE_MOTION_EVENT_MASK
+                | AWTEvent.MOUSE_WHEEL_EVENT_MASK | AWTEvent.FOCUS_EVENT_MASK | AWTEvent.WINDOW_FOCUS_EVENT_MASK);
     }
     
 }

@@ -12,25 +12,32 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
-## Unreleased (jc-18 in progress)
+## jc-18 — 2026-11-07 (upstream merge, steps 5 and 6: level with upstream v2.0.3)
 
 ### Added
 - **Custom tilesets (upstream `d78f6f3`, upstream merge step 5).** View › Tileset › custom takes a
   base and an overlay image of your own; `[Graphics] CustomBaseImage` / `CustomOverlayImage` hold
   them. Fork changes: paths stored relative to the Chip's Challenge folder; Cancel is a no-op and
-  the radio mark returns; both images load before anything is saved, with the tileset number in one
-  write; every unusable image is reported in words; and a saved tileset that cannot be drawn —
-  custom images gone, or a number out of range, which used to stop startup — falls back to Tile
-  World (CCEdit) with the reason, once a session. Upstream's labeled file filters come too.
+  the radio mark returns; both images load before anything is saved, in one write; every unusable
+  image is reported in words, and one over 32 million pixels is refused from its header, before it
+  is decoded (a 46000 x 46000 header asked ImageIO for about 8 GB); and a saved tileset that cannot
+  be drawn falls back with the reason, once a session — custom images gone, to the ruleset's own
+  built-in choice; a number out of range (which used to stop startup), to Tile World (CCEdit).
+  **Custom is stored as its own switch per ruleset (`CustomTileset`, `LynxCustomTileset`), never as
+  tileset number 5**: `TilesheetNum` keeps a built-in sheet, so a build before jc-18 still starts on
+  the shared settings file (it threw at startup on 5 — two reviews; measured by running jc-17 on a
+  jc-18 file). Upstream's labeled file filters come too.
 - **Auto-diagonals (upstream `5f928e0`, `fb8fe25`, `da35e33`, upstream merge step 6).** Tools ›
   Controls › Auto diagonals (`[Controls] AutoDiagonals`, default off): arrows pressed together make
   a diagonal. The Controls window is upstream's verbatim, its `.form` edit compiled by JetBrains'
   form compiler. The key handling is rewritten: upstream ticked the game from a background thread,
   let other input overtake a waiting arrow (so the recorded moves differed from what was typed),
   lost taps, chose by table order, and ate keys under MS. Now an event-thread timer, a flush of the
-  waiting arrow before any other key, click or focus loss, Tile World's newest-per-axis rule
-  (`emulator/DiagonalCombiner`), and no waiting under MS. `AutoDiagonalTest` (44) and
-  `GuiWindowTest` §6; four mutants each caught.
+  waiting arrow before any other key, click, drag, wheel turn or focus loss, Tile World's
+  newest-per-axis rule (`emulator/DiagonalCombiner`), no waiting under MS, and — from the
+  failure-mode review, reproduced in the real window — an auto-repeat of a held arrow makes its
+  move at once (joining the window had halved a held arrow's speed and turned a run-then-turn into
+  a diagonal). `AutoDiagonalTest` (50) and `GuiWindowTest` §6; six mutants each caught.
 - **`formclass.ps1 -Compile` and `-DownloadCompiler`: a `.form` edit no longer needs IntelliJ**
   (ADR 0011). JetBrains' own form compiler (`java-gui-forms-compiler` 211.7628.21, six jars pinned
   by SHA-256, cached in `%LOCALAPPDATA%`, never shipped), driven as IntelliJ's IDE build drives it by
@@ -48,6 +55,17 @@ measured. All three are updated together — see [`.github/RELEASING.md`](.githu
   identical to jc-17's, and only frames and constant-pool layout differ.
 - `docs/THIRD_PARTY.md`: the vendored `com/intellij/uiDesigner/core` runtime is pinned at last —
   byte-identical to `java-gui-forms-rt` 211.7628.21 from JetBrains' repository.
+- **The release review's tooling findings, fixed:** `-SelfTest` now runs `-Check`'s own byte
+  comparison (`Test-CompiledBytes`) rather than a copy of it — a broken gate had self-tested green;
+  each run copies the compiler jars into its own folder and hashes and uses the copies, with the
+  repo's driver first on the classpath (a jar swapped after the hash had run); `-DownloadCompiler`
+  refuses without `LOCALAPPDATA` and no longer says "ok" after a failed move; the release workflow
+  runs `-SelfTest` too; `verify-splice.ps1`'s messages point to `formclass.ps1 -Compile`, not
+  IntelliJ. A reviewer's accidental write to the checkout (a planted `.form` label, reverted within
+  two minutes) was caught unprompted by both `-Check -RequireCompiler` and `verify-splice.ps1`.
+- Suite: 2,365 assertions in 26 classes (new: `AutoDiagonalTest`). Coverage re-baselined on JDK
+  16.0.2: target 56.8% (1525/2686), `io\**` 74.0%, `emulator\**` 36.3%; the engine's figures are
+  unchanged. Corpus identical to jc-17 on all 24,212 stored solutions after each step.
 
 ## jc-17 — 2026-11-07 (upstream merge, step 4)
 
