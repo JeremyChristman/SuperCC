@@ -721,8 +721,8 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
 - **The trap code is upstream v2.0.3's exactly — bugs included — on purpose (2026-11-08).** Jeremy is
   returning the fork to upstream one deviation at a time before layering fixes back on top (FORK.md,
   *The upstream baseline*). `MSLevel`'s constructor presses a trap that starts occupied before its
-  trap index exists, so 5 levels in his collection do not open and 6 solved routes no longer solve;
-  the corpus shows exactly those 13 differences against jc-18, and that is the expected result, not
+  trap index exists, so 5 levels in his collection do not open, 6 solved routes no longer solve and
+  2 unsolved routes end differently; the corpus shows exactly those 13 differences against jc-18, and that is the expected result, not
   a regression. Do not fix it in passing: the fixes come back as their own step, by `git revert`
   of the revert commit. The tests that pin the bug use `Harness.upstreamBug` — each passes only on
   upstream's own measured answer, fails "the correct answer came back" on the correct one, and

@@ -612,8 +612,9 @@ jc-19  --  Traps exactly as upstream wrote them, bugs and all
     What that changes, under the MS ruleset only: a level where Chip, a
     block or an ice block starts on top of a trap.
       - If that trap is wired to two or more brown buttons, the level no
-        longer opens: SuperCC says "Could not load level" and stays where
-        it was. In the maintainer's collection that is 5 levels:
+        longer opens: SuperCC says "Could not load level", and Next and
+        Previous cannot get past it -- use Level > Go to... to skip over
+        it. In the maintainer's collection that is 5 levels:
         EEfor5subs 16, IsaacD1-Old 116, JRB_CCLP1 18, TCCLP 110 and
         TomP3 66.
       - If it is wired to one, the trap starts shut, where MSCC and Tile
@@ -622,8 +623,10 @@ jc-19  --  Traps exactly as upstream wrote them, bugs and all
         EEfor5subs 26, geodave1 52, geodave4 7, IsaacD1-Old 121 and
         TLFC3 89. Two more, which never reached it (MO1 61 and
         TCCLPpgchip 2), now end somewhere else.
-    A savestate file (.ser) saved by an earlier build, on a level with
-    more than one trap, may load with the wrong traps open.
+    A savestate file (.ser) saved by an earlier build may load with a
+    trap wrongly open or shut: one saved by jc-15 to jc-18, on a level
+    with more than one trap; one saved by jc-14 or earlier, on such a
+    level or wherever a trap has two or more brown buttons wired to it.
 
   * Nothing else changes. The Lynx ruleset is not affected, and every
     other one of the 24,212 stored solutions in the maintainer's
