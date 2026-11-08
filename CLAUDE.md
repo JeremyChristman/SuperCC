@@ -331,8 +331,8 @@ taken. JaCoCo is a test-time tool cached under `%LOCALAPPDATA%\jacoco\<version>\
 dependency**, never committed, never shipped. Output goes to `coverage-report\` (gitignored);
 `coverage.csv` is the evidence behind every percentage below.
 
-As of jc-19, with all 2,361 assertions passing (16 of them `upstreamBug` pins, §6), **measured on
-JDK 16.0.2** (16.0.2+7-67 on the desktop; Temurin 16.0.2+7, what CI pins, gives the same figures):
+As of jc-19 plus the unreleased baseline step `923d07c`, with all 2,361 assertions passing (17 of
+them `upstreamBug` pins, §6), **measured on JDK 16.0.2** (16.0.2+7-67 on the desktop; Temurin 16.0.2+7, what CI pins, gives the same figures):
 
 | scope | branch | line | branches |
 |---|---|---|---|
@@ -342,10 +342,10 @@ JDK 16.0.2** (16.0.2+7-67 on the desktop; Temurin 16.0.2+7, what CI pins, gives 
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\Lynx\**` | 62.8% | 70.6% | 460/732 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 54.2% | 73.0% | 186/343 |
 | &nbsp;&nbsp;`io\**` (file formats) | 73.9% | 81.8% | 323/437 |
-| `emulator\**` | 36.3% | 37.9% | 193/532 |
+| `emulator\**` | 36.0% | 37.9% | 191/530 |
 | `tools\**` + `graphics\**` — *not a target* | 4.3% | 9.7% | 88/2025 |
 
-**Read this correctly.** Whole-project branch coverage is 30.8% (1907/6199), and that number is
+**Read this correctly.** Whole-project branch coverage is 30.7% (1905/6197), and that number is
 meaningless: 15 form-based classes can be rebuilt here only by copying IntelliJ's output (ADR 0010), `tools\**`
 is 35 files of upstream code this fork does not modify, `graphics\**` is Swing with no headless test
 story, and the rest is vendored `org.json` / `com.intellij`. What this fork can break is the engine
@@ -718,13 +718,20 @@ covering on, off, the wrong section, and the no-space typo.
 Each of these looks like a bug or an oversight and is not. The ADRs carry the full reasoning.
 
 - **The committed `.class` baseline.** It is not build output that escaped `.gitignore`. See §1.
-- **The trap code is upstream v2.0.3's exactly — bugs included — on purpose (2026-11-08).** Jeremy is
+- **Upstream's code is kept exactly — bugs included — on purpose (2026-11-08 on).** Jeremy is
   returning the fork to upstream one deviation at a time before layering fixes back on top (FORK.md,
-  *The upstream baseline*). `MSLevel`'s constructor presses a trap that starts occupied before its
+  *The upstream baseline*, which lists every step). Reverted so far: the trap code (`79b0032`) and
+  `SuperCC.tick`'s recorder (`923d07c`: upstream writes a wait on ANY discarded tick, even one that
+  also ran automatic ticks; no real level returns both bits, and `InputDiscardTest` §5 pins it
+  through a wrapped level). ⚠ That makes "no tick returns both bits" load-bearing with nothing
+  guarding it: `LynxLevel.tick` CAN return `MASK_TICK_MULTI | discard`, and only the reasoning in
+  FORK.md step 2 keeps it from happening. **Any change to `LynxLevel.tick`, `selectChipMove` or
+  `moveChip` must be checked for both bits** — if a real tick ever returns both, upstream's
+  recorder saves that route ticks short. For the traps: `MSLevel`'s constructor presses a trap that starts occupied before its
   trap index exists, so 5 levels in his collection do not open, 6 solved routes no longer solve and
   2 unsolved routes end differently; the corpus shows exactly those 13 differences against jc-18, and that is the expected result, not
   a regression. Do not fix it in passing: the fixes come back as their own step, by `git revert`
-  of the revert commit. The tests that pin the bug use `Harness.upstreamBug` — each passes only on
+  of the revert commit, and then this bullet and FORK.md's table are updated to match. The tests that pin the bug use `Harness.upstreamBug` — each passes only on
   upstream's own measured answer, fails "the correct answer came back" on the correct one, and
   fails as a regression on anything else. "The correct answer came back" is the cue to turn the
   pin back into a `check()` (if a fix was re-applied) or to find what moved (if not, e.g. hash

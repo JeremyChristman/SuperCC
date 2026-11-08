@@ -12,6 +12,21 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## Unreleased (the upstream baseline, continued)
+
+### Changed — deliberately, to match upstream
+- **`SuperCC.tick` records a discarded key as a wait exactly as upstream does (`923d07c`).** The
+  fork's fix from jc-15, keeping the key when the engine also reports automatic ticks, is reverted.
+  No engine path reports both, so nothing a user can see changes: on all 24,212 stored solutions,
+  both where each route ends and the move list SuperCC records are identical to jc-19 (a census
+  whose control, jc-14 against jc-19, finds step 2's 40 re-recorded Lynx routes). The difference
+  shows only through a level forced to report both bits, which `InputDiscardTest` §5 now pins at
+  upstream's recording. This changes nothing a user can observe, so it does not get a release of
+  its own; it rides with the next one that does, and that release's README section 7 entry says in
+  one line that the jc-15 recording fix was reverted.
+- Coverage re-baselined: `emulator\**` 36.3% → 36.0% (191/530), the two branches of the removed
+  condition.
+
 ## jc-19 — 2026-11-08 (the upstream baseline, step 1: the trap code is upstream's exactly)
 
 The fork is being returned to upstream v2.0.3 **exactly**, one deviation at a time, before fixes are

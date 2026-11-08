@@ -81,7 +81,8 @@ judged wrong; most were bug fixes, and the plan is to restore them deliberately 
 
 **How a revert keeps its fix recoverable:**
 - each revert is ONE commit holding the code AND its test changes (the notes are committed
-  separately), so `git revert <that commit>` puts the fix back exactly, tests included;
+  separately), so `git revert <that commit>` puts the fix back exactly, tests included — the notes
+  that list it as reverted (this section, CLAUDE.md §6, CHANGELOG) are then updated by hand;
 - while reverted, the fix's tests are kept as `Harness.upstreamBug(what, actual, upstream, correct)`
   pins: each PASSES only on upstream's own wrong answer, as measured on upstream's code, so it
   holds the code AT upstream's behavior rather than merely away from the correct one. The correct
@@ -96,6 +97,7 @@ judged wrong; most were bug fixes, and the plan is to restore them deliberately 
 | Deviation | Reverted in | What the upstream behavior costs |
 |---|---|---|
 | The four fixes to the trap rework (step 1 below: start-occupied traps, hash-order trap state, Lynx `isTrapOpen` null guard, trap bit = first wire's record) | `79b0032`, released as jc-19 (its pin helper: `e9918c9`) | 13 stored solutions replay differently, measured 2026-11-08 on the whole collection (24,212) against jc-18 — exactly the 13 of 2026-11-01. **5 levels do not open at all** (load throws `NullPointerException`; a trap with 2+ wires starts occupied): EEfor5subs #16 Amaerica, IsaacD1-Old #116 Switch flip, JRB_CCLP1 #18 ISLANDS, TCCLP #110 World War II, TomP3 #66 RAINBOW DOOR KEY (4 of them solved). **6 solved routes no longer reach the exit** (a 1-wire trap that starts occupied stays SHUT): C1059-1 #47 Two Sets Of Items, EEfor5subs #26 Ugly cry, geodave1 #52 Circle of Life, geodave4 #7 Circle of Life, IsaacD1-Old #121 Whats in there, TLFC3 #89 MORE CHARACTER. **2 unsolved routes end differently**: MO1 #61, TCCLPpgchip #2. Behavior on those levels now differs from MSCC and Tile World, which open a trap that starts occupied; a route re-solved under it would not replay in Tile World. Also: a `.ser` savestate file saved by an earlier build may load with a trap wrongly open or shut — from jc-15 to jc-18 on a level with more than one trap (upstream numbers trap bits by hash order, jc-15 to jc-18 by first wire's record), and from jc-14 or earlier also wherever a trap has two or more wires (one bit per wire then; jc-19 reads one bit per trap). The collection holds no `.ser` files. |
+| Input discarding, the recorder: the key kept when `Level.tick` reports the automatic-tick bit as well as the discard bit (step 2 below) | `923d07c`, unreleased (rides with the next release that changes behavior) | **Nothing measurable.** No engine path returns both bits, so `SuperCC.tick` records exactly as before: a scratch census (the corpus harness plus the length, CRC32 and wait count of the move list SuperCC records) gave all 24,212 stored solutions identical against jc-19, final states and recordings alike. Its control, jc-14 against jc-19, found step 2's 40 Lynx routes and 2,500 keys recorded as waits, so the census does see a recording change. Only a level FORCED to report both bits shows the difference (`InputDiscardTest` §5): upstream records `r--UUUUUu` where the fix recorded `rUUUUUUUu`, and FORK.md step 2 measured that such a route would replay 3 ticks short. |
 
 **To do after the baseline (the plan):** re-apply the trap fixes off the baseline, starting with
 Fix 1, so those 5 levels open again and the 6 routes solve again. All four at once is
@@ -105,8 +107,12 @@ the revert left `java/` identical to jc-18, and all 2,365 checks passed with no 
 at a time means re-applying it by hand from that commit's diff and turning only its own pins back
 into checks.
 
+Re-applying the recorder fix is `git revert 923d07c`, which turns `InputDiscardTest` §5 back into
+a check (then update the notes, as above).
+
 **Still to decide, one at a time** — every other `MOD (Jeremy, upstream merge)` in `java/`:
-1. **Input discarding** (`SuperCC.tick`): the key is kept when the multi-tick bit is also set.
+1. ~~**Input discarding** (`SuperCC.tick`): the key is kept when the multi-tick bit is also set.~~
+   Reverted, `923d07c` (table above).
 2. **Seed search** (`SeedSearch`, six edits): the `(long)` cast for a negative start, threads built
    before any starts, `volatile` flags, the "no success yet" sentinel.
 3. **No-level-loaded guards** (step 4): `MenuBar.requireALevel()` over every menu (upstream guarded
@@ -246,7 +252,9 @@ discard" would desync replays; this is the reason not to add one.
 **How it was applied.** The net diff of both commits, verbatim (upstream's files are CRLF, so the
 patch was converted to LF first). All four files were already in `$SPLICE_MODIFIED`. Fork edits:
 `MSLevel.tick`'s `@return` still said "true if"; `MsCloneTrapTest`'s replay helper used the boolean;
-and one fix from review, marked `MOD (Jeremy, upstream merge)`. Upstream's `SuperCC.tick` writes a
+and one fix from review, marked `MOD (Jeremy, upstream merge)` — ⚠ **REVERTED for the upstream
+baseline (2026-11-08, `923d07c`)**: `SuperCC.tick` is upstream's again, and `InputDiscardTest` §5 pins
+upstream's recording; the paragraph describes the fix as it was in jc-15 to jc-19. Upstream's `SuperCC.tick` writes a
 plain `WAIT` whenever the discard bit is set — even on a tick that also reports automatic ticks,
 after its multi-tick loop has made the key a capital — so such a tick would be recorded as one tick
 where the engine ran four. No path returns both bits today (every discard path leaves Chip's chosen
@@ -334,7 +342,8 @@ tick-1 rule off by one (4 — it lives in `LynxCreature`, which is not spliced, 
 had to add it to `$SPLICE_MODIFIED`, CLAUDE.md §4), a blocked key reported discarded (1), and a
 half-blocked diagonal reported discarded (1), and upstream's recorder line restored (1 — `r--UUUUUu`
 through the wrapped level; before §5 existed this one survived, since no real engine path returns
-both bits).
+both bits). ⚠ Since `923d07c` (the upstream baseline) upstream's recorder line IS the shipped code
+and §5 pins it, so replanting that one changes nothing; the other nine still apply.
 
 ### Step 3 — seed search overflow (`40495dd`), and the tool that made it possible
 
