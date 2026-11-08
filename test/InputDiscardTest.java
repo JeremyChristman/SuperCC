@@ -370,10 +370,17 @@ public class InputDiscardTest {
          * ================================================================
          * No engine path does today, so this wraps a real Lynx level in one that does: every tick
          * reported discarded ALSO claims automatic ticks. The automatic-tick bit only comes from a
-         * direction Chip chose from the key, so SuperCC.tick keeps the key (a capital) rather than
-         * write '-' for a tick on which the engine then ran the automatic ones. Upstream's line wrote
-         * '-' there; restored, it fails here -- and FORK.md measures the cost: a route replaying 3
-         * ticks short. */
+         * direction Chip chose from the key, so the right record is the key (a capital), not '-' for
+         * a tick on which the engine then ran the automatic ones. jc-15 to jc-19 kept the key;
+         * upstream's line writes '-', and FORK.md step 2 measured the cost: a route replaying 3
+         * ticks short.
+         *
+         * ⚠ UPSTREAM BASELINE (after jc-19): that fix was REVERTED at the maintainer's
+         * request, so SuperCC.tick is upstream v2.0.3's exactly (FORK.md, "The upstream baseline").
+         * No real level reaches it; through this wrapper upstream writes two '-' where the engine ran
+         * automatic ticks, so the check is an upstreamBug() pinned at exactly that. To re-apply the
+         * fix: `git revert` the commit "Upstream baseline: revert the both-bits recording fix", which
+         * holds this change too, then update the notes that list it as reverted. */
         Harness.section("5. both bits");
         SuperCC eBoth = load(ffLynx, Ruleset.LYNX);
         Level real = eBoth.getLevel();
@@ -394,7 +401,7 @@ public class InputDiscardTest {
         levelField.set(eBoth, bothBits);
         String recordedBoth = play(eBoth, "ruuuuuuuu");
         Harness.eq("one entry per key", recordedBoth.length(), 9);
-        Harness.check("every key was kept, none written as a wait: " + recordedBoth,
-                      recordedBoth.indexOf('-') < 0 && recordedBoth.indexOf('_') < 0);
+        Harness.upstreamBug("every key was kept, none written as a wait",
+                            recordedBoth, "r--UUUUUu", "rUUUUUUUu");
     }
 }
