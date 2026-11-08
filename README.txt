@@ -1,5 +1,5 @@
 ==============================================================================
-  SuperCC  --  Jeremy Christman's fork                      build jc-18
+  SuperCC  --  Jeremy Christman's fork                      build jc-19
 ==============================================================================
 
   1. What this is
@@ -38,10 +38,12 @@ transient file lock, solution exports that wrote the wrong cell, and a handful
 of display details I wanted changed. Every one of those is fixed or changed
 here. Section 7 lists them build by build.
 
-The emulation engine is deliberately NOT modified. No change in this fork
-alters movement, the random number generator, or the outcome of an existing
-solution. That is verified before each release by replaying solutions and
-confirming they produce identical tick-by-tick results.
+This fork's own changes deliberately leave the emulation engine alone: none
+of them alters movement, the random number generator, or the outcome of an
+existing solution. That is checked before each release by replaying every
+stored solution in the maintainer's collection and comparing where each one
+ends. The engine changes in this download are upstream's own; section 7 says
+which build brought each one in and what it changes -- jc-19 in particular.
 
 The deep engineering detail behind each change -- root causes, measurements,
 and the traps to avoid if you edit the code -- is in FORK.md in the repository.
@@ -594,6 +596,40 @@ AlwaysOpenInMS  Whether every level set opens under the MS ruleset, no matter
 Releases from jc-2 on carry a jc-N tag in the repository. The title bar, when
 ShowBuildTag is on, shows the build tag compiled into the jar, which matches
 the tag for that release. Newest first.
+
+
+jc-19  --  Traps exactly as upstream wrote them, bugs and all
+-------------------------------------------------------------
+
+  * TRAPS NOW WORK EXACTLY AS IN UPSTREAM SUPERCC v2.0.3 -- INCLUDING ITS
+    BUGS, ON PURPOSE. This fork is going back to upstream's code exactly,
+    one piece at a time, so that each fix it makes can then be added back
+    on top, separately and visibly. This is the first piece. When jc-15
+    brought in upstream's new trap code, this fork fixed four problems in
+    it; those four fixes are taken out again here, and will come back in
+    a later release.
+
+    What that changes, under the MS ruleset only: a level where Chip, a
+    block or an ice block starts on top of a trap.
+      - If that trap is wired to two or more brown buttons, the level no
+        longer opens: SuperCC says "Could not load level" and stays where
+        it was. In the maintainer's collection that is 5 levels:
+        EEfor5subs 16, IsaacD1-Old 116, JRB_CCLP1 18, TCCLP 110 and
+        TomP3 66.
+      - If it is wired to one, the trap starts shut, where MSCC and Tile
+        World start it open. A solution that counts on it being open no
+        longer reaches the exit: 6 in the collection, on C1059-1 47,
+        EEfor5subs 26, geodave1 52, geodave4 7, IsaacD1-Old 121 and
+        TLFC3 89. Two more, which never reached it (MO1 61 and
+        TCCLPpgchip 2), now end somewhere else.
+    A savestate file (.ser) saved by an earlier build, on a level with
+    more than one trap, may load with the wrong traps open.
+
+  * Nothing else changes. The Lynx ruleset is not affected, and every
+    other one of the 24,212 stored solutions in the maintainer's
+    collection replays exactly as it did on jc-18. The rest of this
+    release is in the test suite and the documentation, and changes
+    nothing you can see.
 
 
 jc-18  --  Custom tilesets and auto-diagonals: level with upstream at last

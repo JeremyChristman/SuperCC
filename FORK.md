@@ -9,12 +9,14 @@ self-contained build. Upstream is GPLv2+; see `COPYING`.
 Each mod is its own commit on top of the pristine import, so `git log`/`git diff` show exactly
 what's mine.
 
-**No change alters the outcome of an existing solution** — movement, RNG and every stored replay
-end exactly as before. Through jc-14 that was true because the engine source was untouched. The
-upstream merge (in progress since 2026-11-02, see *Upstream merge*) now changes engine source, so it
-is held to the measured version of the claim instead: every stored solution in the maintainer's
-collection (24,204) replayed under the previous release and the new build, byte-identical. What the
-fork *does* change, by release:
+**Through jc-18, no change altered the outcome of an existing solution** — movement, RNG and every
+stored replay ended exactly as before. Through jc-14 that was true because the engine source was
+untouched. The upstream merge (from 2026-11-02, see *Upstream merge*) changed engine source, so it
+was held to the measured version of the claim instead: every stored solution in the maintainer's
+collection replayed under the previous release and the new build, byte-identical. **jc-19 breaks
+the claim on purpose:** it carries upstream's own trap code exactly, bugs included (*The upstream
+baseline*), and 13 of the 24,212 stored solutions end differently. The fork's own changes are still
+held to the claim; upstream's code is now held to upstream. What the fork *does* change, by release:
 
 | | Scope |
 |---|---|
@@ -32,6 +34,7 @@ fork *does* change, by release:
 | jc-16 | **Upstream merge, step 3** — Seed Search stops at the last seed instead of wrapping into negative seeds forever (`40495dd`), plus three fork fixes: a negative start, threads that finished before the next one started, and an example seed that hid negative seeds. `SeedSearch` is form-based, so this added `formclass.ps1`, which rebuilds a form class whose `.form` is unchanged (ADR 0010). Engine untouched. See *Upstream merge*, step 3. |
 | jc-17 | **Upstream merge, step 4** — nothing a user can touch throws before a level set is open any more (upstream `72476bc`, hand-merged, extended by the fork to one guard over every menu — 46 of the 56 menu controls threw on jc-16 — plus canceling Go to… / Set RNG Seed no longer throws). Levels with no title open (MO3 #12 and #14, the only two of 23,476 that could not), and the Black and White tileset loads (upstream `f701c85`; broken in every earlier release). First rebuild of the main window (`Gui`) with `formclass.ps1`, and `GuiWindowTest` builds the real window in a non-headless JVM. Replay-identical on all 24,212 stored solutions. See *Upstream merge*, step 4. |
 | jc-18 | **Upstream merge, steps 5 and 6 — the fork now carries every upstream commit through v2.0.3.** Custom tilesets (`d78f6f3`) with fork fixes for shared paths, Cancel, unreadable images, and a fallback when a saved tileset cannot be drawn (a number out of range used to stop startup). Auto-diagonals (`5f928e0`, `fb8fe25`, `da35e33`) with the key handling rewritten: upstream ticked from a background thread, let other input overtake a waiting arrow, lost taps and ate keys under MS. Form classes are now compiled by JetBrains' own form compiler and checked byte for byte (ADR 0011). Replay-identical on all 24,212 stored solutions. See *Upstream merge*, steps 5 and 6. |
+| jc-19 | **The upstream baseline, step 1 — the trap code is upstream v2.0.3's exactly, bugs included.** The fork's four fixes to the trap rework are reverted (`79b0032`), at the maintainer's request, to be layered back later. Under MS a trap that starts with Chip or a block on it starts SHUT, or, with two or more wires, the level does not open: 5 levels in the collection no longer open, 6 solved routes lose the exit, 2 more end elsewhere; Lynx unchanged. See *The upstream baseline*. |
 
 > **`settings.ini` is `succ_settings.ini` from jc-8 on.** Older sections below are left in their
 > original wording where they describe historical work; read "settings.ini" in those as the same
@@ -59,7 +62,7 @@ commit is applied as a patch (`git apply -p4 --directory=java`), not merged by g
 
 | Upstream | What | Status |
 |---|---|---|
-| `858dbd0` (+ `82198a3`, its test data) | Trap rework: one trap bit per TRAP, not per wire | **merged, jc-15** — step 1, below |
+| `858dbd0` (+ `82198a3`, its test data) | Trap rework: one trap bit per TRAP, not per wire | **merged, jc-15** — step 1, below. ⚠ The fork's four fixes to it were **reverted** for the upstream baseline (next section): the trap code is upstream's exactly |
 | `b997c27`, `98366f7` | Input discarding (Lynx forced moves); the second undoes the first's MS effect | **merged, jc-15** — step 2, below |
 | `40495dd` | Seed search: an `int` overflow made long searches go negative | **merged, jc-16** — step 3, below |
 | `72476bc` | Linux test runner, plus guards for "no level loaded" in `EmulatorKeyListener`, `MenuBar` and `Gui.java` | **merged, jc-17** — step 4, below; hand-merged (its `requireNonNull` around `openFile` would undo jc-12's cancel fix, so it was left out); the Linux test runner and Maven workflow do not apply here |
@@ -67,7 +70,64 @@ commit is applied as a patch (`git apply -p4 --directory=java`), not merged by g
 | `f701c85` | Renames `BW-overlay.png` to the `bw-overlay.png` the code asks for | **merged, jc-17** — the Black and White tileset failed in every release, since jar entries are case-sensitive (step 4, *The second review*) |
 | `d78f6f3`, `3e92380` | Custom tilesets | **merged, jc-18** — step 5, below; with fork fixes for paths shared between machines, Cancel, unreadable images and a missing image at startup |
 
+### The upstream baseline (from jc-19; in progress)
+
+**The decision (Jeremy, 2026-11-08):** *"I want this to be as true to actual upstream as possible."*
+Every place the merged upstream code was changed or left out is being put back to upstream v2.0.3
+**exactly**, one at a time, each in a commit of its own. Once that baseline stands, fixes are layered
+back on top of it as separate, clearly marked fork changes — so the fork is upstream plus a readable
+list of fixes, not upstream rewritten in places. A deviation reverted for the baseline is not
+judged wrong; most were bug fixes, and the plan is to restore them deliberately afterward.
+
+**How a revert keeps its fix recoverable:**
+- each revert is ONE commit holding the code AND its test changes (the notes are committed
+  separately), so `git revert <that commit>` puts the fix back exactly, tests included;
+- while reverted, the fix's tests are kept as `Harness.upstreamBug(what, actual, upstream, correct)`
+  pins: each PASSES only on upstream's own wrong answer, as measured on upstream's code, so it
+  holds the code AT upstream's behavior rather than merely away from the correct one. The correct
+  answer fails as "the correct answer came back" (so a fix that returns any other way is noticed
+  too), and any third answer fails as a plain regression. Run against a build with the fix, they
+  fail and nothing else does (measured for the trap revert below: 23 such failures, 0 others, on
+  jc-18's jar). The helper itself was committed separately, as groundwork, so reverting one step
+  never removes what the others' pins call.
+
+**Done:**
+
+| Deviation | Reverted in | What the upstream behavior costs |
+|---|---|---|
+| The four fixes to the trap rework (step 1 below: start-occupied traps, hash-order trap state, Lynx `isTrapOpen` null guard, trap bit = first wire's record) | `79b0032`, released as jc-19 (its pin helper: `e9918c9`) | 13 stored solutions replay differently, measured 2026-11-08 on the whole collection (24,212) against jc-18 — exactly the 13 of 2026-11-01. **5 levels do not open at all** (load throws `NullPointerException`; a trap with 2+ wires starts occupied): EEfor5subs #16 Amaerica, IsaacD1-Old #116 Switch flip, JRB_CCLP1 #18 ISLANDS, TCCLP #110 World War II, TomP3 #66 RAINBOW DOOR KEY (4 of them solved). **6 solved routes no longer reach the exit** (a 1-wire trap that starts occupied stays SHUT): C1059-1 #47 Two Sets Of Items, EEfor5subs #26 Ugly cry, geodave1 #52 Circle of Life, geodave4 #7 Circle of Life, IsaacD1-Old #121 Whats in there, TLFC3 #89 MORE CHARACTER. **2 unsolved routes end differently**: MO1 #61, TCCLPpgchip #2. Behavior on those levels now differs from MSCC and Tile World, which open a trap that starts occupied; a route re-solved under it would not replay in Tile World. Also: on a level with more than one trap, a `.ser` savestate file saved by an earlier build of this fork may load with the wrong traps open (upstream numbers trap bits by hash order; the collection holds no `.ser` files). |
+
+**To do after the baseline (the plan):** re-apply the trap fixes off the baseline, starting with
+Fix 1, so those 5 levels open again and the 6 routes solve again. All four at once is
+`git revert 79b0032`, which also turns the `upstreamBug` pins in `MsCloneTrapTest` §6, §7, §10
+and `ConnectionTest` §4 back into checks. That was proven before release: in a scratch worktree
+the revert left `java/` identical to jc-18, and all 2,365 checks passed with no pins left. One fix
+at a time means re-applying it by hand from that commit's diff and turning only its own pins back
+into checks.
+
+**Still to decide, one at a time** — every other `MOD (Jeremy, upstream merge)` in `java/`:
+1. **Input discarding** (`SuperCC.tick`): the key is kept when the multi-tick bit is also set.
+2. **Seed search** (`SeedSearch`, six edits): the `(long)` cast for a negative start, threads built
+   before any starts, `volatile` flags, the "no success yet" sentinel.
+3. **No-level-loaded guards** (step 4): `MenuBar.requireALevel()` over every menu (upstream guarded
+   six items), Cancel on Go to… / Set RNG Seed, Copy macro hover, `ChooseTileSize`'s removed line,
+   `openLevelset` opening at the first level that loads and the all-or-nothing `loadLevel`; and the
+   two upstream lines left out — `Objects.requireNonNull(openFile(...))` (it undoes jc-12's Cancel
+   fix) and `assert tws != null`.
+4. **Custom tilesets** (step 5): relative paths, Cancel, load-before-save, the per-ruleset switches
+   instead of `TilesheetNum = 5`, the fallback loaders, size/format checks.
+5. **Auto-diagonals** (step 6): the rewritten key handling (`DiagonalCombiner`), `SuccPaths.Controls`
+   edits, `ControlGUI` reading `getAutoDiagonals()`.
+
+Separate from these are the fork's own features and fixes from before the merge (jc-1–jc-14, and
+jc-17's untitled-level fix), which change upstream's behavior without having been part of a merged
+upstream commit. Whether the baseline reverts those too is its own question.
+
 ### Step 1 — the trap rework (`858dbd0`), and four fixes to it
+
+> ⚠ **REVERTED for the upstream baseline (2026-11-08)** — the trap code is upstream v2.0.3's again,
+> bugs included; see *The upstream baseline* above for what that costs and how to re-apply. The
+> record below describes the fixes as they were in jc-15 to jc-18.
 
 **What upstream changed.** Each `BrownButton` used to carry its record's index in the file, and
 `MSLevel.traps` held one bit per *wire*: a trap was open if any wire into it had its bit set.

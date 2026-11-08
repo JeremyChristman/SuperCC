@@ -12,6 +12,29 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## jc-19 — 2026-11-08 (the upstream baseline, step 1: the trap code is upstream's exactly)
+
+The fork is being returned to upstream v2.0.3 **exactly**, one deviation at a time, before fixes are
+layered back on top (FORK.md, *The upstream baseline*). This release is the first step, and it
+deliberately changes how 13 of the 24,212 stored solutions in the maintainer's collection end.
+
+### Changed — deliberately, to match upstream
+- **The trap rework is upstream's again: the fork's four fixes to `858dbd0` are reverted.**
+  Upstream presses a trap that starts with Chip, a block or an ice block on it before its trap
+  wiring exists, so **5 levels no longer open** (EEfor5subs #16, IsaacD1-Old #116, JRB_CCLP1 #18,
+  TCCLP #110, TomP3 #66), **6 solved routes no longer reach the exit** (C1059-1 #47, EEfor5subs #26,
+  geodave1 #52, geodave4 #7, IsaacD1-Old #121, TLFC3 #89) and 2 unsolved routes end differently
+  (MO1 #61, TCCLPpgchip #2) — measured on the whole collection, 24,212 solutions. Also back to
+  upstream: trap state that depends on hash order, Lynx `isTrapOpen` throwing on an unwired cell,
+  and trap savestate bits numbered by hash order. The fixes are one `git revert 79b0032` away, and their
+  tests are kept as `Harness.upstreamBug` pins: each passes only on upstream's own measured answer,
+  so it fails the moment a fix returns, and on any other change too.
+
+### Added (tests only)
+- `Harness.upstreamBug(what, actual, upstream, correct)`, the upstream baseline's pin, and its yes/no
+  form. A pinned pass carries its answers in the JUnit XML (`<system-out>`) and JSON results, so the
+  reports can tell a pin from a check.
+
 ## jc-18 — 2026-11-07 (upstream merge, steps 5 and 6: level with upstream v2.0.3)
 
 ### Added
