@@ -190,18 +190,6 @@ public class LevelFactory {
         }
         return buttons;
     }
-    /* MOD (Jeremy, upstream merge): the MS trap bit for each trap position -- the record index of
-     * the FIRST wire into it, in file order. Before upstream 858dbd0 every wire had its own bit,
-     * numbered by record; since then each trap has one, and upstream numbered them by HashMap order.
-     * Numbering by first record keeps the bit stable across hashing changes and identical to the one
-     * jc-14 and earlier stored for that wire, which is what a .ser savestate file depends on. See
-     * MSLevel's constructor. */
-    private static Map<Position, Integer> getTrapIndexMap(int[][] trapConnections) {
-        Map<Position, Integer> indices = new HashMap<>(trapConnections.length);
-        for (int i = 0; i < trapConnections.length; i++)
-            indices.putIfAbsent(new Position(trapConnections[i][1]), i);
-        return indices;
-    }
     private static MultiHashMap<Position, RedButton> getRedButtons(int[][] cloneConnections) {
         MultiHashMap<Position, RedButton> buttons = new MultiHashMap<>(cloneConnections.length);
         for (int[] cloneConnection : cloneConnections) {
@@ -278,7 +266,6 @@ public class LevelFactory {
                 getBrownButtons(trapConnections),
                 getBlueButtons(layerFG, layerBG),
                 new BitSet(trapConnections.length),
-                getTrapIndexMap(trapConnections),
                 layerBG,
                 layerFG,
                 getMSMonsterList(monsterPositions, layerFG, layerBG),

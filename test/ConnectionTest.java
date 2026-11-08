@@ -55,6 +55,9 @@ public class ConnectionTest {
 
     private static int idx(int x, int y) { return 32 * y + x; }
 
+    /** Upstream v2.0.3's Lynx isTrapOpen on a position no button is wired to (section 4). */
+    private static final String UPSTREAM_LYNX_NPE = "throws NullPointerException (getList found no buttons)";
+
     /**
      * The target index of the button at (x,y), or -1 when there is no button there.
      *
@@ -189,11 +192,23 @@ public class ConnectionTest {
             Harness.eq(rs + ": a button's own position is not a key",
                        buttonsOfTrap(l4, 20, 20), new java.util.TreeSet<Integer>());
             /* A position no button is wired to is simply shut. MS always answered that; Lynx threw
-             * a NullPointerException after 858dbd0, and the fork guards it. */
-            boolean shut;
-            try { shut = !l4.isTrapOpen(new Position(7, 7)); }
-            catch (Throwable t) { shut = false; }
-            Harness.check(rs + ": isTrapOpen on an unwired position answers shut rather than throwing", shut);
+             * a NullPointerException after 858dbd0, and jc-15 to jc-18 guarded it.
+             *
+             * ⚠ UPSTREAM BASELINE (jc-19): Lynx's guard for this was REVERTED to match upstream v2.0.3,
+             * which throws NullPointerException here (FORK.md, "The upstream baseline"), so the Lynx
+             * case is pinned at exactly that NPE -- the button list getList() finds for the position
+             * is null -- and any other throw is a regression; MS's version answers shut either way. */
+            String answer;
+            try { answer = l4.isTrapOpen(new Position(7, 7)) ? "open" : "shut"; }
+            catch (NullPointerException e) {
+                answer = String.valueOf(e.getMessage()).contains("getList") ? UPSTREAM_LYNX_NPE : "throws " + e;
+            }
+            catch (Throwable t) { answer = "throws " + t; }
+            String what = rs + ": isTrapOpen on an unwired position answers shut rather than throwing";
+            if (rs == game.Ruleset.LYNX)
+                Harness.upstreamBug(what, answer, UPSTREAM_LYNX_NPE, "shut");
+            else
+                Harness.eq(what, answer, "shut");
         }
 
         Harness.section("5. one button may control several targets");

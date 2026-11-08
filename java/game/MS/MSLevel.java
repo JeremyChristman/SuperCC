@@ -417,28 +417,17 @@ public class MSLevel extends MSSavestate implements Level {
     }
 
     private void finaliseTraps(){
-        /* MOD (Jeremy, upstream merge): fixes upstream 858dbd0 -- each trap is decided ONCE, after every wire has been seen.
-         * Before 858dbd0 each wire had its own bit and a trap was open if ANY of them was set, so an
-         * empty trap with one button held and another not came out open. 858dbd0 gave each trap a
-         * single bit and kept this loop wire by wire, so the last wire visited won: the same trap
-         * came out open or shut depending on the order of a hash map. Collecting first restores the
-         * any-button rule exactly (it is also Tile World's istrapopen()). A button wired to several
-         * traps still opens only the first of them, as before: pressedButtons is unchanged. */
         HashSet<Position> pressedButtons = new HashSet<>();
-        HashSet<Position> heldTraps = new HashSet<>();
         for (List<BrownButton> buttons : brownButtons.rawValues()) {
             for (BrownButton b : buttons) {
                 if (layerFG.get(b.getButtonPosition()) != BUTTON_BROWN && !pressedButtons.contains(b.getButtonPosition())) {
-                    heldTraps.add(b.getTargetPosition());
+                    traps.set(trapIndexMap.get(b.getTargetPosition()), true);
                     pressedButtons.add(b.getButtonPosition());
                 }
+                else if (layerFG.get(b.getTargetPosition()) == TRAP) {
+                    traps.set(trapIndexMap.get(b.getTargetPosition()), false);
+                }
             }
-        }
-        for (Map.Entry<Position, Integer> trap : trapIndexMap.entrySet()) {
-            if (heldTraps.contains(trap.getKey()))
-                traps.set(trap.getValue(), true);
-            else if (layerFG.get(trap.getKey()) == TRAP)
-                traps.set(trap.getValue(), false);
         }
     }
 
@@ -494,11 +483,7 @@ public class MSLevel extends MSSavestate implements Level {
      *          interpreted as a mouse click. Note that the click itself is not
      *          set here - use {@link #setClick(int)} for that.
      * @param directions The directions in which chip should try to move
-     * @return {@link Level#MASK_TICK_MULTI} if the next move should be made automatically without
-     *         input, else 0. MS never sets {@link Level#MASK_DISCARD_INPUT}: an input here is either
-     *         used or, on a half move or a slide, kept for the move list as typed (upstream's
-     *         98366f7 took the discard back out of MS).
-     *         MOD (Jeremy, upstream merge): this line said "true if", left over from the boolean.
+     * @return true if the next move should be made automatically without input
      */
     @Override
     public int tick(char c, Direction[] directions){
@@ -686,8 +671,7 @@ public class MSLevel extends MSSavestate implements Level {
                    Position[] toggleDoors, Position[] teleports,
                    MultiHashMap<Position, GreenButton> greenButtons, MultiHashMap<Position, RedButton> redButtons,
                    MultiHashMap<Position, BrownButton> brownButtons, MultiHashMap<Position, BlueButton> blueButtons,
-                   BitSet traps, Map<Position, Integer> trapIndexMap,
-                   Layer layerBG, Layer layerFG, CreatureList monsterList, SlipList slipList,
+                   BitSet traps, Layer layerBG, Layer layerFG, CreatureList monsterList, SlipList slipList,
                    MSCreature chip, int time, int chips, RNG rng, int rngSeed, Step step, int levelsetLength){
 
         super(layerBG, layerFG, monsterList, slipList, chip,
@@ -717,36 +701,22 @@ public class MSLevel extends MSSavestate implements Level {
         this.slipList.setLevel(this);
         this.monsterList.setLevel(this);
 
-        /* MOD (Jeremy, upstream merge): two changes to upstream 858dbd0's trap setup.
-         *
-         * 1. Both trap maps exist BEFORE any trap is pressed. Upstream built them inside the press
-         *    loop below, so a trap that starts with Chip, a block or an ice block on it was pressed
-         *    first. With two or more wires the press reached trapIndexMap.get() and threw, and the
-         *    level would not open; with one wire it found no trapButtons entry yet and did nothing,
-         *    so the trap stayed SHUT. On a 24,204-solution collection that changed 13 replays: 5
-         *    levels would not open (4 of them solved) and 8 ended differently (6 solved routes no
-         *    longer solved) -- 10 solved routes lost. In this order the rework changes none.
-         *
-         * 2. Each trap's bit is the RECORD INDEX of its first wire, built by LevelFactory from the
-         *    file, instead of upstream's position in this map's HashMap iteration. The bit number is
-         *    written into savestates ("Save all states to disk"), so it must not depend on hashing
-         *    or on the map's initial capacity. And this is the number jc-14 and earlier stored for
-         *    that wire: a .ser saved by them loads correctly on every trap with one wire, and a .ser
-         *    saved now loads correctly in them. */
-        this.trapIndexMap = trapIndexMap;
         trapButtons = new MultiHashMap<>(brownButtons.size());
-        for (List<BrownButton> buttons : getBrownButtons().rawValues()) {
-            for (BrownButton b : buttons) {
-                trapButtons.put(b.getTargetPosition(), b);
-            }
-        }
-
         for (List<BrownButton> buttons : getBrownButtons().rawValues()) {  //On level start every single trap is actually open in MSCC, this implements that so creatures and blocks starting on traps can exit them at any point in the level
             for (BrownButton b : buttons) {
                 if (getLayerFG().get(b.getTargetPosition()).isChip() || getLayerFG().get(b.getTargetPosition()) == BLOCK || getLayerFG().get(b.getTargetPosition()) == ICE_BLOCK) {
                     b.press(this);
                 }
+
+                trapButtons.put(b.getTargetPosition(), b);
             }
+        }
+        trapIndexMap = new HashMap<>(trapButtons.size());
+        Iterator<Position> iterator = trapButtons.keySet().iterator();
+        int i = 0;
+        while (iterator.hasNext()) {
+            trapIndexMap.put(iterator.next(), i);
+            i++;
         }
     }
 }

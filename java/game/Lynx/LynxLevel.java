@@ -300,15 +300,7 @@ public class LynxLevel extends LynxSavestate implements Level {
 
     @Override
     public boolean isTrapOpen(Position position) {
-        /* MOD (Jeremy, upstream merge): fixes upstream 858dbd0 -- a position no brown button is
-         * wired to has no list, and iterating null threw. MSLevel's version already answers false.
-         * (858dbd0 also changed what this asks: a creature on a wired BUTTON, where it used to be a
-         * creature IN the trap. Nothing in the Lynx engine calls it -- Lynx springs traps through
-         * LynxCreatureList.springTrappedCreature -- so only BrownButton.isOpen sees the change.) */
-        List<BrownButton> buttons = trapButtons.getList(position);
-        if (buttons == null)
-            return false;
-        for (BrownButton b : buttons) {
+        for (BrownButton b : trapButtons.getList(position)) {
             if (monsterList.creatureAt(b.getButtonPosition(), true) != null)
                 return true;
         }

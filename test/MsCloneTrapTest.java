@@ -310,30 +310,40 @@ public class MsCloneTrapTest {
          * that occupant is released for as long as it stays put. A creature ENTERING a trap is
          * released only if istrapopen() finds a button down, which is why Chip, stepping into the
          * trap the block vacated with no button held, is caught. Also confirmed tick by tick
-         * against the deployed jc-14 jar, the build before the rework. */
+         * against the deployed jc-14 jar, the build before the rework.
+         *
+         * ⚠ UPSTREAM BASELINE (jc-19): the fork's fix for this was REVERTED at the maintainer's
+         * request, so the fork matches upstream v2.0.3 exactly before any fix is layered back on
+         * (FORK.md, "The upstream baseline"). Every assertion of the correct behavior below is an
+         * upstreamBug() pinned to upstream's own answer, measured on upstream's code: with one wire
+         * the trap stays shut, so a block on it never moves, and neither does Chip, on it or behind it;
+         * with two, the level throws NullPointerException on `trapIndexMap` and never opens. (So the
+         * one check left, "the trap shuts on Chip", holds under upstream only because the trap never
+         * opened.) To re-apply the fix: `git revert` the commit "Upstream baseline: revert the four
+         * trap fixes". It holds these test changes too, so the revert turns them back into checks. */
         for (int wires = 1; wires <= 2; wires++) {
             final int w = wires;
             String n = w == 1 ? "one wire" : "two wires";
 
-            Level blockStart = openOrFail("a block starts on a trap with " + n, "BlockStart" + w, b -> {
+            Level blockStart = openOrUpstreamCrash("a block starts on a trap with " + n, w == 2, "BlockStart" + w, b -> {
                 b.tile(5, 5, Tile.CHIP_RIGHT)
                  .tile(6, 5, Tile.BLOCK).under(6, 5, Tile.TRAP)
                  .tile(2, 2, Tile.BUTTON_BROWN).trap(2, 2, 6, 5);
                 if (w == 2) b.tile(3, 9, Tile.BUTTON_BROWN).trap(3, 9, 6, 5);
             });
             if (blockStart != null) {
-                Harness.check("block on a trap, " + n + ": the trap is open before the first tick",
+                Harness.upstreamBug("block on a trap, " + n + ": the trap is open before the first tick",
                               blockStart.isTrapOpen(new Position(6, 5)));
                 /* "...can exit them at any point in the level": the end-of-tick update must not shut
                  * an OCCUPIED trap just because no button is held, so the push comes after a wait. */
                 step(blockStart, 4);
-                Harness.check("block on a trap, " + n + ": still open four ticks later",
+                Harness.upstreamBug("block on a trap, " + n + ": still open four ticks later",
                               blockStart.isTrapOpen(new Position(6, 5)));
                 blockStart.tick('r', new Direction[]{ Direction.RIGHT });
-                Harness.eq("block on a trap, " + n + ": Chip pushes it off",
-                           blockStart.getLayerFG().get(new Position(7, 5)), Tile.BLOCK);
-                Harness.eq("block on a trap, " + n + ": and takes its place",
-                           blockStart.getChip().getPosition().getX(), 6);
+                Harness.upstreamBug("block on a trap, " + n + ": Chip pushes it off",
+                           blockStart.getLayerFG().get(new Position(7, 5)), Tile.FLOOR, Tile.BLOCK);
+                Harness.upstreamBug("block on a trap, " + n + ": and takes its place",
+                           blockStart.getChip().getPosition().getX(), 5, 6);
                 /* The start-of-level press is not a held button, so it does not last: Chip, stepping
                  * into the trap the block just left, is caught by it, and cannot walk on. (Traced
                  * tick by tick on jc-14: shut from the moment he enters.) A press that stuck would
@@ -342,22 +352,22 @@ public class MsCloneTrapTest {
                               !blockStart.isTrapOpen(new Position(6, 5)));
                 blockStart.tick('r', new Direction[]{ Direction.RIGHT });
                 step(blockStart, 1);
-                Harness.eq("block on a trap, " + n + ": and holds him",
-                           blockStart.getChip().getPosition().getX(), 6);
+                Harness.upstreamBug("block on a trap, " + n + ": and holds him",
+                           blockStart.getChip().getPosition().getX(), 5, 6);
             }
 
-            Level chipStart = openOrFail("Chip starts on a trap with " + n, "ChipStart" + w, b -> {
+            Level chipStart = openOrUpstreamCrash("Chip starts on a trap with " + n, w == 2, "ChipStart" + w, b -> {
                 b.tile(6, 5, Tile.CHIP_RIGHT).under(6, 5, Tile.TRAP)
                  .tile(2, 2, Tile.BUTTON_BROWN).trap(2, 2, 6, 5);
                 if (w == 2) b.tile(3, 9, Tile.BUTTON_BROWN).trap(3, 9, 6, 5);
             });
             if (chipStart != null) {
-                Harness.check("Chip on a trap, " + n + ": the trap is open before the first tick",
+                Harness.upstreamBug("Chip on a trap, " + n + ": the trap is open before the first tick",
                               chipStart.isTrapOpen(new Position(6, 5)));
                 step(chipStart, 4);
                 chipStart.tick('r', new Direction[]{ Direction.RIGHT });
-                Harness.eq("Chip on a trap, " + n + ": he walks straight off it",
-                           chipStart.getChip().getPosition().getX(), 7);
+                Harness.upstreamBug("Chip on a trap, " + n + ": he walks straight off it",
+                           chipStart.getChip().getPosition().getX(), 6, 7);
             }
         }
 
@@ -367,8 +377,8 @@ public class MsCloneTrapTest {
          * Before 858dbd0 every wire had its own bit and a trap was open if any of its bits was
          * set, so this trap was open. 858dbd0 gave each trap ONE bit but kept the end-of-tick
          * update wire by wire, so the last wire visited decided it -- and the visiting order is a
-         * hash map's. Measured on that build: shut in three of these six arrangements. The fork
-         * decides each trap once, after all its wires (MSLevel.finaliseTraps).
+         * hash map's. Measured on that build: shut in three of these six arrangements. jc-15 to
+         * jc-18 decided each trap once, after all its wires (in MSLevel.finaliseTraps); see below.
          *
          * Six arrangements, each pair in both roles, because which order a given pair comes out in
          * is a property of the hash, not of the coordinates: a single fixture could pass by luck.
@@ -377,9 +387,19 @@ public class MsCloneTrapTest {
          * so this pins the rule itself rather than a known desync.
          *
          * REFERENCE: Tile World's mslogic.c, istrapopen(): a trap is passable if ANY wire into it
-         * comes from a button that is down (`istrapbuttondown(traps->from)`). */
+         * comes from a button that is down (`istrapbuttondown(traps->from)`).
+         *
+         * ⚠ UPSTREAM BASELINE (jc-19): this fix was REVERTED to match upstream v2.0.3 (FORK.md, "The
+         * upstream baseline"). Upstream's answer depends on hash order, so each arrangement is pinned
+         * to what upstream gives: the three marked below come out SHUT (upstreamBug), the other three
+         * open. Re-applying the fix makes all six open, and the three pins fail as the cue. The order
+         * is fixed for a given Position.hashCode, map capacity and JDK (16.0.2, as CI pins); if one of
+         * those moves, ANY of the six can fail with no fix and no engine change involved -- the three
+         * plain checks too, which fail without saying so. Rule that out before blaming the engine. */
         int[][] pairs = { {2, 2, 3, 9}, {3, 9, 2, 2}, {20, 1, 1, 20}, {1, 20, 20, 1}, {9, 9, 10, 9}, {10, 9, 9, 9} };
-        for (int[] p : pairs) {
+        java.util.Set<Integer> upstreamShut = java.util.Set.of(0, 2, 4);   // measured on upstream's code
+        for (int i = 0; i < pairs.length; i++) {
+            int[] p = pairs[i];
             String n = "held (" + p[0] + "," + p[1] + "), free (" + p[2] + "," + p[3] + ")";
             Level mixed = msLevel("Mixed", b -> b
                     .tile(15, 15, Tile.CHIP_DOWN)
@@ -390,8 +410,10 @@ public class MsCloneTrapTest {
                     .trap(p[2], p[3], 6, 5));
             step(mixed, 1);
             BrownButton free = brown(mixed, p[2], p[3]);
-            Harness.check("empty trap, " + n + ": open after a tick",
-                          free != null && free.isOpen(mixed));
+            if (upstreamShut.contains(i))
+                Harness.upstreamBug("empty trap, " + n + ": open after a tick", free != null && free.isOpen(mixed));
+            else
+                Harness.check("empty trap, " + n + ": open after a tick", free != null && free.isOpen(mixed));
         }
 
         /* Neither held: the empty trap is shut. Without this, "always open" passes the six above. */
@@ -492,17 +514,22 @@ public class MsCloneTrapTest {
         Harness.eq("Multi Trap: on the exit cell", multi.getChip().getPosition().getX(), 4);
 
         /* ================================================================
-         * 10. A trap's savestate bit is its FIRST wire's record index -- the bit jc-14 used
+         * 10. A trap's savestate bit should be its FIRST wire's record index -- the bit jc-14 used
          * ================================================================
          * "Save all states to disk" writes savestates into a .ser file, trap bits included, so the
          * NUMBER a trap is stored under is a file format. Before 858dbd0 each wire had a bit,
          * numbered by its record in the .dat. Upstream's rework numbered traps by HashMap order;
-         * the fork numbers each trap by its first wire's record (LevelFactory.getTrapIndexMap), so
-         * a .ser from jc-14 or earlier still loads right wherever a trap has one wire, and what is
-         * saved now still loads right in them.
+         * jc-15 to jc-18 numbered each trap by its first wire's record instead (a map built in
+         * LevelFactory, removed for the baseline), so a .ser from jc-14 or earlier loaded right
+         * wherever a trap has one wire, and what they saved loads right in jc-14.
          *
          * Read straight out of the savestate bytes, at the offset MSSavestate.save() documents --
-         * if that layout ever moves, this fails loudly, which is wanted: so would every .ser. */
+         * if that layout ever moves, this fails loudly, which is wanted: so would every .ser.
+         *
+         * ⚠ UPSTREAM BASELINE (jc-19): this fix was REVERTED to match upstream v2.0.3, which numbers
+         * traps by HashMap order (FORK.md, "The upstream baseline"). The assertions upstream's
+         * numbering fails are pinned with upstreamBug, at upstream's measured answer (the one-wire
+         * trap is bit 1, and jc-14's bits 0 and 1 open BOTH traps); the others happen to agree. */
         Level saved = msLevel("Saved", b -> b
                 .tile(15, 15, Tile.CHIP_DOWN)
                 .tile(21, 21, Tile.TRAP).tile(2, 2, Tile.TRAP)
@@ -516,7 +543,7 @@ public class MsCloneTrapTest {
         Harness.eq("nothing is open at the start", trapBits(blank), "{}");
 
         brown(saved, 5, 9).press(saved);
-        Harness.eq("a trap with one wire, at record 2, is saved as bit 2", trapBits(saved.save()), "{2}");
+        Harness.upstreamBug("a trap with one wire, at record 2, is saved as bit 2", trapBits(saved.save()), "{1}", "{2}");
         brown(saved, 5, 9).release(saved);
         brown(saved, 20, 20).press(saved);
         Harness.eq("a trap with two wires is saved under its FIRST wire's record, bit 0",
@@ -527,9 +554,9 @@ public class MsCloneTrapTest {
         saved.load(withTrapBits(blank, 0, 1));
         Harness.check("a jc-14 state with the shared trap open loads it open",
                       saved.isTrapOpen(new Position(21, 21)));
-        Harness.check("and leaves the other trap shut", !saved.isTrapOpen(new Position(2, 2)));
+        Harness.upstreamBug("and leaves the other trap shut", !saved.isTrapOpen(new Position(2, 2)));
         saved.load(withTrapBits(blank, 2));
-        Harness.check("a jc-14 state with the one-wire trap open loads THAT one open",
+        Harness.upstreamBug("a jc-14 state with the one-wire trap open loads THAT one open",
                       saved.isTrapOpen(new Position(2, 2)) && !saved.isTrapOpen(new Position(21, 21)));
     }
 
@@ -559,16 +586,33 @@ public class MsCloneTrapTest {
         return out.toByteArray();
     }
 
-    /** Opens a level, or records a FAILED check and returns null if opening it throws. Used where
-     *  the defect under test is "the level will not open", so the rest of the file still runs. */
-    private static Level openOrFail(String what, String name, java.util.function.Consumer<DatBuilder.Level> f) {
+    /** Opens a level, or returns null if opening it throws, so the rest of the file still runs.
+     *  Where `upstreamCrash` is true the level is one upstream v2.0.3 cannot open -- a trap with two
+     *  or more wires that starts occupied -- and the upstream baseline keeps that (FORK.md): the
+     *  crash is pinned with Harness.upstreamBug at upstream's OWN failure, so a level that opens
+     *  fails as the cue that the fix is back, and any other throw fails as a regression. Otherwise
+     *  the level must open. The name is the same whatever happens; what was thrown is in the detail. */
+    private static Level openOrUpstreamCrash(String what, boolean upstreamCrash, String name,
+                                             java.util.function.Consumer<DatBuilder.Level> f) {
+        Level l = null;
+        String outcome;
         try {
-            return msLevel(name, f);
+            l = msLevel(name, f);
+            outcome = "opens";
+        } catch (NullPointerException e) {
+            outcome = String.valueOf(e.getMessage()).contains("trapIndexMap")
+                    ? UPSTREAM_TRAP_CRASH : "throws " + e;
         } catch (Throwable t) {
-            Harness.check(what + ": the level opens (threw " + t + ")", false);
-            return null;
+            outcome = "throws " + t;
         }
+        if (upstreamCrash) Harness.upstreamBug(what + ": the level opens", outcome, UPSTREAM_TRAP_CRASH, "opens");
+        else Harness.eq(what + ": the level opens", outcome, "opens");
+        return l;
     }
+
+    /** Upstream v2.0.3's failure on such a level: its constructor presses the start-occupied trap's
+     *  second wire before the trap index exists. */
+    private static final String UPSTREAM_TRAP_CRASH = "throws NullPointerException (trapIndexMap is null)";
 
     /** SuperCC's MS replay, as emulator.SuperCC.tick does it: a move whose tick returns true
      *  (it ticks more than once) is followed by a NONE tick with the capitalized character, and
