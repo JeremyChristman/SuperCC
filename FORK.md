@@ -37,6 +37,7 @@ held to the claim; upstream's code is now held to upstream. What the fork *does*
 | jc-19 | **The upstream baseline, step 1 — the trap code is upstream v2.0.3's exactly, bugs included.** The fork's four fixes to the trap rework are reverted (`79b0032`), at the maintainer's request, to be layered back later. Under MS a trap that starts with Chip or a block on it starts SHUT, or, with two or more wires, the level does not open: 5 levels in the collection no longer open, 6 solved routes lose the exit, 2 more end elsewhere; Lynx unchanged. See *The upstream baseline*. |
 | jc-20 | **The upstream baseline, steps 2 and 3 — Seed Search and the move recorder are upstream's exactly.** Seed Search's four fixes from jc-16 are reverted (`397c7bb`): a negative start leaves one thread doing all the work, the threads race at the start, and a success at a negative seed is never shown. The recorder's both-bits fix from jc-15 is reverted too (`923d07c`), which changes nothing measurable: every stored route ends and records exactly as on jc-19. Every problem the baseline brings back is now tracked in `BASELINE-ISSUES.md`. See *The upstream baseline*. |
 | jc-21 | **The upstream baseline, step 4 — the no-level-loaded guards are upstream's exactly.** jc-17's extensions of upstream's `72476bc` are reverted (`c57f217`), and the two upstream lines it left out are in: with no level set open 29 menu controls fail again, canceling Go to..., Set RNG Seed or a file chooser fails again, a set whose level 1 will not load opens badly again (none in the collection does), and a level whose savestates fail is half-loaded again (none does). UB-11 to UB-15. Every stored route replays exactly as on jc-20. See *The upstream baseline*. |
+| jc-22 | **The upstream baseline, step 5 — custom tilesets are upstream's exactly.** jc-18's fixes to upstream's `d78f6f3` are reverted (`5d3f0a3`): custom is saved as tileset number 5 with full paths, canceling asks again and then complains, a picture is saved before it is known to load, and a saved tileset that cannot be drawn stops SuperCC from starting (no window) or fails at every Lynx set opened. UB-16 to UB-21. Nobody's tileset changes by itself, and every stored route replays exactly as on jc-21. See *The upstream baseline*. |
 
 > **`settings.ini` is `succ_settings.ini` from jc-8 on.** Older sections below are left in their
 > original wording where they describe historical work; read "settings.ini" in those as the same
@@ -101,7 +102,7 @@ judged wrong; most were bug fixes, and the plan is to restore them deliberately 
   all issues doing these revisions introduces so that we can fix them later"*). A fix closes its
   entry; nothing is deleted.
 
-**Done** (the problems each one brings back are UB-1 to UB-15 in `BASELINE-ISSUES.md`):
+**Done** (the problems each one brings back are UB-1 to UB-21 in `BASELINE-ISSUES.md`):
 
 | Deviation | Reverted in | What the upstream behavior costs |
 |---|---|---|
@@ -109,6 +110,7 @@ judged wrong; most were bug fixes, and the plan is to restore them deliberately 
 | Input discarding, the recorder: the key kept when `Level.tick` reports the automatic-tick bit as well as the discard bit (step 2 below) | `923d07c`, released with jc-20 | **Nothing measurable.** No engine path returns both bits, so `SuperCC.tick` records exactly as before: a scratch census (the corpus harness plus the length, CRC32 and wait count of the move list SuperCC records) gave all 24,212 stored solutions identical against jc-19, final states and recordings alike. Its control, jc-14 against jc-19, found step 2's 40 Lynx routes and 2,500 keys recorded as waits, so the census does see a recording change. Only a level FORCED to report both bits shows the difference (`InputDiscardTest` §5): upstream records `r--UUUUUu` where the fix recorded `rUUUUUUUu`, and FORK.md step 2 measured that such a route would replay 3 ticks short. |
 | Seed Search's four fixes from jc-16 (step 3 below: the `(long)` for a negative start, threads built before any starts, the "no success yet" sentinel, `volatile` flags) | `397c7bb`, released as jc-20 | Four problems back, UB-7 to UB-10. **A negative start does not share the work** — measured in a scripted playtest in the real window (CCLP1 #1, start -5, 4 threads): threads 0-2 never moved and thread 3 did all 219,765 attempts, from -1,610,612,735. **The threads race at the start**, so "running" can go false mid-search (a Pause click in that moment starts a second set of threads; each thread start also clears a pending Pause). **A success at a negative seed is never shown** (the same playtest: 219,765 successes, no example seed). The `volatile` flags have no observed effect on HotSpot. Engine untouched, nothing replays differently. `SeedSearch` is form-bound: compiled with `formclass.ps1 -Compile`, byte-checked by `-Check`. Two of upstream's bugs are races, so `SeedSearchTest`'s pins were measured under CPU affinity (1, 2, 3, 4 and 28 CPUs, every run green on upstream's code; one 8-seed search alone missed the race 1 time in 4 on 2 CPUs, so the pin takes five; §3 checks the threads themselves rather than `running`, which the same race can drop mid-search, and a new §5 keeps Pause covered from a start where no thread can finish early), and the 3,000-seed check is skipped on this code. The revert also broke a tooling self-test that relied on the fork's SeedSearch source (`formclass.ps1 -SelfTest`, the transplant case); fixed first, in `821066c`, with a specimen whose constructor differs by construction. |
 | The no-level-loaded guards and fixes from jc-17 (step 4 below: `MenuBar.requireALevel()` and its exemptions, Cancel on Go to... / Set RNG Seed, the Copy macro hover, `ChooseTileSize`'s dead line, `openLevelset` at the first level that loads, the all-or-nothing `loadLevel`), plus upstream's two lines jc-17 left out (`Objects.requireNonNull(openFile(...))`, `assert tws != null`) | `c57f217`, released as jc-21 | Five problems back, UB-11 to UB-15. **With no level set open, 29 menu controls fail** with an internal error (a `NullPointerException` on the event thread, written to the error log) — measured on the desktop; `GuiWindowTest`'s walk of every control in a real window pins 28, since Paste solution reads the clipboard first and fails this way only when it holds text (CI caught that: `GuiWindowTest` no longer clicks it); upstream's own guards cover the rest. **Canceling Go to... or Set RNG Seed fails**, and so does **canceling the file chooser** of Solution › Open, Search for seeds or Load states (jc-12's fix, undone by upstream's `requireNonNull`). **A set whose level 1 will not load opens badly** (an error, then no level on a fresh start, or the previous set's level under the new file) — none of the 331 sets in the collection, all scanned. **A level whose savestates fail to build is half-loaded** — no level reaches it while untitled levels load (the fork's own jc-17 fix, kept). Upstream's own guards, the Black and White rename and the fork's older features (jc-9, jc-10, jc-11, jc-12's missing-file message, jc-14) stay. Corpus vs jc-20: 24,212 of 24,212 identical. `ChooseTileSize` is form-bound: compiled with `formclass.ps1 -Compile`. `GuiWindowTest`'s child gained PIN lines, judged by `Harness.upstreamBug` on the parent side; a new check pins Cancel on Solution › Open (UB-13). |
+| The custom-tileset fixes from jc-18 (step 5 below: relative paths, Cancel, load-before-save, the per-ruleset switches instead of `TilesheetNum = 5`, the fallback loaders at startup, the ruleset swap and the window resize, the size and format checks, the radio mark following what is drawn) | `5d3f0a3`, released as jc-22 | Six problems back, UB-16 to UB-21. **Custom is saved as tileset number 5**, which builds before jc-18 cannot start with (pinned in a real window by `GuiWindowTest` §5b, which answers custom's file choosers with real pictures). **Its pictures are saved as full paths**, missing on the other computer. **Canceling asks for the second picture anyway, then shows an error**, and leaves the mark on custom. **A picture is saved before it is known to load**, and bad ones fail with internal errors or unclear messages (six exact pins in `EngineTest` §6f, rewritten through upstream's API with the settings written as a file). **SuperCC does not start — no window — when the saved MS tileset cannot be drawn**: measured by launching, with `TilesheetNum = 99` and with custom's pictures missing. **A Lynx tileset that cannot be drawn fails at every Lynx set opened.** Nobody's tileset changes by itself; the maintainer's settings use no custom tileset. `TileSheet`, `SmallGamePanel` and `Gui` are upstream's byte for byte (`Gui` compiled with `formclass.ps1 -Compile`); `SuccPaths` keeps the fork's own settings structure. Corpus vs jc-21: 24,212 of 24,212 identical. |
 
 **To do after the baseline (the plan):** re-apply the trap fixes off the baseline, starting with
 Fix 1, so those 5 levels open again and the 6 routes solve again. All four at once is
@@ -125,7 +127,10 @@ baseline and the coverage baseline it changed (from this step on, a revert commi
 coverage baseline); then the notes, the §4 table and the pin count by hand. Re-applying the
 no-level guards is `git revert 7ba0d45 c57f217` (newest first; `7ba0d45` is a later test fix),
 which restores `ChooseTileSize`'s class and both baselines the same way, and turns the
-`EngineTest` and `GuiWindowTest` pins back into checks.
+`EngineTest` and `GuiWindowTest` pins back into checks. Re-applying the custom-tileset fixes is
+`git revert 5d3f0a3`, which restores `Gui`'s compiled class and both baselines the same way. Steps 4
+and 5 both rewrote View › Tileset's listener in `MenuBar`, so re-apply them NEWEST FIRST — step 5,
+then step 4 — or resolve that hunk by hand.
 
 **Still to decide, one at a time** — every other `MOD (Jeremy, upstream merge)` in `java/`:
 1. ~~**Input discarding** (`SuperCC.tick`): the key is kept when the multi-tick bit is also set.~~
@@ -137,8 +142,8 @@ which restores `ChooseTileSize`'s class and both baselines the same way, and tur
    `openLevelset` opening at the first level that loads and the all-or-nothing `loadLevel`; and the
    two upstream lines left out — `Objects.requireNonNull(openFile(...))` (it undoes jc-12's Cancel
    fix) and `assert tws != null`.~~ Reverted, `c57f217` (and the two lines put in).
-4. **Custom tilesets** (step 5): relative paths, Cancel, load-before-save, the per-ruleset switches
-   instead of `TilesheetNum = 5`, the fallback loaders, size/format checks.
+4. ~~**Custom tilesets** (step 5): relative paths, Cancel, load-before-save, the per-ruleset switches
+   instead of `TilesheetNum = 5`, the fallback loaders, size/format checks.~~ Reverted, `5d3f0a3`.
 5. **Auto-diagonals** (step 6): the rewritten key handling (`DiagonalCombiner`), `SuccPaths.Controls`
    edits, `ControlGUI` reading `getAutoDiagonals()`.
 
@@ -849,6 +854,12 @@ IDE build drives it (`FormsInstrumenter.java` at `idea/211.7628.21`), javac 16.0
   from CI's. Re-checked out as LF.
 
 ### Step 5 — custom tilesets (`d78f6f3`)
+
+> ⚠ **The fork's step-5 fixes are REVERTED for the upstream baseline (2026-11-09, `5d3f0a3`,
+> jc-22)**: `TileSheet`, `SmallGamePanel` and `Gui` are upstream's byte for byte, and `MenuBar`,
+> `SuperCC.initialiseTilesheet` and `SuccPaths` store and load the custom tileset as upstream does <!-- aen-exempt: upstream method name -->
+> (`SuccPaths` inside the fork's own settings structure). The problems that brings back are UB-16
+> to UB-21 in `BASELINE-ISSUES.md`. The record below describes jc-18 to jc-21.
 
 **What upstream added.** View › Tileset › custom: two file choosers ask for a base and an overlay
 image, their paths are saved as `[Graphics] CustomBaseImage` / `CustomOverlayImage`, and `TileSheet`

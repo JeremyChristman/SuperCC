@@ -332,7 +332,7 @@ taken. JaCoCo is a test-time tool cached under `%LOCALAPPDATA%\jacoco\<version>\
 dependency**, never committed, never shipped. Output goes to `coverage-report\` (gitignored);
 `coverage.csv` is the evidence behind every percentage below.
 
-As of jc-21, with all 2,368 assertions passing (69 of them `upstreamBug` pins, §6) and 5 skipped —
+As of jc-22, with all 2,359 assertions passing (86 of them `upstreamBug` pins, §6) and 6 skipped —
 counts for a machine with 4 or more CPUs. `SeedSearchTest` §3 makes one pin per search thread, so a
 3-CPU run has one pass and pin fewer and a 2-CPU run two; at 1 CPU §3 and §2's pin are skipped
 (measured: 7 passes and 6 pins fewer, 2 skips more) — **measured on JDK 16.0.2** (16.0.2+7-67 on the desktop; Temurin 16.0.2+7, what CI pins, gives the
@@ -340,16 +340,16 @@ same figures):
 
 | scope | branch | line | branches |
 |---|---|---|---|
-| **`game\**` + `io\**` — THE TARGET** | **56.6%** | 71.2% | 1514/2676 |
+| **`game\**` + `io\**` — THE TARGET** | **56.5%** | 71.0% | 1502/2660 |
 | &nbsp;&nbsp;`game\**` (the emulator) | 53.2% | 67.5% | 1191/2239 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\MS\**` | 46.8% | 61.9% | 545/1164 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\Lynx\**` | 62.8% | 70.6% | 460/732 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 54.2% | 73.0% | 186/343 |
-| &nbsp;&nbsp;`io\**` (file formats) | 73.9% | 81.8% | 323/437 |
-| `emulator\**` | 33.6% | 36.1% | 170/506 |
-| `tools\**` + `graphics\**` — *not a target* | 4.3% | 9.7% | 86/1997 |
+| &nbsp;&nbsp;`io\**` (file formats) | 73.9% | 81.3% | 311/421 |
+| `emulator\**` | 33.9% | 36.1% | 170/502 |
+| `tools\**` + `graphics\**` — *not a target* | 2.7% | 9.0% | 52/1919 |
 
-**Read this correctly.** Whole-project branch coverage is 30.6% (1882/6145), and that number is
+**Read this correctly.** Whole-project branch coverage is 30.4% (1836/6047), and that number is
 meaningless: 15 form-based classes can be rebuilt here only by copying IntelliJ's output (ADR 0010), `tools\**`
 is 35 files of upstream code this fork does not modify, `graphics\**` is Swing with no headless test
 story, and the rest is vendored `org.json` / `com.intellij`. What this fork can break is the engine
@@ -360,7 +360,7 @@ spliced class is compiled by your `javac`, and `build-config.ps1` already notes 
 not emit identical bytecode to javac 16. That was once only the five `io\**` classes (`ErrorLog`,
 `LevelFactory`, `SuccPaths`, `TWSReader`, `TWSWriter`, 382 branches at jc-15). Since the upstream
 trap merge (2026-11-02) it is also `MSCreature`, `MSLevel` and `LynxLevel` (plus `Level` and
-`BrownButton`, which have none): another 1,154 branches — 1,554 of the target's 2,676 in all. Only the rest comes from the committed
+`BrownButton`, which have none): another 1,154 branches — 1,538 of the target's 2,660 in all. Only the rest comes from the committed
 baseline and is byte-identical on every machine. A figure that differs slightly on another JDK is not
 a bug, but it is not the baseline either: `docs/coverage-baseline.tsv` and the table above are
 measured on 16.0.2, what CI and the release workflow pin. A machine without it does not need an
@@ -368,7 +368,7 @@ install: jc-15's baseline was taken on the laptop (JDK 18) from Temurin 16.0.2+7
 uses, checked against Adoptium's published SHA-256 — unpacked to a scratch folder, with `JAVA_HOME`
 pointed at it for the one command. `build-config.ps1` lets `JAVA_HOME` win.
 
-**56.6% is a floor to build on, not a passing grade**, and the split says where the work is:
+**56.5% is a floor to build on, not a passing grade**, and the split says where the work is:
 
 - **Lynx is ahead now — MS 46.8%, Lynx 62.8% — and both took deliberate work.**
   Four Lynx files built that side (the move-preference table `LynxCreatureMoveTest`, the entry rules
@@ -729,8 +729,9 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
   *The upstream baseline*, which lists every step). Reverted so far: the trap code (`79b0032`),
   `SuperCC.tick`'s recorder (`923d07c`: upstream writes a wait on ANY discarded tick, even one that
   also ran automatic ticks; no real level returns both bits, and `InputDiscardTest` §5 pins it
-  through a wrapped level), Seed Search (`397c7bb`) and the no-level-loaded guards (`c57f217`; see
-  the next bullet). **Every problem a revert brings back goes
+  through a wrapped level), Seed Search (`397c7bb`), the no-level-loaded guards (`c57f217`; see
+  the next bullet) and custom tilesets (`5d3f0a3`: a saved tileset that cannot be drawn stops
+  SuperCC from starting, UB-20 -- do not "fix" it in passing). **Every problem a revert brings back goes
   into `BASELINE-ISSUES.md` in the same push** (Jeremy's standing request, 2026-11-08) — and a fix
   closes its entry there rather than deleting it. ⚠ That makes "no tick returns both bits" load-bearing with nothing
   guarding it: `LynxLevel.tick` CAN return `MASK_TICK_MULTI | discard`, and only the reasoning in
@@ -751,9 +752,11 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
   `MenuBar.requireALevel()`, which wrapped every menu's listeners so a new item was covered
   automatically, is reverted. Do not add guards in passing — per-item `isLevelLoaded()` checks would
   be a new deviation, and the real fix (one guard over the whole bar, with `worksWithoutALevel(...)`
-  exemptions) comes back as its own step with `git revert 7ba0d45 c57f217`. `GuiWindowTest` still
-  clicks every button in the bar with no level open and pins 28 that fail; Paste solution is not
-  clicked there, since with no level its outcome depends on the system clipboard.
+  exemptions) comes back as its own step with `git revert 7ba0d45 c57f217` — after step 5's revert
+  is itself reverted, if it still stands (both rewrote View › Tileset's listener; newest first,
+  FORK.md). `GuiWindowTest` still clicks every button in the bar with no level open and pins 28 that
+  fail, plus custom with two pictures chosen; Paste solution is not clicked there, since with no
+  level its outcome depends on the system clipboard.
 - **`formclass/FormTransplant.java` imports `jdk.internal.org.objectweb.asm`.** That is the JDK's own
   internal ASM, chosen so this repo takes on no dependency (ADR 0002); the tool is pinned to JDK
   16.0.2, where it exists. Do not "modernize" it to a downloaded ASM or to a newer JDK's class-file
@@ -784,7 +787,10 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
 - **Stored paths are relative to the Chip's Challenge folder**, not absolute. The settings file is
   Dropbox-synced between two machines whose user directories differ (`C:\Users\Jeremy` and
   `C:\Users\jerem`); absolute paths made the last machine used win. `Path.startsWith` compares name
-  elements, not characters — never "simplify" it to a string prefix test.
+  elements, not characters — never "simplify" it to a string prefix test. ⚠ One exception, on
+  purpose for now: the custom tileset's two pictures are stored ABSOLUTE, as upstream stores them
+  (the upstream baseline, UB-17). jc-18 to jc-21 stored them relative; that fix comes back as its own
+  step — do not route them through `toStoredPath()` in passing.
 - **`getSuccPath()` is deliberately not converted to relative.** It is the one data-bearing path
   and its callers resolve it against the working directory.
 - **`AlwaysOpenInMS` is scoped to opening only.** F3 still switches ruleset, and loading a solution

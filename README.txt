@@ -1,5 +1,5 @@
 ==============================================================================
-  SuperCC  --  Jeremy Christman's fork                      build jc-21
+  SuperCC  --  Jeremy Christman's fork                      build jc-22
 ==============================================================================
 
   1. What this is
@@ -293,8 +293,6 @@ This is the complete stock file. Every key SuperCC knows is here:
     TWSNotate = false
     CustomBaseImage =
     CustomOverlayImage =
-    CustomTileset = false
-    LynxCustomTileset = false
     ShowBuildTag = false
     ShowLevelPack = false
     ShowLevelName = true
@@ -406,36 +404,25 @@ TilesheetNum    Which tile graphics to use under the MS ruleset.
                          2 = MSCC (CCEdit)
                          3 = MSCC
                          4 = MSCC (Black and White - Editor)
+                         5 = custom (your own two pictures, CustomBaseImage
+                             below)
                 Default: 0
                 Set it in the program with View > Tileset, which writes this
                 line for you. A value that is not a number falls back to 0.
-                The custom tileset is NOT a number here: it is CustomTileset
-                (below), so this line always holds a tileset every build of
-                SuperCC has, and an older build reading the file still
-                starts. A number this version does not have shows Tile World
-                (CCEdit) instead, with a message saying why (once per
-                session), and the line is left as it is. Before jc-18 such a
-                number stopped SuperCC from starting up properly.
-
-CustomTileset   Whether the MS ruleset draws the custom tileset (your own
-LynxCustomTileset  two pictures, CustomBaseImage below) instead of the
-                tileset TilesheetNum names; LynxCustomTileset is the same
-                for Lynx.
-                Values:  true or 1 turns it ON. ANYTHING ELSE IS OFF.
-                Default: false
-                View > Tileset > custom turns it on for the ruleset of the
-                level open (MS when none is); choosing any other tileset
-                there turns it off. While it is on, TilesheetNum keeps the
-                tileset you had before, which is what a build older than
-                jc-18 shows -- such a build knows nothing of these lines and
-                erases them, and the CustomBaseImage lines, the next time it
-                saves a setting, so after going back to one you choose custom
-                again.
+                ⚠ Since jc-22 (upstream's code, on purpose): if this names a
+                tileset that cannot be drawn -- a number this version does
+                not have, or 5 with its pictures missing or unreadable --
+                SUPERCC DOES NOT START: no window appears. Set the line back
+                to 0 to 4 by hand. And 5 cannot be read by builds older than
+                jc-18 (they do not start either), so on a folder shared
+                between computers, keep them on the same build.
 
 LynxTilesheetNum
                 The same, for the Lynx ruleset. SuperCC keeps a separate
                 choice per ruleset and swaps when you open a Lynx set.
-                Values and default: as above.
+                Values and default: as above. A Lynx choice that cannot be
+                drawn does not stop the start; it fails each time a Lynx set
+                is opened instead, and the previous tileset stays on screen.
 
 TileWidth       The size of one tile in pixels, and so the size of the game
 TileHeight      window. Both are usually the same number.
@@ -457,20 +444,19 @@ TWSNotate       How the fractional part of the clock is displayed.
                 toggle button "Switch Decimal Notation" in the View menu
                 writes this line for you.
 
-CustomBaseImage The two pictures of the custom tileset (CustomTileset or
-CustomOverlayImage  LynxCustomTileset = true).
+CustomBaseImage The two pictures of the custom tileset (TilesheetNum or
+CustomOverlayImage  LynxTilesheetNum = 5).
                 Values:  a path to an image file -- PNG is what the chooser
                          offers -- or empty for none.
                 Default: empty.
                 SUPERCC WRITES THESE ITSELF: View > Tileset > custom asks for
-                the base image, then the overlay image, and saves both once
-                both have loaded. Canceling either chooser changes nothing.
-                An image inside SuperCC's own folder is stored relative to
-                it (for example "tilesets\mine-tiles.png"), which keeps the
-                file portable between machines; anywhere else is stored as
-                a full path. So if you share this folder between computers,
-                keep your tileset images INSIDE it: a full path names one
-                computer's folders and is missing on the other.
+                the base image, then the overlay image, and saves both as
+                full paths -- before it knows they load. Canceling a chooser
+                still opens the next one, and then shows an error.
+                A full path names one computer's folders, so if you share
+                this folder between computers, a custom tileset chosen on
+                one is missing on the other -- and then SuperCC does not
+                start there (TilesheetNum, above).
                 There is one custom pair, shared by MS and Lynx: choosing
                 new images while a Lynx level is open changes the custom
                 tileset for MS too.
@@ -480,14 +466,13 @@ CustomOverlayImage  LynxCustomTileset = true).
                 them, with transparency. Any size works -- SuperCC scales the
                 sheet to the tile size in use, so draw it at a multiple of
                 7 x 16 tiles to keep it sharp.
-                A picture may have up to 32 million pixels (a sheet of 7 x 16
-                tiles of 512 pixels each is 29 million); a larger one is
-                refused before it is read.
-                If an image is missing, too large, or not a picture SuperCC
-                can read, the tileset TilesheetNum names -- the one you had
-                before choosing custom -- is shown instead, and a message
-                says which file (once per session); the custom lines are
-                kept, so the tileset comes back when the file does.
+                If a picture is missing, very large, or not a picture SuperCC
+                can read, choosing it fails with an error that may not name
+                the file -- or with an internal error -- after its path was
+                already saved; if custom was already your tileset, the next
+                start then fails too (TilesheetNum, above). jc-18 to jc-21
+                checked all of this first; the checks come back in a later
+                release.
 
 ShowBuildTag    Whether the window title shows which build of this fork you
                 are running.
@@ -596,6 +581,44 @@ AlwaysOpenInMS  Whether every level set opens under the MS ruleset, no matter
 Releases from jc-2 on carry a jc-N tag in the repository. The title bar, when
 ShowBuildTag is on, shows the build tag compiled into the jar, which matches
 the tag for that release. Newest first.
+
+
+jc-22  --  Custom tilesets exactly as upstream wrote them, bugs and all
+-----------------------------------------------------------------------
+
+  * CUSTOM TILESETS NOW WORK EXACTLY AS IN UPSTREAM SUPERCC v2.0.3 --
+    INCLUDING ITS BUGS, ON PURPOSE. This is the next piece of bringing
+    the fork back to upstream's code exactly (jc-19 says why). jc-18
+    fixed these; the fixes come back in a later release. Your tileset
+    does not change by itself -- all of this starts with choosing
+    View > Tileset > custom, or with a settings file that names a
+    tileset that cannot be drawn:
+      - IF THE SAVED TILESET CANNOT BE DRAWN, SUPERCC DOES NOT START:
+        no window appears. That happens when succ_settings.ini names a
+        tileset number this version does not have, or the custom
+        tileset with its pictures missing. Set TilesheetNum back to a
+        number from 0 to 4 by hand (section 6).
+      - Choosing custom saves it as tileset number 5, which builds
+        older than jc-18 cannot start with, and saves its pictures as
+        full paths -- so on a folder shared between computers, a
+        custom tileset chosen on one is missing on the other, and
+        SuperCC then does not start there.
+      - Canceling the first picture still asks for the second, then
+        shows an error, and the menu's mark stays on custom.
+      - A file that is not a picture is saved before SuperCC finds
+        out, and then fails with an internal error; if custom was
+        already your tileset, the next start fails too. Other bad
+        pictures fail with messages that may not name the file.
+      - A Lynx tileset that cannot be drawn shows an error every time
+        a Lynx level set is opened, and the previous tileset stays.
+    Section 6 (TilesheetNum, CustomBaseImage) describes the settings
+    as they now behave.
+
+  * Nothing else changes. Every one of the 24,212 stored solutions in
+    the maintainer's collection replays exactly as it did on jc-21. The
+    rest of this release is in the test suite and the documentation,
+    and every problem these upstream changes bring back is listed in
+    BASELINE-ISSUES.md in the repository.
 
 
 jc-21  --  Before a level set is open: exactly as upstream, bugs and all

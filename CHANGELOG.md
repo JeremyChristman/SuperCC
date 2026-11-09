@@ -12,6 +12,46 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## jc-22 — 2026-11-09 (the upstream baseline, step 5: custom tilesets)
+
+Upstream's custom tilesets (`d78f6f3`) go back to upstream's code exactly. Six problems come back,
+UB-16 to UB-21 in [`BASELINE-ISSUES.md`](BASELINE-ISSUES.md). Nobody's tileset changes by itself:
+each one starts with choosing a custom tileset, or with a settings file naming a tileset that
+cannot be drawn.
+
+### Changed — deliberately, to match upstream
+- **jc-18's fixes to upstream's custom tilesets are reverted (`5d3f0a3`).** `TileSheet`,
+  `SmallGamePanel` and `Gui` are upstream's byte for byte; `MenuBar`'s View › Tileset listener and
+  `SuperCC.initialiseTilesheet` are upstream's; `SuccPaths` stores the custom tileset as upstream <!-- aen-exempt: upstream method name -->
+  does, in the fork's own settings structure:
+  - **custom is saved as tileset number 5** (`TilesheetNum` / `LynxTilesheetNum`), which builds
+    before jc-18 cannot start with; the `CustomTileset` / `LynxCustomTileset` switches are gone
+    (UB-16);
+  - **its pictures are saved as full paths**, which the other computer does not have (UB-17), and
+    read back with upstream's getter exactly: the pair whenever both keys exist, which in this
+    fork's settings (absent keys seeded empty) is always, so "none chosen" reaches the image reader;
+  - **canceling asks for the second picture anyway, then shows an error**, and the View › Tileset
+    mark stays on custom (UB-18);
+  - **a picture is saved before it is known to load**, and bad ones fail with internal errors or
+    messages that name no file; the 32-million-pixel limit is gone (UB-19);
+  - **SuperCC does not start — no window — when the saved MS tileset cannot be drawn** (a number
+    this version does not have, or custom with its pictures missing); measured by launching (UB-20);
+  - **a Lynx tileset that cannot be drawn fails at every Lynx set opened**, keeping the previous
+    tileset, and a failing custom tileset at a window resize leaves the drawing at the old size
+    (UB-21).
+
+  Every stored solution replays exactly as on jc-21 (24,212 of 24,212). README section 6 describes
+  the settings as they now behave.
+
+### Added (tests only)
+- `EngineTest` §6f rewritten through upstream's `TileSheet.getTileSheets`, with the settings written
+  as a file: six exact pins on what each bad picture does. `SettingsTest` §13 pins how the pictures
+  are stored and how none or half chosen read. `GuiWindowTest` closes every dialog custom opens and
+  pins them, pins the radio mark, and answers custom's file choosers with real pictures in a real
+  window -- with no level open (§2) and with one (a new §5b).
+- Coverage re-baselined: target 56.6% → 56.5% (1502/2660), `io\**` 311/421, `emulator\**` 170/502,
+  `tools\**` + `graphics\**` 52/1919.
+
 ## jc-21 — 2026-11-08 (the upstream baseline, step 4: the no-level-loaded guards)
 
 The guards for the state every launch starts in, no level set open, go back to upstream's `72476bc`

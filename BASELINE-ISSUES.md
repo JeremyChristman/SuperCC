@@ -38,6 +38,12 @@ How to keep it:
 | UB-13 | Canceling the file chooser of Solution › Open, Search for seeds or Load states fails | anyone who cancels one | `c57f217`, ships in jc-21 | open |
 | UB-14 | A set whose level 1 will not load opens badly: an error, then no level, or the previous set's level under the new file | none of the 331 sets in the collection | `c57f217`, ships in jc-21 | open |
 | UB-15 | A level whose savestates cannot be built is left half-loaded | nobody today (no level reaches it) | `c57f217`, ships in jc-21 | open (latent) |
+| UB-16 | Choosing a custom tileset saves it as tileset number 5, which builds before jc-18 cannot start with | anyone sharing the settings file with an older build | `5d3f0a3`, ships in jc-22 | open |
+| UB-17 | Custom tileset pictures are saved as full paths, which the other computer does not have | anyone sharing the folder between computers | `5d3f0a3`, ships in jc-22 | open |
+| UB-18 | Canceling View › Tileset › custom asks for the second picture anyway, then shows an error, and leaves the mark on custom | anyone who cancels it | `5d3f0a3`, ships in jc-22 | open |
+| UB-19 | A custom picture is saved before it is known to load; a bad one fails with an internal error or an unclear message | anyone choosing a wrong file | `5d3f0a3`, ships in jc-22 | open |
+| UB-20 | SuperCC does not start (no window) when the saved MS tileset cannot be drawn | anyone with a bad TilesheetNum or missing custom pictures | `5d3f0a3`, ships in jc-22 | open |
+| UB-21 | A Lynx tileset that cannot be drawn, or a failing custom tileset at a window resize, leaves the screen wrong | anyone with such a choice | `5d3f0a3`, ships in jc-22 | open |
 
 ---
 
@@ -191,7 +197,8 @@ that to every menu and fixed what it found on the way; all of it was reverted, a
 lines jc-17 had left out are in. Upstream's own guards stay. All of it comes back with
 `git revert 7ba0d45 c57f217` (newest first: `7ba0d45` is a test fix made after CI showed that
 Paste solution depends on the clipboard), which also restores `ChooseTileSize`'s compiled class
-and both baselines.
+and both baselines. If step 5 (custom tilesets, below) is still reverted, re-apply it first: both
+steps rewrote View › Tileset's listener in `MenuBar`.
 FORK.md step 4 has the engineering record.
 
 "Fails with an internal error" below means a `NullPointerException` on the event thread: nothing
@@ -207,27 +214,31 @@ visible happens except that it is written to the error log (`succ_error-<MACHINE
     states from disk, and merely hovering over Copy macro moves;
   - TWS › Write solution to new tws and Verify tws;
   - all five built-in View › Tileset choices — the tileset is drawn, but not saved, so it is gone at
-    the next launch — and View › Tileset › custom the same way once two pictures are chosen (not
-    pinned: the test cancels its chooser), and View › Tile size › custom;
+    the next launch — and View › Tileset › custom the same way once two pictures are chosen (its
+    pictures ARE saved, then it fails before the choice of tileset is), and View › Tile size ›
+    custom;
   - Tools › Variation testing and TSP Solver;
   - all six Cheats.
 
   Upstream's own guards keep Restart, Next, Previous, Set RNG Seed, Change ruleset and Change Initial
   RFF Direction safe, and the keys, play button and sliders.
 - **Measured:** `GuiWindowTest` clicks every control in a real window with no level open, canceling
-  every box it opens: on the desktop these 29 throw (jc-16 had 46; upstream's guards remove the
+  every box it opens: on the desktop 29 controls throw (jc-16 had 46; upstream's guards remove the
   rest), and all others work. Solution › Paste solution reads the clipboard before it looks at the
   level, so it fails this way only when the clipboard holds text; with nothing there (CI) it writes a
-  clipboard error trace to the error log instead.
+  clipboard error trace to the error log instead. Custom with two pictures CHOSEN is a 30th case:
+  the walk cancels custom's choosers, so it is clicked again afterward with real pictures.
 - **Cause:** upstream guards six items by hand.
 - **Fix:** jc-17's `MenuBar.requireALevel()` — one guard over every menu, so a new item is covered
   too — with `worksWithoutALevel(...)` on what makes sense without a level (Open levelset, Open tws,
   the tile sizes, the window size, the View toggles and tilesets — a tileset chosen with no level is
   saved as the MS one, the one drawn at startup — and Controls); the Copy macro hover checking for
   itself; and `ChooseTileSize`'s dead `getKeys()` line removed.
-- **Pinned by:** `GuiWindowTest` §2: 28 of them, with a check that all 28 were found, and the
-  tileset save. Paste solution is not clicked there, so the run never depends on — or writes to —
-  the system clipboard.
+- **Pinned by:** `GuiWindowTest` §2: 28 of them, with a check that all 28 were found, the tileset
+  save, and custom with two pictures chosen (its file choosers answered with real pictures). Paste
+  solution is not clicked there, so the run never depends on — or writes to — the system
+  clipboard. (The custom pin still fails on jc-21's code, which already had this step reverted; it
+  flips on jc-20's.)
 
 ### UB-12 — canceling Go to... or Set RNG Seed fails
 
@@ -284,6 +295,99 @@ visible happens except that it is written to the error log (`succ_error-<MACHINE
   the collection load except UB-1's five, which fail earlier, while parsing.
 - **Fix:** build the level and its savestates first, then assign both, or neither (jc-17).
 - **Pinned by:** nothing — no fixture reaches it while untitled levels load.
+
+## Custom tilesets (`5d3f0a3`, ships in jc-22)
+
+The fork's changes to upstream's custom tilesets (`d78f6f3`), merged in jc-18, were reverted:
+`TileSheet`, `SmallGamePanel` and `Gui` are upstream's byte for byte, `MenuBar`'s View › Tileset
+listener and `SuperCC.initialiseTilesheet` are upstream's, and `SuccPaths` stores the custom tileset <!-- aen-exempt: upstream method name -->
+as upstream does, inside the fork's own settings structure. All of it comes back with
+`git revert 5d3f0a3`, which also restores `Gui`'s compiled class and both baselines; re-apply it before
+step 4's (newest first), since both touched View › Tileset's listener. FORK.md step 5
+has the engineering record. Nobody's tileset changes by itself: these all start with choosing a
+custom tileset, or with a settings file that names one that cannot be drawn.
+
+### UB-16 — custom is saved as tileset number 5
+
+- **What a user sees:** View › Tileset › custom saves `TilesheetNum = 5` (or `LynxTilesheetNum = 5`).
+  A build from before jc-18 has no tileset 5, so on a settings file shared between computers (this
+  one is, through Dropbox) such a build does not start, and its next settings write erases the
+  custom picture lines it does not know. A settings file written by jc-18 to jc-21 with custom on
+  shows its built-in tileset instead (their `CustomTileset` switch is no longer read) — and the
+  other way round, jc-22's next settings write drops those `CustomTileset` lines from the shared
+  file, so a computer still on jc-18 to jc-21 then falls back to its built-in tileset too.
+- **Measured:** `GuiWindowTest` §5b, in a real window with two pictures chosen: the file reads
+  `TilesheetNum = 5`. A pre-jc-18 build on such a file was measured in jc-18's review (FORK.md step 5).
+- **Fix:** custom as a switch of its own (`CustomTileset` / `LynxCustomTileset`) beside a built-in
+  `TilesheetNum`, which every build can read (jc-18).
+- **Pinned by:** `GuiWindowTest` §5b.
+
+### UB-17 — custom pictures are saved as full paths
+
+- **What a user sees:** a custom tileset chosen on one computer names that computer's folders
+  (`C:\Users\Jeremy\...` against `C:\Users\jerem\...`), so on the other computer its pictures are
+  missing — and then, with UB-20, SuperCC does not start there.
+- **Fix:** store a picture inside the Chip's Challenge folder relative to it, as Levelset and TWS
+  are (jc-5's `toStoredPath`/`toUsablePath`; jc-18).
+- **Pinned by:** `SettingsTest` §13; `GuiWindowTest` §5b.
+
+### UB-18 — canceling custom asks again, then complains
+
+- **What a user sees:** canceling the first picture's chooser still opens the second; canceling
+  either shows "No tileset image provided"; and the View › Tileset mark stays on custom though the
+  old tileset is still drawn.
+- **Fix:** the first Cancel ends it, with no error, and the mark goes back to what is drawn
+  (`MenuBar.markActiveTileset`; jc-18).
+- **Pinned by:** `GuiWindowTest` §2 (canceled with no level open: both choosers and the error) and
+  the radio-mark check after it.
+
+### UB-19 — a custom picture is saved before it is known to load, and a bad one fails badly
+
+- **What a user sees:** choosing a file that is not a picture saves it anyway, then fails with an
+  internal error (`NullPointerException`) before the choice of tileset is saved. If custom was
+  already the saved tileset, the next start then fails (UB-20); if not, only the stored picture
+  paths are wrong. Other bad files fail with internal errors as well: a broken GIF
+  (`IndexOutOfBoundsException`) and a picture whose header claims 50000 x 50000 pixels
+  (`IllegalArgumentException`); one claiming about 46000 x 46000 makes the loader try to decode about
+  8 GB. A missing picture's message names no file ("Can't get input stream from URL!"). With no
+  pictures chosen, custom fails with an internal error: upstream's getter returns the pair
+  whenever both keys exist, and this fork's settings always have them (empty), so the empty paths
+  reach the image reader as the working folder.
+- **Fix:** load both pictures before saving them; make every failure an IOException that names
+  the file and says what is wrong; refuse a picture over 32 million pixels from its header, before
+  decoding; close both streams (jc-18).
+- **Pinned by:** `EngineTest` §6f (six: missing, not a picture, no settings, none chosen, the GIF,
+  the 50000 x 50000 header; the 8 GB case is skipped, not run); `SettingsTest` §13 (none chosen,
+  half chosen and a pre-jc-18 file read as a pair, not as "none"); `GuiWindowTest` §5b (the click on
+  a file that is not a picture, and that it is saved).
+
+### UB-20 — SuperCC does not start when the saved MS tileset cannot be drawn
+
+- **What a user sees:** if `succ_settings.ini` names an MS tileset this version does not have, or
+  custom whose pictures are missing or unreadable, no window appears at all: startup throws, and
+  the program keeps running unseen (on a double-click, simply nothing happens). Setting
+  `TilesheetNum` back to 0–4 by hand is the way out.
+- **Measured (2026-11-09, launching the jc-22 candidate from a sandbox):** `TilesheetNum = 99` →
+  `ArrayIndexOutOfBoundsException` in `initialiseTilesheet`, no window; `TilesheetNum = 5` with the <!-- aen-exempt: upstream method name -->
+  pictures missing → `IIOException`, then a `NullPointerException` on the missing images, no window.
+  Opening a set from the command line first shows "Could not load relevant tilesheet", then the same.
+- **Fix:** jc-18's `TileSheet.loadForRuleset`/`load`: fall back to the ruleset's built-in choice,
+  or the default, and say why once a session (`SuperCC.throwErrorOnce`).
+- **Pinned by:** nothing — the start needs a window and a settings file of its own; measured by
+  launching.
+
+### UB-21 — a tileset that cannot be drawn, met while running, leaves the screen wrong
+
+- **What a user sees:** opening a Lynx set whose Lynx tileset cannot be drawn shows "Could not load
+  relevant tilesheet" (naming nothing) — every time such a set is opened — and keeps the previous
+  ruleset's tileset; a Lynx number this version does not have fails with an internal error instead.
+  Changing the window size while a custom tileset fails leaves the game area drawn at the old size.
+- **Measured:** by reading upstream's `Gui.swapRulesetTilesheet` (catches only IOException, with
+  that message) and `SmallGamePanel.setWindowSize` (swallows the IOException); the swap's dialog was
+  seen in the command-line launch above.
+- **Fix:** both through jc-18's `loadForRuleset`, which falls back, says why once a session, and
+  moves the View › Tileset mark to what is drawn.
+- **Pinned by:** nothing (a running window and a broken settings file; measured as above).
 
 ---
 
