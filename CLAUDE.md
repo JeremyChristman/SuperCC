@@ -170,6 +170,7 @@ CLAUDE.md              this file
 AGENTS.md              the same essentials for non-Claude agents
 README.txt             ships in the release zip; section 7 is the user-facing revision history
 FORK.md                deep engineering notes, per change, with the reasoning
+BASELINE-ISSUES.md     every problem the upstream baseline brought back (UB-n), to fix later (§6)
 CHANGELOG.md           Keep a Changelog view of the same history
 COPYING                GPLv2 — ships with the binary, as the license requires
 build-config.ps1       THE splice list, the JDK finder, the robocopy wrapper — one source of truth
@@ -331,9 +332,11 @@ taken. JaCoCo is a test-time tool cached under `%LOCALAPPDATA%\jacoco\<version>\
 dependency**, never committed, never shipped. Output goes to `coverage-report\` (gitignored);
 `coverage.csv` is the evidence behind every percentage below.
 
-As of jc-19 plus the unreleased baseline step `923d07c`, with all 2,361 assertions passing (17 of
-them `upstreamBug` pins, §6), **measured on JDK 16.0.2** (16.0.2+7-67 on the desktop; Temurin
-16.0.2+7, what CI pins, gives the same figures):
+As of jc-20, with all 2,362 assertions passing (24 of them `upstreamBug` pins, §6) and 4 skipped —
+counts for a machine with 4 or more CPUs. `SeedSearchTest` §3 makes one pin per search thread, so a
+3-CPU run has one pass and pin fewer and a 2-CPU run two; at 1 CPU §3 and §2's pin are skipped
+(measured: 7 passes and 6 pins fewer, 2 skips more) — **measured on JDK 16.0.2** (16.0.2+7-67 on the desktop; Temurin 16.0.2+7, what CI pins, gives the
+same figures):
 
 | scope | branch | line | branches |
 |---|---|---|---|
@@ -344,9 +347,9 @@ them `upstreamBug` pins, §6), **measured on JDK 16.0.2** (16.0.2+7-67 on the de
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 54.2% | 73.0% | 186/343 |
 | &nbsp;&nbsp;`io\**` (file formats) | 73.9% | 81.8% | 323/437 |
 | `emulator\**` | 36.0% | 37.9% | 191/530 |
-| `tools\**` + `graphics\**` — *not a target* | 4.3% | 9.7% | 88/2025 |
+| `tools\**` + `graphics\**` — *not a target* | 4.3% | 9.6% | 86/2023 |
 
-**Read this correctly.** Whole-project branch coverage is 30.7% (1905/6197), and that number is
+**Read this correctly.** Whole-project branch coverage is 30.7% (1903/6195), and that number is
 meaningless: 15 form-based classes can be rebuilt here only by copying IntelliJ's output (ADR 0010), `tools\**`
 is 35 files of upstream code this fork does not modify, `graphics\**` is Swing with no headless test
 story, and the rest is vendored `org.json` / `com.intellij`. What this fork can break is the engine
@@ -721,10 +724,12 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
 - **The committed `.class` baseline.** It is not build output that escaped `.gitignore`. See §1.
 - **Upstream's code is kept exactly — bugs included — on purpose (2026-11-08 on).** Jeremy is
   returning the fork to upstream one deviation at a time before layering fixes back on top (FORK.md,
-  *The upstream baseline*, which lists every step). Reverted so far: the trap code (`79b0032`) and
+  *The upstream baseline*, which lists every step). Reverted so far: the trap code (`79b0032`),
   `SuperCC.tick`'s recorder (`923d07c`: upstream writes a wait on ANY discarded tick, even one that
   also ran automatic ticks; no real level returns both bits, and `InputDiscardTest` §5 pins it
-  through a wrapped level). ⚠ That makes "no tick returns both bits" load-bearing with nothing
+  through a wrapped level) and Seed Search (`397c7bb`). **Every problem a revert brings back goes
+  into `BASELINE-ISSUES.md` in the same push** (Jeremy's standing request, 2026-11-08) — and a fix
+  closes its entry there rather than deleting it. ⚠ That makes "no tick returns both bits" load-bearing with nothing
   guarding it: `LynxLevel.tick` CAN return `MASK_TICK_MULTI | discard`, and only the reasoning in
   FORK.md step 2 keeps it from happening. **Any change to `LynxLevel.tick`, `selectChipMove` or
   `moveChip` must be checked for both bits** — if a real tick ever returns both, upstream's

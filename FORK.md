@@ -35,6 +35,7 @@ held to the claim; upstream's code is now held to upstream. What the fork *does*
 | jc-17 | **Upstream merge, step 4** — nothing a user can touch throws before a level set is open any more (upstream `72476bc`, hand-merged, extended by the fork to one guard over every menu — 46 of the 56 menu controls threw on jc-16 — plus canceling Go to… / Set RNG Seed no longer throws). Levels with no title open (MO3 #12 and #14, the only two of 23,476 that could not), and the Black and White tileset loads (upstream `f701c85`; broken in every earlier release). First rebuild of the main window (`Gui`) with `formclass.ps1`, and `GuiWindowTest` builds the real window in a non-headless JVM. Replay-identical on all 24,212 stored solutions. See *Upstream merge*, step 4. |
 | jc-18 | **Upstream merge, steps 5 and 6 — the fork now carries every upstream commit through v2.0.3.** Custom tilesets (`d78f6f3`) with fork fixes for shared paths, Cancel, unreadable images, and a fallback when a saved tileset cannot be drawn (a number out of range used to stop startup). Auto-diagonals (`5f928e0`, `fb8fe25`, `da35e33`) with the key handling rewritten: upstream ticked from a background thread, let other input overtake a waiting arrow, lost taps and ate keys under MS. Form classes are now compiled by JetBrains' own form compiler and checked byte for byte (ADR 0011). Replay-identical on all 24,212 stored solutions. See *Upstream merge*, steps 5 and 6. |
 | jc-19 | **The upstream baseline, step 1 — the trap code is upstream v2.0.3's exactly, bugs included.** The fork's four fixes to the trap rework are reverted (`79b0032`), at the maintainer's request, to be layered back later. Under MS a trap that starts with Chip or a block on it starts SHUT, or, with two or more wires, the level does not open: 5 levels in the collection no longer open, 6 solved routes lose the exit, 2 more end elsewhere; Lynx unchanged. See *The upstream baseline*. |
+| jc-20 | **The upstream baseline, steps 2 and 3 — Seed Search and the move recorder are upstream's exactly.** Seed Search's four fixes from jc-16 are reverted (`397c7bb`): a negative start leaves one thread doing all the work, the threads race at the start, and a success at a negative seed is never shown. The recorder's both-bits fix from jc-15 is reverted too (`923d07c`), which changes nothing measurable: every stored route ends and records exactly as on jc-19. Every problem the baseline brings back is now tracked in `BASELINE-ISSUES.md`. See *The upstream baseline*. |
 
 > **`settings.ini` is `succ_settings.ini` from jc-8 on.** Older sections below are left in their
 > original wording where they describe historical work; read "settings.ini" in those as the same
@@ -92,14 +93,20 @@ judged wrong; most were bug fixes, and the plan is to restore them deliberately 
   too), and any third answer fails as a plain regression. Run against a build with the fix, they
   fail and nothing else does (measured for the trap revert below: 23 such failures, 0 others, on
   jc-18's jar). The helper itself was committed separately, as groundwork, so reverting one step
-  never removes what the others' pins call.
+  never removes what the others' pins call;
+- **every problem a revert brings back is entered in [`BASELINE-ISSUES.md`](BASELINE-ISSUES.md)**
+  (`UB-n`) in the same push — what a user sees, what it was measured to affect, the fix, and the
+  pins — so that none is forgotten when the fixes come back (Jeremy, 2026-11-08: *"keep track of
+  all issues doing these revisions introduces so that we can fix them later"*). A fix closes its
+  entry; nothing is deleted.
 
-**Done:**
+**Done** (the problems each one brings back are UB-1 to UB-10 in `BASELINE-ISSUES.md`):
 
 | Deviation | Reverted in | What the upstream behavior costs |
 |---|---|---|
 | The four fixes to the trap rework (step 1 below: start-occupied traps, hash-order trap state, Lynx `isTrapOpen` null guard, trap bit = first wire's record) | `79b0032`, released as jc-19 (its pin helper: `e9918c9`) | 13 stored solutions replay differently, measured 2026-11-08 on the whole collection (24,212) against jc-18 — exactly the 13 of 2026-11-01. **5 levels do not open at all** (load throws `NullPointerException`; a trap with 2+ wires starts occupied): EEfor5subs #16 Amaerica, IsaacD1-Old #116 Switch flip, JRB_CCLP1 #18 ISLANDS, TCCLP #110 World War II, TomP3 #66 RAINBOW DOOR KEY (4 of them solved). **6 solved routes no longer reach the exit** (a 1-wire trap that starts occupied stays SHUT): C1059-1 #47 Two Sets Of Items, EEfor5subs #26 Ugly cry, geodave1 #52 Circle of Life, geodave4 #7 Circle of Life, IsaacD1-Old #121 Whats in there, TLFC3 #89 MORE CHARACTER. **2 unsolved routes end differently**: MO1 #61, TCCLPpgchip #2. Behavior on those levels now differs from MSCC and Tile World, which open a trap that starts occupied; a route re-solved under it would not replay in Tile World. Also: a `.ser` savestate file saved by an earlier build may load with a trap wrongly open or shut — from jc-15 to jc-18 on a level with more than one trap (upstream numbers trap bits by hash order, jc-15 to jc-18 by first wire's record), and from jc-14 or earlier also wherever a trap has two or more wires (one bit per wire then; jc-19 reads one bit per trap). The collection holds no `.ser` files. |
-| Input discarding, the recorder: the key kept when `Level.tick` reports the automatic-tick bit as well as the discard bit (step 2 below) | `923d07c`, unreleased (rides with the next release that changes behavior) | **Nothing measurable.** No engine path returns both bits, so `SuperCC.tick` records exactly as before: a scratch census (the corpus harness plus the length, CRC32 and wait count of the move list SuperCC records) gave all 24,212 stored solutions identical against jc-19, final states and recordings alike. Its control, jc-14 against jc-19, found step 2's 40 Lynx routes and 2,500 keys recorded as waits, so the census does see a recording change. Only a level FORCED to report both bits shows the difference (`InputDiscardTest` §5): upstream records `r--UUUUUu` where the fix recorded `rUUUUUUUu`, and FORK.md step 2 measured that such a route would replay 3 ticks short. |
+| Input discarding, the recorder: the key kept when `Level.tick` reports the automatic-tick bit as well as the discard bit (step 2 below) | `923d07c`, released with jc-20 | **Nothing measurable.** No engine path returns both bits, so `SuperCC.tick` records exactly as before: a scratch census (the corpus harness plus the length, CRC32 and wait count of the move list SuperCC records) gave all 24,212 stored solutions identical against jc-19, final states and recordings alike. Its control, jc-14 against jc-19, found step 2's 40 Lynx routes and 2,500 keys recorded as waits, so the census does see a recording change. Only a level FORCED to report both bits shows the difference (`InputDiscardTest` §5): upstream records `r--UUUUUu` where the fix recorded `rUUUUUUUu`, and FORK.md step 2 measured that such a route would replay 3 ticks short. |
+| Seed Search's four fixes from jc-16 (step 3 below: the `(long)` for a negative start, threads built before any starts, the "no success yet" sentinel, `volatile` flags) | `397c7bb`, released as jc-20 | Four problems back, UB-7 to UB-10. **A negative start does not share the work** — measured in a scripted playtest in the real window (CCLP1 #1, start -5, 4 threads): threads 0-2 never moved and thread 3 did all 219,765 attempts, from -1,610,612,735. **The threads race at the start**, so "running" can go false mid-search (a Pause click in that moment starts a second set of threads; each thread start also clears a pending Pause). **A success at a negative seed is never shown** (the same playtest: 219,765 successes, no example seed). The `volatile` flags have no observed effect on HotSpot. Engine untouched, nothing replays differently. `SeedSearch` is form-bound: compiled with `formclass.ps1 -Compile`, byte-checked by `-Check`. Two of upstream's bugs are races, so `SeedSearchTest`'s pins were measured under CPU affinity (1, 2, 3, 4 and 28 CPUs, every run green on upstream's code; one 8-seed search alone missed the race 1 time in 4 on 2 CPUs, so the pin takes five; §3 checks the threads themselves rather than `running`, which the same race can drop mid-search, and a new §5 keeps Pause covered from a start where no thread can finish early), and the 3,000-seed check is skipped on this code. The revert also broke a tooling self-test that relied on the fork's SeedSearch source (`formclass.ps1 -SelfTest`, the transplant case); fixed first, in `821066c`, with a specimen whose constructor differs by construction. |
 
 **To do after the baseline (the plan):** re-apply the trap fixes off the baseline, starting with
 Fix 1, so those 5 levels open again and the 6 routes solve again. All four at once is
@@ -110,13 +117,16 @@ at a time means re-applying it by hand from that commit's diff and turning only 
 into checks.
 
 Re-applying the recorder fix is `git revert 923d07c`, which turns `InputDiscardTest` §5 back into
-a check (then the notes, coverage baseline, §4 table and pin count, as above).
+a check (then the notes, coverage baseline, §4 table and pin count, as above). Re-applying the
+Seed Search fixes is `git revert 397c7bb`, which also restores the compiled form classes, the form
+baseline and the coverage baseline it changed (from this step on, a revert commit carries its own
+coverage baseline); then the notes, the §4 table and the pin count by hand.
 
 **Still to decide, one at a time** — every other `MOD (Jeremy, upstream merge)` in `java/`:
 1. ~~**Input discarding** (`SuperCC.tick`): the key is kept when the multi-tick bit is also set.~~
    Reverted, `923d07c` (table above).
-2. **Seed search** (`SeedSearch`, six edits): the `(long)` cast for a negative start, threads built
-   before any starts, `volatile` flags, the "no success yet" sentinel.
+2. ~~**Seed search** (`SeedSearch`, six edits): the `(long)` cast for a negative start, threads built
+   before any starts, `volatile` flags, the "no success yet" sentinel.~~ Reverted, `397c7bb`.
 3. **No-level-loaded guards** (step 4): `MenuBar.requireALevel()` over every menu (upstream guarded
    six items), Cancel on Go to… / Set RNG Seed, Copy macro hover, `ChooseTileSize`'s removed line,
    `openLevelset` opening at the first level that loads and the all-or-nothing `loadLevel`; and the
@@ -348,6 +358,11 @@ both bits). ⚠ Since `923d07c` (the upstream baseline) upstream's recorder line
 and §5 pins it, so replanting that one changes nothing; the other nine still apply.
 
 ### Step 3 — seed search overflow (`40495dd`), and the tool that made it possible
+
+> ⚠ **The fork's four Seed Search fixes are REVERTED for the upstream baseline (2026-11-08,
+> `397c7bb`, jc-20)** — `SeedSearch.java` is upstream v2.0.3's again; the problems that brings back
+> are UB-7 to UB-10 in `BASELINE-ISSUES.md`. The record below describes the fixes as they were in
+> jc-16 to jc-19. (`formclass.ps1`, built in this step, stays: it is tooling, not a deviation.)
 
 **What upstream changed.** Solution > Search for seeds splits the seeds from the starting one up to
 `Integer.MAX_VALUE` among its threads; the last thread's range ends at `Integer.MAX_VALUE` itself.

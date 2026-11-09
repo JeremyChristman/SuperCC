@@ -1,5 +1,5 @@
 ==============================================================================
-  SuperCC  --  Jeremy Christman's fork                      build jc-19
+  SuperCC  --  Jeremy Christman's fork                      build jc-20
 ==============================================================================
 
   1. What this is
@@ -596,6 +596,44 @@ AlwaysOpenInMS  Whether every level set opens under the MS ruleset, no matter
 Releases from jc-2 on carry a jc-N tag in the repository. The title bar, when
 ShowBuildTag is on, shows the build tag compiled into the jar, which matches
 the tag for that release. Newest first.
+
+
+jc-20  --  Seed Search exactly as upstream wrote it, bugs and all
+-----------------------------------------------------------------
+
+  * SEED SEARCH NOW WORKS EXACTLY AS IN UPSTREAM SUPERCC v2.0.3 --
+    INCLUDING ITS BUGS, ON PURPOSE. This is the next piece of bringing
+    the fork back to upstream's code exactly (jc-19 says why). jc-16
+    fixed four problems in Solution > Search for seeds; they are taken
+    out again here, and will come back in a later release:
+      - A negative starting seed no longer shares the work: one thread
+        searches billions of seeds -- far more than were asked for --
+        while the others do nothing. That is several times slower with
+        a few threads, and dozens of times slower with many.
+      - As a search starts, an early thread can finish and mark the
+        whole search stopped while the others still run. In that moment
+        the button acts as Begin instead of Pause, and pressing it
+        starts a second search over the same seeds; the main window's
+        controls that a search locks (Restart, Next, Go to..., the move
+        keys and others) unlock too. A Pause pressed as a search begins
+        can also be ignored. This mostly affects very short searches.
+      - A success at a negative seed is counted but never shown as the
+        "Example seed".
+      - The fourth fix, making sure every search thread sees Pause, has
+        no effect you can see.
+    A search that starts at 0 or above, is not very short, and is not
+    paused in its first instant behaves as before.
+
+  * One more piece goes back to upstream with no effect you can see:
+    how a move is recorded when the game both ignores your key and
+    moves Chip anyway. No level does that, and every one of the 24,212
+    stored solutions in the maintainer's collection records and replays
+    exactly as it did on jc-19.
+
+  * The rest of this release is in the test suite and the documentation.
+    Every problem these upstream changes bring back is now listed in
+    BASELINE-ISSUES.md in the repository, so that each one can be fixed
+    later.
 
 
 jc-19  --  Traps exactly as upstream wrote them, bugs and all

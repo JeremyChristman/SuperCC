@@ -12,20 +12,45 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
-## Unreleased (the upstream baseline, continued)
+## jc-20 — 2026-11-08 (the upstream baseline, steps 2 and 3: the move recorder and Seed Search)
+
+Two more deviations go back to upstream v2.0.3 exactly. Every problem the baseline brings back is now
+tracked in [`BASELINE-ISSUES.md`](BASELINE-ISSUES.md) (UB-1 to UB-10), so that each can be fixed later.
 
 ### Changed — deliberately, to match upstream
+- **Seed Search is upstream's again: the fork's four fixes from jc-16 are reverted (`397c7bb`).** A
+  negative start no longer shares the work (one thread searches ~3.76 billion seeds; UB-7), the
+  threads race at the start so "running" can go false mid-search and a Pause can be undone (UB-8),
+  a success at a negative seed is never shown (UB-9), and the Pause/running flags are not `volatile`
+  (UB-10, not observable). Measured in a scripted playtest in the real window: from start -5 on four
+  threads, three threads never moved and the fourth did all 219,765 attempts, none shown as the
+  example. The engine is untouched. `SeedSearch` is form-bound, so its class was compiled with
+  JetBrains' form compiler and byte-checked.
 - **`SuperCC.tick` records a discarded key as a wait exactly as upstream does (`923d07c`).** The
   fork's fix from jc-15, keeping the key when the engine also reports automatic ticks, is reverted.
   No engine path reports both, so nothing a user can see changes: on all 24,212 stored solutions,
   both where each route ends and the move list SuperCC records are identical to jc-19 (a census
   whose control, jc-14 against jc-19, finds step 2's 40 re-recorded Lynx routes). The difference
   shows only through a level forced to report both bits, which `InputDiscardTest` §5 now pins at
-  upstream's recording. This changes nothing a user can observe, so it does not get a release of
-  its own; it rides with the next one that does, and that release's README section 7 entry says in
-  one line that the jc-15 recording fix was reverted.
-- Coverage re-baselined: `emulator\**` 36.3% → 36.0% (191/530), the two branches of the removed
-  condition.
+  upstream's recording. It changes nothing a user can observe, so it rode with this release rather
+  than getting its own (UB-6).
+
+### Added (tests and documentation only)
+- `BASELINE-ISSUES.md`: every problem the baseline brought back, with what a user sees, what was
+  measured, the fix, and the tests that pin it.
+- `SeedSearchTest` pins upstream's answers. Two of its bugs are races, so the pins were measured
+  under CPU affinity (1, 2, 3, 4 and 28 CPUs): the 8-seed check runs five searches, the 3,000-seed
+  "running went false once" check is skipped on this code, and section 3 checks the threads
+  themselves instead of `running`. A new section 5 presses Pause on a search from seed 0, where no
+  thread can finish early, so Pause stays covered on both codes.
+- Coverage re-baselined: `emulator\**` 36.3% → 36.0% (191/530), `tools\**` + `graphics\**`
+  88/2025 → 86/2023.
+
+### Fixed (tooling only)
+- `formclass.ps1 -SelfTest`'s "the byte check FAILS a class built by the transplant" relied on the
+  fork's SeedSearch happening to compile to different bytes under the transplant and JetBrains'
+  compiler; upstream's does not, so the case went red. Its specimen's constructor now opens with code
+  whose stack-map frames are known to differ (`821066c`).
 
 ## jc-19 — 2026-11-08 (the upstream baseline, step 1: the trap code is upstream's exactly)
 
