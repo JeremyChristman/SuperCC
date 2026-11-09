@@ -431,7 +431,7 @@ public class MSLevel extends MSSavestate implements Level {
         }
     }
 
-    private void initialiseSlidingMonsters(){
+    private void initialiseSlidingMonsters(){  // aen-exempt: upstream method name
         for (Creature m : monsterList) m.setSliding(false);
         for (Creature m : slipList) m.setSliding(true);
     }
@@ -489,11 +489,11 @@ public class MSLevel extends MSSavestate implements Level {
     public int tick(char c, Direction[] directions){
 
         setLevelWon(false); //Each tick sets the level won state to false so that even when rewinding unless you stepped into the exit the level is not won
-        initialiseSlidingMonsters();
+        initialiseSlidingMonsters();  // aen-exempt: upstream method name
         boolean isHalfMove = (tickNumber & 0x1) != 0; //odd tick
         int moveType = moveType(c, isHalfMove, chip.isSliding());
         boolean failedDirections = false;
-        monsterList.initialise();
+        monsterList.initialise();  // aen-exempt: upstream method name
 
         if (isHalfMove) voluntaryMoveAllowed = true; //This is not used in finding out if the emulator should tick twice, that is instead handled by the value of this function's return, this is only used for TSG moves, yeah its bad
 //        if (!voluntaryMoveAllowed && idleMoves > 0) voluntaryMoveAllowed = true;
@@ -701,13 +701,21 @@ public class MSLevel extends MSSavestate implements Level {
         this.slipList.setLevel(this);
         this.monsterList.setLevel(this);
 
+        /* MOD (Jeremy, fix layer, UB-1 + UB-2): both trap maps are built BEFORE any trap is pressed.
+         * Upstream builds them inside and after the press loop below, so a trap that starts with
+         * Chip, a block or an ice block on it is pressed first. With two or more wires, the second
+         * wire's press finds the first in trapButtons and reads the still-null trapIndexMap: the
+         * level throws and does not open (UB-1). With one wire, the press finds no trapButtons entry
+         * yet and does nothing, so the trap starts SHUT (UB-2) -- where MSCC and Tile World start it
+         * open with Chip or a block on it (the MS game has no ice block; treating one the same way
+         * is upstream SuperCC's own design). Building the maps first changes nothing else: the same buttons go into trapButtons
+         * in the same order, so the trap numbering below -- upstream's, in hash order (UB-5) -- is
+         * exactly upstream's. This is jc-15's Fix 1, re-applied alone on the upstream baseline.
+         * (Upstream's comment on the press loop says "creatures and blocks"; only Chip, blocks and
+         * ice blocks are pressed. A monster that starts on a trap stays in it: MsCloneTrapTest §4.) */
         trapButtons = new MultiHashMap<>(brownButtons.size());
-        for (List<BrownButton> buttons : getBrownButtons().rawValues()) {  //On level start every single trap is actually open in MSCC, this implements that so creatures and blocks starting on traps can exit them at any point in the level
+        for (List<BrownButton> buttons : getBrownButtons().rawValues()) {
             for (BrownButton b : buttons) {
-                if (getLayerFG().get(b.getTargetPosition()).isChip() || getLayerFG().get(b.getTargetPosition()) == BLOCK || getLayerFG().get(b.getTargetPosition()) == ICE_BLOCK) {
-                    b.press(this);
-                }
-
                 trapButtons.put(b.getTargetPosition(), b);
             }
         }
@@ -717,6 +725,14 @@ public class MSLevel extends MSSavestate implements Level {
         while (iterator.hasNext()) {
             trapIndexMap.put(iterator.next(), i);
             i++;
+        }
+
+        for (List<BrownButton> buttons : getBrownButtons().rawValues()) {  //On level start every single trap is actually open in MSCC, this implements that so creatures and blocks starting on traps can exit them at any point in the level
+            for (BrownButton b : buttons) {
+                if (getLayerFG().get(b.getTargetPosition()).isChip() || getLayerFG().get(b.getTargetPosition()) == BLOCK || getLayerFG().get(b.getTargetPosition()) == ICE_BLOCK) {
+                    b.press(this);
+                }
+            }
         }
     }
 }
