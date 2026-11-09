@@ -39,7 +39,9 @@ exactly. Five problems come back, UB-11 to UB-15 in [`BASELINE-ISSUES.md`](BASEL
 ### Added (tests only)
 - `GuiWindowTest`'s child reports PIN lines (what it saw, upstream's answer, the correct one), judged
   by `Harness.upstreamBug`; a new check pins Cancel on Solution › Open (UB-13). `EngineTest` §6c/§6d
-  pin the open, and no longer throw out of the section on upstream's missing level.
+  pin the open, and no longer throw out of the section on upstream's missing level. Solution › Paste
+  solution is not clicked with no level open: on upstream's menus it reads the clipboard first, so
+  its outcome depended on what the clipboard held (CI caught it, `7ba0d45`).
 - Coverage re-baselined: `emulator\**` 36.0% → 33.6% (170/506), the step-4 code gone; the target is
   unchanged at 56.6%.
 

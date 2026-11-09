@@ -332,7 +332,7 @@ taken. JaCoCo is a test-time tool cached under `%LOCALAPPDATA%\jacoco\<version>\
 dependency**, never committed, never shipped. Output goes to `coverage-report\` (gitignored);
 `coverage.csv` is the evidence behind every percentage below.
 
-As of jc-21, with all 2,369 assertions passing (70 of them `upstreamBug` pins, §6) and 4 skipped —
+As of jc-21, with all 2,368 assertions passing (69 of them `upstreamBug` pins, §6) and 5 skipped —
 counts for a machine with 4 or more CPUs. `SeedSearchTest` §3 makes one pin per search thread, so a
 3-CPU run has one pass and pin fewer and a 2-CPU run two; at 1 CPU §3 and §2's pin are skipped
 (measured: 7 passes and 6 pins fewer, 2 skips more) — **measured on JDK 16.0.2** (16.0.2+7-67 on the desktop; Temurin 16.0.2+7, what CI pins, gives the
@@ -751,8 +751,9 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
   `MenuBar.requireALevel()`, which wrapped every menu's listeners so a new item was covered
   automatically, is reverted. Do not add guards in passing — per-item `isLevelLoaded()` checks would
   be a new deviation, and the real fix (one guard over the whole bar, with `worksWithoutALevel(...)`
-  exemptions) comes back as its own step with `git revert c57f217`. `GuiWindowTest` still clicks
-  every button in the bar with no level open, and pins the 29 that fail.
+  exemptions) comes back as its own step with `git revert 7ba0d45 c57f217`. `GuiWindowTest` still
+  clicks every button in the bar with no level open and pins 28 that fail; Paste solution is not
+  clicked there, since with no level its outcome depends on the system clipboard.
 - **`formclass/FormTransplant.java` imports `jdk.internal.org.objectweb.asm`.** That is the JDK's own
   internal ASM, chosen so this repo takes on no dependency (ADR 0002); the tool is pinned to JDK
   16.0.2, where it exists. Do not "modernize" it to a downloaded ASM or to a newer JDK's class-file

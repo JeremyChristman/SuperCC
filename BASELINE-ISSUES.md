@@ -189,7 +189,9 @@ Upstream's `72476bc` guarded the state every launch starts in — no level set o
 the key listener, the main window's play button and sliders, and six Level-menu items. jc-17 extended
 that to every menu and fixed what it found on the way; all of it was reverted, and the two upstream
 lines jc-17 had left out are in. Upstream's own guards stay. All of it comes back with
-`git revert c57f217`, which also restores `ChooseTileSize`'s compiled class and both baselines.
+`git revert 7ba0d45 c57f217` (newest first: `7ba0d45` is a test fix made after CI showed that
+Paste solution depends on the clipboard), which also restores `ChooseTileSize`'s compiled class
+and both baselines.
 FORK.md step 4 has the engineering record.
 
 "Fails with an internal error" below means a `NullPointerException` on the event thread: nothing
@@ -213,16 +215,19 @@ visible happens except that it is written to the error log (`succ_error-<MACHINE
   Upstream's own guards keep Restart, Next, Previous, Set RNG Seed, Change ruleset and Change Initial
   RFF Direction safe, and the keys, play button and sliders.
 - **Measured:** `GuiWindowTest` clicks every control in a real window with no level open, canceling
-  every box it opens: these 29 throw (jc-16 had 46; upstream's guards remove the rest). All others
-  work.
+  every box it opens: on the desktop these 29 throw (jc-16 had 46; upstream's guards remove the
+  rest), and all others work. Solution › Paste solution reads the clipboard before it looks at the
+  level, so it fails this way only when the clipboard holds text; with nothing there (CI) it writes a
+  clipboard error trace to the error log instead.
 - **Cause:** upstream guards six items by hand.
 - **Fix:** jc-17's `MenuBar.requireALevel()` — one guard over every menu, so a new item is covered
   too — with `worksWithoutALevel(...)` on what makes sense without a level (Open levelset, Open tws,
   the tile sizes, the window size, the View toggles and tilesets — a tileset chosen with no level is
   saved as the MS one, the one drawn at startup — and Controls); the Copy macro hover checking for
   itself; and `ChooseTileSize`'s dead `getKeys()` line removed.
-- **Pinned by:** `GuiWindowTest` §2 (each of the 29, with a check that all 29 were found, and the
-  tileset save).
+- **Pinned by:** `GuiWindowTest` §2: 28 of them, with a check that all 28 were found, and the
+  tileset save. Paste solution is not clicked there, so the run never depends on — or writes to —
+  the system clipboard.
 
 ### UB-12 — canceling Go to... or Set RNG Seed fails
 
