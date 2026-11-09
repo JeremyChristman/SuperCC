@@ -316,8 +316,8 @@ public class MsCloneTrapTest {
          * v2.0.3's answers -- one wire, the trap stayed shut; two, the level threw on `trapIndexMap`
          * and never opened (BASELINE-ISSUES.md, UB-2 and UB-1). jc-24 re-applies jc-15's Fix 1 alone on
          * that baseline (MSLevel's constructor builds both trap maps before the press), so these are
-         * ordinary checks again. Fixes 2 to 4 stay reverted: sections 7 and 10 here, and ConnectionTest
-         * section 4 (Fix 3, Lynx), still pin them. */
+         * ordinary checks again. Fix 2 is back too (section 7, jc-25); Fixes 3 and 4 stay reverted:
+         * section 10 here, and ConnectionTest section 4 (Fix 3, Lynx), still pin them. */
         for (int wires = 1; wires <= 2; wires++) {
             final int w = wires;
             String n = w == 1 ? "one wire" : "two wires";
@@ -411,15 +411,12 @@ public class MsCloneTrapTest {
          * REFERENCE: Tile World's mslogic.c, istrapopen(): a trap is passable if ANY wire into it
          * comes from a button that is down (`istrapbuttondown(traps->from)`).
          *
-         * ⚠ UPSTREAM BASELINE (jc-19): this fix was REVERTED to match upstream v2.0.3 (FORK.md, "The
-         * upstream baseline"). Upstream's answer depends on hash order, so each arrangement is pinned
-         * to what upstream gives: the three marked below come out SHUT (upstreamBug), the other three
-         * open. Re-applying the fix makes all six open, and the three pins fail as the cue. The order
-         * is fixed for a given Position.hashCode, map capacity and JDK (16.0.2, as CI pins); if one of
-         * those moves, ANY of the six can fail with no fix and no engine change involved -- the three
-         * plain checks too, which fail without saying so. Rule that out before blaming the engine. */
+         * FIX LAYER (jc-25): the upstream baseline (jc-19 to jc-24) pinned the three arrangements
+         * upstream gives SHUT -- the first, third and fifth below, on JDK 16.0.2 -- at that answer
+         * (BASELINE-ISSUES.md, UB-3). jc-15's Fix 2 is re-applied alone on that baseline
+         * (MSLevel.finaliseTraps decides each trap once, after all its wires), so all six are ordinary
+         * checks again, and none depends on hash order any more. */
         int[][] pairs = { {2, 2, 3, 9}, {3, 9, 2, 2}, {20, 1, 1, 20}, {1, 20, 20, 1}, {9, 9, 10, 9}, {10, 9, 9, 9} };
-        java.util.Set<Integer> upstreamShut = java.util.Set.of(0, 2, 4);   // measured on upstream's code
         for (int i = 0; i < pairs.length; i++) {
             int[] p = pairs[i];
             String n = "held (" + p[0] + "," + p[1] + "), free (" + p[2] + "," + p[3] + ")";
@@ -432,10 +429,7 @@ public class MsCloneTrapTest {
                     .trap(p[2], p[3], 6, 5));
             step(mixed, 1);
             BrownButton free = brown(mixed, p[2], p[3]);
-            if (upstreamShut.contains(i))
-                Harness.upstreamBug("empty trap, " + n + ": open after a tick", free != null && free.isOpen(mixed));
-            else
-                Harness.check("empty trap, " + n + ": open after a tick", free != null && free.isOpen(mixed));
+            Harness.check("empty trap, " + n + ": open after a tick", free != null && free.isOpen(mixed));
         }
 
         /* Neither held: the empty trap is shut. Without this, "always open" passes the six above. */
@@ -475,6 +469,21 @@ public class MsCloneTrapTest {
                       fanout.isTrapOpen(new Position(6, 5)));
         Harness.check("one held button, two traps: the second is not",
                       !fanout.isTrapOpen(new Position(9, 7)));
+
+        /* The same wire listed twice -- a .dat can, and LevelFactory does not deduplicate. Upstream's
+         * wire-by-wire update opened the trap on the first copy and, the button being used already,
+         * shut it again on the second: shut every time, hash order or not. Decided once, it is open,
+         * as in jc-14 (a bit per wire, open if any is set) and in Tile World's istrapopen(), which
+         * reads every wire into the trap. (jc-25 review: Fix 2 changes this case too.) */
+        Level twice = msLevel("Twice", b -> b
+                .tile(15, 15, Tile.CHIP_DOWN)
+                .tile(6, 5, Tile.TRAP)
+                .tile(2, 2, Tile.BLOCK).under(2, 2, Tile.BUTTON_BROWN)
+                .trap(2, 2, 6, 5)
+                .trap(2, 2, 6, 5));
+        step(twice, 1);
+        Harness.check("one held button wired to the same trap twice: open after a tick",
+                      twice.isTrapOpen(new Position(6, 5)));
 
         /* ================================================================
          * 8. Two buttons, one trap: a release shuts it even with the other button held

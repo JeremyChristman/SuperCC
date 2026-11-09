@@ -417,17 +417,34 @@ public class MSLevel extends MSSavestate implements Level {
     }
 
     private void finaliseTraps(){
+        /* MOD (Jeremy, fix layer, UB-3): each trap is decided ONCE, after every wire has been seen.
+         * Upstream decides it wire by wire, so for an EMPTY trap with one button held and another
+         * not, the last wire visited wins: the trap comes out open or shut depending on the order of
+         * a hash map (shut in 3 of MsCloneTrapTest section 7's 6 arrangements). Collecting first
+         * gives back SuperCC's own rule from before upstream's rework, when each wire had its own
+         * bit: open if any wire into the trap comes from a held button. The same wire-by-wire update
+         * also shut, every time, a trap wired TWICE from one held button (the second copy found the
+         * button used already); that now comes out open too (section 7). A button wired to several
+         * traps still counts for the first in its own list only (pressedButtons is upstream's, and
+         * older; Tile World's springtrap() likewise springs only a button's first wire). An occupied
+         * trap with no button held is still left alone. Latent today: a creature entering a trap
+         * re-checks its buttons, and the engine's other reads are of occupied traps. This is jc-15's
+         * Fix 2, re-applied alone on the upstream baseline. */
         HashSet<Position> pressedButtons = new HashSet<>();
+        HashSet<Position> heldTraps = new HashSet<>();
         for (List<BrownButton> buttons : brownButtons.rawValues()) {
             for (BrownButton b : buttons) {
                 if (layerFG.get(b.getButtonPosition()) != BUTTON_BROWN && !pressedButtons.contains(b.getButtonPosition())) {
-                    traps.set(trapIndexMap.get(b.getTargetPosition()), true);
+                    heldTraps.add(b.getTargetPosition());
                     pressedButtons.add(b.getButtonPosition());
                 }
-                else if (layerFG.get(b.getTargetPosition()) == TRAP) {
-                    traps.set(trapIndexMap.get(b.getTargetPosition()), false);
-                }
             }
+        }
+        for (Map.Entry<Position, Integer> trap : trapIndexMap.entrySet()) {
+            if (heldTraps.contains(trap.getKey()))
+                traps.set(trap.getValue(), true);
+            else if (layerFG.get(trap.getKey()) == TRAP)
+                traps.set(trap.getValue(), false);
         }
     }
 
