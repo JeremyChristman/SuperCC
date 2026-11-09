@@ -342,8 +342,9 @@ public class EngineTest {
          * (FORK.md, "The upstream baseline"; BASELINE-ISSUES.md UB-14). Upstream opens a set at level
          * 1 only, so where level 1 fails the PREVIOUS set's level stays under the new set's file, and
          * a fresh open is left with no level at all. Those checks are pinned at upstream's answers.
-         * To re-apply: `git revert` the commit "Upstream baseline: revert the no-level-loaded
-         * guards"; it holds this change too. */
+         * To re-apply: `git revert` both of this step's commits, newest first -- "GuiWindowTest: do
+         * not click Paste solution on upstream's menus", then "Upstream baseline: revert the
+         * no-level-loaded guards"; the second holds this change. */
         emu3.openLevelset(setB);
         Harness.upstreamBug("opening set B, whose level 1 fails, opens it at level 2", titleOf(emu3), "Titled", "Second");
         Harness.eq("and it is set B's file now", emu3.getLevelsetPath(), setB.getAbsolutePath());

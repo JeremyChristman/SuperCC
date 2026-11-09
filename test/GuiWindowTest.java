@@ -128,6 +128,7 @@ public class GuiWindowTest {
                 else Harness.check("a well-formed PIN line from the child: " + s, false);
                 facts++;
             }
+            else if (s.startsWith("SKIP ")) Harness.skip(s.substring(5));
         }
         Harness.check("the child reported its checks (" + facts + ")", facts >= 20);
         Harness.check("and reached its last line (nothing quit the program partway)", out.contains("END"));
@@ -175,6 +176,11 @@ public class GuiWindowTest {
          */
         static void pin(String what, String actual, String upstream, String correct) {
             System.out.println("PIN " + what + "\t" + actual + "\t" + upstream + "\t" + correct);
+        }
+
+        /** A check deliberately not made, with the reason; the parent records it as a skip. */
+        static void skip(String why) {
+            System.out.println("SKIP " + why);
         }
 
         /**
@@ -364,10 +370,11 @@ public class GuiWindowTest {
 
             // 2. No level set open: EVERY button in EVERY menu, found by walking the menu bar -- so a
             //    menu item added later is covered too -- plus hovering each submenu (Copy macro moves
-            //    threw on hover). On upstream's menus 29 of them throw, each pinned (below); all the
-            //    others must not. A dialog or file chooser a click opens is closed, as its close box
-            //    would, so a regression is a failure rather than a hang; the closer is stopped after
-            //    each click so it cannot close a later one.
+            //    threw on hover). On upstream's menus 28 of the clicked ones throw, each pinned
+            //    (below); Paste solution is not clicked (it reads the clipboard first); all the
+            //    others must not throw. A dialog or file chooser a click opens is closed, as its close
+            //    box would, so a regression is a failure rather than a hang; the closer is stopped
+            //    after each click so it cannot close a later one.
             fact("no level is loaded yet", !emu.isLevelLoaded());
             List<Object[]> controls = new ArrayList<>();
             for (int i = 0; i < w.getJMenuBar().getMenuCount(); i++) {
@@ -380,12 +387,13 @@ public class GuiWindowTest {
              * upstream's: 72476bc guards six Level items and nothing else (FORK.md, "The upstream
              * baseline"; BASELINE-ISSUES.md UB-11). These are the controls that throw on upstream's
              * code with no level open, measured; each is pinned at exactly that, and every other
-             * control must still work. To re-apply: `git revert` the commit "Upstream baseline:
-             * revert the no-level-loaded guards"; it holds this change too. */
+             * control must still work. To re-apply: `git revert` both of this step's commits, newest
+             * first -- "GuiWindowTest: do not click Paste solution on upstream's menus", then
+             * "Upstream baseline: revert the no-level-loaded guards"; they hold this change too. */
             java.util.Set<String> upstreamThrows = new java.util.HashSet<>(java.util.Arrays.asList(
                     "Level > Go to...", "Level > Change stepping value",
                     "Solution > Save as", "Solution > Save", "Solution > Open", "Solution > Search for seeds",
-                    "Solution > Copy solution", "Solution > Paste solution",
+                    "Solution > Copy solution",
                     "Solution > Copy all previous moves", "Solution > Copy all future moves",
                     "hovering Solution > Copy macro moves",
                     "Solution > Save all states to disk", "Solution > Load states from disk",
@@ -412,6 +420,18 @@ public class GuiWindowTest {
                 } else {
                     name = (String) c[0];
                     act = ((AbstractButton) c[1])::doClick;
+                }
+                if (name.equals("Solution > Paste solution")) {
+                    /* Not clicked on upstream's menus. Paste reads the system clipboard BEFORE it
+                     * touches the level, so with no level open what it does depends on what the
+                     * clipboard holds: with text it fails on the missing level (UB-11; seen on the
+                     * desktop), with none it prints an UnsupportedFlavorException trace to the error
+                     * log (CI, 2026-11-08). A test must not depend on the clipboard, and must never
+                     * write to the user's. jc-17 to jc-20 skipped the paste with no level open, so
+                     * this did not arise. */
+                    skip(name + " with no level open: depends on the system clipboard (UB-11), not clicked");
+                    closer.interrupt();
+                    continue;
                 }
                 if (upstreamThrows.contains(name)) {
                     pinnedControls++;
