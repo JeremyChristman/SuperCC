@@ -365,12 +365,14 @@ public class SettingsTest {
         check("and gains both keys, empty, on its next write",
               up13.contains("CustomBaseImage = \n") && up13.contains("CustomOverlayImage = \n"));
 
-        Harness.section("14. AutoDiagonals (upstream 5f928e0) is strictly opt-in, in [Controls]");
-        /* A default-OFF switch, so it goes through optedIn() and is rendered through it (CLAUDE.md
-         * section 5): the file and the getter can never disagree. Section 11's pattern -- on, off,
-         * the wrong section, the no-space typo -- plus the two things specific to this one: the key
-         * listener's cheap getter never writes the file, and Tools > Controls writes keys and switch
-         * together. */
+        Harness.section("14. AutoDiagonals (upstream 5f928e0), in [Controls]");
+        /* Exactly as upstream wrote it (the upstream baseline, FORK.md): read with
+         * Boolean.parseBoolean, so only "true" in any casing is ON, and written back as it was read,
+         * between UpRight and Rewind -- except by setControls (Tools > Controls, or launch repairing
+         * a key code), which writes true or false. jc-18 to jc-22 read it through optedIn() -- "1" was ON too, as
+         * their README said -- and wrote the value it read, so the file and the program could not
+         * disagree: UB-28. Section 11's pattern otherwise: on, off, the wrong section, the no-space
+         * typo, and Tools > Controls writing keys and switch together. */
         Path d14 = freshDir("autodiag");
         File f14 = d14.resolve(SuccPaths.SETTINGS_FILE_NAME).toFile();
         SuccPaths p14 = SuccPaths.load(f14);
@@ -378,18 +380,20 @@ public class SettingsTest {
         check("the stock file says AutoDiagonals = false", stock14.contains("AutoDiagonals = false\n"));
         check("under [Controls]", stock14.indexOf("AutoDiagonals") > stock14.indexOf("[Controls]")
                                   && stock14.indexOf("AutoDiagonals") < stock14.indexOf("[Graphics]"));
-        eq("absent from the stock file's meaning: OFF", p14.getAutoDiagonals(), false);
-        eq("true is ON", SuccPaths.load(settingsWith(freshDir("ad-true"), "[Controls]", "AutoDiagonals = true")).getAutoDiagonals(), true);
-        eq("TRUE (any casing) is ON", SuccPaths.load(settingsWith(freshDir("ad-TRUE"), "[Controls]", "AutoDiagonals = TRUE")).getAutoDiagonals(), true);
-        eq("1 is ON", SuccPaths.load(settingsWith(freshDir("ad-1"), "[Controls]", "AutoDiagonals = 1")).getAutoDiagonals(), true);
-        eq("yes is OFF (a typo cannot switch it on)", SuccPaths.load(settingsWith(freshDir("ad-yes"), "[Controls]", "AutoDiagonals = yes")).getAutoDiagonals(), false);
-        eq("under [Graphics] it is another key, and OFF", SuccPaths.load(settingsWith(freshDir("ad-wrong"), "[Graphics]", "AutoDiagonals = true")).getAutoDiagonals(), false);
-        eq("AutoDiagonals=true (no space) is OFF", SuccPaths.load(settingsWith(freshDir("ad-nospace"), "[Controls]", "AutoDiagonals=true")).getAutoDiagonals(), false);
+        eq("absent from the stock file's meaning: OFF", p14.getControls().autoDiagonals, false);
+        eq("true is ON", autoDiagonals("ad-true", "AutoDiagonals = true"), true);
+        eq("TRUE (any casing) is ON", autoDiagonals("ad-TRUE", "AutoDiagonals = TRUE"), true);
+        Harness.upstreamBug("1 is ON (as jc-18 to jc-22's README said)",
+              autoDiagonals("ad-1", "AutoDiagonals = 1") ? "ON" : "OFF", "OFF", "ON");
+        eq("yes is OFF (a typo cannot switch it on)", autoDiagonals("ad-yes", "AutoDiagonals = yes"), false);
+        eq("under [Graphics] it is another key, and OFF", SuccPaths.load(settingsWith(freshDir("ad-wrong"), "[Graphics]", "AutoDiagonals = true")).getControls().autoDiagonals, false);
+        eq("AutoDiagonals=true (no space) is OFF", autoDiagonals("ad-nospace", "AutoDiagonals=true"), false);
         File f14y = settingsWith(freshDir("ad-yes-rw"), "[Controls]", "AutoDiagonals = yes");
         SuccPaths p14y = SuccPaths.load(f14y);
         p14y.setMSTilesetNum(1);
-        check("an unrecognized value is rewritten as the false the getter reads",
-              Files.readString(f14y.toPath(), StandardCharsets.UTF_8).contains("AutoDiagonals = false\n"));
+        Harness.upstreamBug("a value read as OFF is written back as false, so the file says what the program does",
+              lineOf(Files.readString(f14y.toPath(), StandardCharsets.UTF_8), "AutoDiagonals"),
+              "AutoDiagonals = yes", "AutoDiagonals = false");
         SuccPaths.Controls ctl = p14.getControls();
         eq("getControls() carries the switch", ctl.autoDiagonals, false);
         ctl.autoDiagonals = true;
@@ -398,19 +402,30 @@ public class SettingsTest {
         String written14 = Files.readString(f14.toPath(), StandardCharsets.UTF_8);
         check("setControls() writes the switch and the keys together",
               written14.contains("AutoDiagonals = true\n") && written14.contains("Up = " + java.awt.event.KeyEvent.VK_W + "\n"));
-        eq("and it reads back ON after a reload", SuccPaths.load(f14).getAutoDiagonals(), true);
-        // The key listener asks on every key press; upstream's getControls() there rewrote the file
-        // whenever a key code did not parse.
+        eq("and it reads back ON after a reload", SuccPaths.load(f14).getControls().autoDiagonals, true);
+        // getControls() repairs a key code that does not parse by rewriting the file. Upstream's key
+        // listener asks it on every key press; launch has already repaired any such code by then (the
+        // listener's constructor asks it first), so in practice that per-press call does not write.
         File f14g = settingsWith(freshDir("ad-garbled"), "[Controls]", "Up = x", "AutoDiagonals = true");
         SuccPaths p14g = SuccPaths.load(f14g);
         byte[] before14 = Files.readAllBytes(f14g.toPath());
-        for (int i = 0; i < 5; i++) p14g.getAutoDiagonals();
-        check("getAutoDiagonals() never writes, even with a garbled key code beside it",
-              java.util.Arrays.equals(before14, Files.readAllBytes(f14g.toPath())));
         p14g.getControls();
-        check("(getControls() does repair it -- which is why the listener must not call it per key)",
-              !java.util.Arrays.equals(before14, Files.readAllBytes(f14g.toPath())));
+        byte[] repaired14 = Files.readAllBytes(f14g.toPath());
+        check("getControls() repairs a garbled key code by rewriting the file", !java.util.Arrays.equals(before14, repaired14));
+        p14g.getControls();
+        check("and once repaired, asking again does not write", java.util.Arrays.equals(repaired14, Files.readAllBytes(f14g.toPath())));
 
+    }
+
+    /** AutoDiagonals as the program reads it from a settings file holding `line` under [Controls]. */
+    private static boolean autoDiagonals(String dir, String line) throws IOException {
+        return SuccPaths.load(settingsWith(freshDir(dir), "[Controls]", line)).getControls().autoDiagonals;
+    }
+
+    /** The first line of `text` that starts with `key`, or "(no such line)". */
+    private static String lineOf(String text, String key) {
+        for (String l : text.split("\n")) if (l.startsWith(key)) return l.strip();
+        return "(no such line)";
     }
 
     private static boolean hasMethod(String name) {

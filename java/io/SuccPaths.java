@@ -88,9 +88,9 @@ public class SuccPaths {
         d.put("Controls:DownLeft", String.valueOf(KeyEvent.VK_J));
         d.put("Controls:DownRight", String.valueOf(KeyEvent.VK_K));
         d.put("Controls:UpRight", String.valueOf(KeyEvent.VK_I));
+        d.put("Controls:AutoDiagonals", "false");   // upstream 5f928e0: Tools > Controls > Auto diagonals
         d.put("Controls:Rewind", String.valueOf(KeyEvent.VK_BACK_SPACE));
         d.put("Controls:Play", String.valueOf(KeyEvent.VK_ENTER));
-        d.put("Controls:AutoDiagonals", "false");   // upstream 5f928e0: Tools > Controls > Auto diagonals
         d.put("Graphics:TilesheetNum", "0");
         d.put("Graphics:LynxTilesheetNum", "0");
         d.put("Graphics:TileWidth", "20");
@@ -139,15 +139,12 @@ public class SuccPaths {
         append(sb, map, "TWS", "Paths:TWS");
         append(sb, map, "succ", "Paths:succ");
         sb.append('\n').append("[Controls]").append(nl);
+        // Upstream 5f928e0 writes AutoDiagonals here, raw, between UpRight and Rewind (the upstream
+        // baseline, FORK.md; jc-18 to jc-22 wrote it through optedIn() at the end: UB-28).
         for (String c : new String[]{"Up", "Left", "Down", "Right", "HalfWait", "FullWait",
-                "UpLeft", "DownLeft", "DownRight", "UpRight", "Rewind", "Play"}) {
+                "UpLeft", "DownLeft", "DownRight", "UpRight", "AutoDiagonals", "Rewind", "Play"}) {
             append(sb, map, c, "Controls:" + c);
         }
-        /* MOD (Jeremy, upstream merge): a switch, so written through the predicate its getter uses
-         * (CLAUDE.md section 5) -- in the loop above it would echo back "AutoDiagonals = yes" while
-         * reading OFF. Upstream put it between UpRight and Rewind; the file's order is not upstream's
-         * anyway, and the end of the section keeps the twelve key codes together. */
-        sb.append("AutoDiagonals = ").append(optedIn(map.get("Controls:AutoDiagonals"))).append('\n');
         sb.append('\n').append("[Graphics]").append(nl);
         // CustomBaseImage/CustomOverlayImage are paths, not switches, so the raw-value loop is the
         // right mechanism for them (see the note on ShowBuildTag below for the switches).
@@ -354,14 +351,8 @@ public class SuccPaths {
             return "";
         }
     }
-    /* Upstream 5f928e0: the twelve key codes and the auto-diagonals switch, read and written as one.
-     * The field names and their meaning are upstream's, so tools\ControlGUI.java stays verbatim.
-     * MOD (Jeremy, upstream merge): keyNames is final (upstream's was a mutable public static array
-     * that any caller could reassign for everyone), and the switch goes through optedIn() like every
-     * other default-OFF switch here (upstream used Boolean.parseBoolean, which the file's "1" would
-     * not satisfy and which disagrees with how this file is rendered). */
     public static class Controls {
-        public static final String[] keyNames = new String[] {"Controls:Up", "Controls:Left", "Controls:Down", "Controls:Right",
+        public static String[] keyNames = new String[] {"Controls:Up", "Controls:Left", "Controls:Down", "Controls:Right",
                 "Controls:UpLeft", "Controls:DownLeft", "Controls:DownRight", "Controls:UpRight",
                 "Controls:HalfWait", "Controls:FullWait", "Controls:Rewind", "Controls:Play"};
         public int[] keys = new int[] {KeyEvent.VK_UP, KeyEvent.VK_LEFT, KeyEvent.VK_DOWN, KeyEvent.VK_RIGHT,
@@ -373,25 +364,19 @@ public class SuccPaths {
         Controls controls = new Controls();
         boolean error = false;
 
-        for (int i=0; i < Controls.keyNames.length; i++) {
+        for (int i=0; i < controls.keyNames.length; i++) {
             try {
-                controls.keys[i] = Integer.parseInt(settingsMap.get(Controls.keyNames[i]));
+                controls.keys[i] = Integer.parseInt(settingsMap.get(controls.keyNames[i]));
             }
             catch (NumberFormatException e) {
-                error = true;      // the default from Controls stays
+                error = true;
             }
         }
-        controls.autoDiagonals = getAutoDiagonals();
+        controls.autoDiagonals = Boolean.parseBoolean(settingsMap.get("Controls:AutoDiagonals"));
+
         if (error)
             setControls(controls);
         return controls;
-    }
-
-    /* MOD (Jeremy, upstream merge): the switch alone, for the key listener, which asks on EVERY key
-     * press. Upstream asked getControls() there, which parses all twelve codes each time and REWRITES
-     * this file whenever one of them does not parse -- a settings write per key press. */
-    public boolean getAutoDiagonals() {
-        return optedIn(settingsMap.get("Controls:AutoDiagonals"));
     }
     public int getMSTilesetNum() {
         try {
@@ -600,10 +585,9 @@ public class SuccPaths {
         settingsMap.put("Paths:succ", succPath);
         updateSettingsFile();
     }
-    /** Upstream 5f928e0: the keys and the auto-diagonals switch in one write (Tools > Controls). */
     public void setControls(Controls controls) {
-        for (int i = 0; i < Controls.keyNames.length; i++) {
-            settingsMap.put(Controls.keyNames[i], String.valueOf(controls.keys[i]));
+        for(int i = 0;i < controls.keyNames.length;i++) {
+            settingsMap.put(controls.keyNames[i], String.valueOf(controls.keys[i]));
         }
         settingsMap.put("Controls:AutoDiagonals", String.valueOf(controls.autoDiagonals));
         updateSettingsFile();
