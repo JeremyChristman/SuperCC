@@ -332,7 +332,7 @@ taken. JaCoCo is a test-time tool cached under `%LOCALAPPDATA%\jacoco\<version>\
 dependency**, never committed, never shipped. Output goes to `coverage-report\` (gitignored);
 `coverage.csv` is the evidence behind every percentage below.
 
-As of jc-22, with all 2,359 assertions passing (86 of them `upstreamBug` pins, §6) and 6 skipped —
+As of jc-23, with all 2,314 assertions passing (100 of them `upstreamBug` pins, §6) and 6 skipped —
 counts for a machine with 4 or more CPUs. `SeedSearchTest` §3 makes one pin per search thread, so a
 3-CPU run has one pass and pin fewer and a 2-CPU run two; at 1 CPU §3 and §2's pin are skipped
 (measured: 7 passes and 6 pins fewer, 2 skips more) — **measured on JDK 16.0.2** (16.0.2+7-67 on the desktop; Temurin 16.0.2+7, what CI pins, gives the
@@ -346,10 +346,10 @@ same figures):
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\Lynx\**` | 62.8% | 70.6% | 460/732 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 54.2% | 73.0% | 186/343 |
 | &nbsp;&nbsp;`io\**` (file formats) | 73.9% | 81.3% | 311/421 |
-| `emulator\**` | 33.9% | 36.1% | 170/502 |
+| `emulator\**` | 30.2% | 34.0% | 134/444 |
 | `tools\**` + `graphics\**` — *not a target* | 2.7% | 9.0% | 52/1919 |
 
-**Read this correctly.** Whole-project branch coverage is 30.4% (1836/6047), and that number is
+**Read this correctly.** Whole-project branch coverage is 30.1% (1800/5989), and that number is
 meaningless: 15 form-based classes can be rebuilt here only by copying IntelliJ's output (ADR 0010), `tools\**`
 is 35 files of upstream code this fork does not modify, `graphics\**` is Swing with no headless test
 story, and the rest is vendored `org.json` / `com.intellij`. What this fork can break is the engine
@@ -388,7 +388,8 @@ pointed at it for the one command. `build-config.ps1` lets `JAVA_HOME` win.
   solutions exported the wrong cell. What is left there is mostly `TWSReader.twsInputStream`
   (28.9%, 13/45), the byte-level reader.
 - Still at a flat **0%**: `game.Cheats` (30 branches), `game.Ruleset`, `game.Savestate`,
-  `game.Lynx.LynxSavestate`, and in `emulator\**` the `EmulatorKeyListener` (43), `ArgumentParser`
+  `game.Lynx.LynxSavestate`, and in `emulator\**` the `EmulatorKeyListener` (73, its timer task included; `GuiWindowTest`
+  drives it, but in a child JVM the profiler does not attach to), `ArgumentParser`
   (26) and `SavestateCompressor` (12). `ArgumentParser` is the one a user can reach without a GUI.
 - The suite is strongest exactly where the desyncs were: MS movement, `canEnter`, slide and leave.
   That is not an accident, and it was the right order to do it in.
@@ -689,7 +690,10 @@ reintroduces the torn-file bug this replaced. Never "tidy" it into `%TEMP%`.
 
 Opt-in switches (`ShowBuildTag`, `ShowLevelPack`, `AlwaysOpenInMS`) all go through the single
 `optedIn()` predicate — ON only for `true`/`1`, so a typo cannot switch one on. **A switch whose
-default is OFF must use it.**
+default is OFF must use it.** The one exception is deliberate and temporary: `AutoDiagonals` is
+upstream's (`5f928e0`), read with `Boolean.parseBoolean` and written back raw in `[Controls]`'s loop,
+exactly as upstream wrote it, so `1` is OFF while the file says `1` (the upstream baseline, §6;
+UB-28). Do not route it through `optedIn()` in passing.
 
 `ShowLevelName` (jc-14) is the one exception and it proves the rule: its default is ON, so the same
 reasoning inverts and it goes through the mirror `shownUnlessOptedOut()` — OFF only for
@@ -730,8 +734,10 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
   `SuperCC.tick`'s recorder (`923d07c`: upstream writes a wait on ANY discarded tick, even one that
   also ran automatic ticks; no real level returns both bits, and `InputDiscardTest` §5 pins it
   through a wrapped level), Seed Search (`397c7bb`), the no-level-loaded guards (`c57f217`; see
-  the next bullet) and custom tilesets (`5d3f0a3`: a saved tileset that cannot be drawn stops
-  SuperCC from starting, UB-20 -- do not "fix" it in passing). **Every problem a revert brings back goes
+  the next bullet), custom tilesets (`5d3f0a3`: a saved tileset that cannot be drawn stops
+  SuperCC from starting, UB-20 -- do not "fix" it in passing) and auto-diagonals (`d08e6ef`:
+  with the switch on, EVERY game key waits 50 ms and a `java.util.Timer` makes ONE move, on its own
+  thread, from the keys still held, so taps are lost and other input jumps ahead; UB-22 to UB-28). **Every problem a revert brings back goes
   into `BASELINE-ISSUES.md` in the same push** (Jeremy's standing request, 2026-11-08) — and a fix
   closes its entry there rather than deleting it. ⚠ That makes "no tick returns both bits" load-bearing with nothing
   guarding it: `LynxLevel.tick` CAN return `MASK_TICK_MULTI | discard`, and only the reasoning in

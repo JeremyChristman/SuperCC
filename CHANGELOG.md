@@ -12,6 +12,41 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## jc-23 — 2026-11-09 (the upstream baseline, step 6: auto-diagonals)
+
+Upstream's auto-diagonals (`5f928e0`, `fb8fe25`, `da35e33`, `8c95b3e`) go back to upstream's code
+exactly, the last of the five merge deviations. Seven problems come back, UB-22 to UB-28 in
+[`BASELINE-ISSUES.md`](BASELINE-ISSUES.md), all of them only with Tools › Controls › Auto diagonals
+on. It is off by default, and with it off every key acts at once, as before.
+
+### Changed — deliberately, to match upstream
+- **jc-18's rewrite of the key handling is reverted (`d08e6ef`).** `EmulatorKeyListener` and
+  `ControlGUI` are upstream's byte for byte, `DiagonalCombiner` is gone, and `SuccPaths.Controls`,
+  `getControls` and `setControls` are upstream's, in the fork's own settings structure. With the
+  switch on:
+  - **every game key waits 50 ms** (the arrows, the diagonal keys, both waits, rewind, play), so a
+    **tap makes no move** (UB-22);
+  - **keys inside one window make ONE move**, from those still held: a held key runs at about half
+    speed, a wait pressed with two arrows is lost, three arrows go by the order of upstream's table,
+    and Up held with Right tapped makes Up (UB-23);
+  - **MS waits too**, and Up held with Right pressed moves only Up (UB-24);
+  - **other input jumps ahead** of a waiting move: a state saved with Shift+digit misses it (UB-25);
+  - **the move is made on a `java.util.Timer`'s own thread**, beside the event thread (UB-26);
+  - **a key let go while the main window does not have the keyboard stays held** (UB-27).
+- **`AutoDiagonals` is read with `Boolean.parseBoolean` and written back raw**, between `UpRight`
+  and `Rewind` as upstream writes it: `1` is OFF now, and stays `1` in the file until Tools ›
+  Controls next saves that section (UB-28).
+
+  Every stored solution replays exactly as on jc-22 (24,212 of 24,212). README section 6 describes
+  the setting as it now behaves.
+
+### Added (tests only)
+- `GuiWindowTest` §6 rewritten against upstream's listener in a real window: 12 pins, with the keys
+  held across upstream's window where it decides from them, each also measured at 1 and 2 CPUs.
+  `SettingsTest` §14 pins how the switch reads and is written back. `AutoDiagonalTest` is removed
+  with `DiagonalCombiner`; re-applying the rewrite brings both back.
+- Coverage re-baselined: target unchanged at 56.5% (1502/2660); `emulator\**` 170/502 → 134/444.
+
 ## jc-22 — 2026-11-09 (the upstream baseline, step 5: custom tilesets)
 
 Upstream's custom tilesets (`d78f6f3`) go back to upstream's code exactly. Six problems come back,

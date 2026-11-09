@@ -1,5 +1,5 @@
 ==============================================================================
-  SuperCC  --  Jeremy Christman's fork                      build jc-22
+  SuperCC  --  Jeremy Christman's fork                      build jc-23
 ==============================================================================
 
   1. What this is
@@ -281,9 +281,9 @@ This is the complete stock file. Every key SuperCC knows is here:
     DownLeft = 74
     DownRight = 75
     UpRight = 73
+    AutoDiagonals = false
     Rewind = 8
     Play = 10
-    AutoDiagonals = false
 
     [Graphics]
     TilesheetNum = 0
@@ -375,22 +375,34 @@ A value that is not a number is replaced by that key's default at launch.
 
 AutoDiagonals   Whether two arrow keys pressed together make a diagonal move,
                 so the four diagonal keys are not needed.
-                Values:  true or 1 turns it ON. ANYTHING ELSE IS OFF.
+                Values:  true (any casing) turns it ON. ANYTHING ELSE IS
+                         OFF -- 1 included -- and is kept as it was, so the
+                         file can say 1 while it is off, until Tools >
+                         Controls next saves this section (as true/false).
                 Default: false
                 Set it in the program with Tools > Controls > Auto diagonals,
                 which writes this line when the Controls window is closed
-                (the diagonal keys' boxes are grayed out while it is on;
-                the diagonal keys still work, so to change one, turn this
-                off, change it, and turn this back on).
-                How it works: an arrow waits a twentieth of a second for a
-                partner. Two arrows on different axes make the diagonal;
-                holding one arrow and pressing another makes it too; a quick
-                tap counts; with both of one axis down, the newer wins. Any
-                other key, a mouse click, or switching away makes a waiting
-                arrow's move at once, so nothing you do is recorded out of
-                order.
-                LYNX ONLY in effect. MS has no diagonal moves, so under MS the
-                arrows move at once, exactly as with this off.
+                (the diagonal keys' boxes are grayed out while it is on; to
+                change one, turn this off, change it, and turn this back on).
+                How it works -- upstream's own design, kept exactly since
+                jc-23: EVERY game key (arrows, diagonal keys, both waits,
+                rewind and play) waits a twentieth of a second. Then ONE move
+                is made from the keys still held: the diagonal if two arrows
+                of a pair are held, otherwise one held key. In play:
+                  - a quick tap, let go within that twentieth, makes NO move;
+                  - a held key moves at about half speed;
+                  - keys pressed together make one move between them, so a
+                    wait pressed with two arrows is lost;
+                  - other keys (saving and loading states, macros) and the
+                    mouse act at once, AHEAD of a move still waiting;
+                  - MS waits too: holding Up and pressing Right moves only
+                    Up, since MS has no diagonal moves;
+                  - a key let go while another window has the keyboard still
+                    counts as held, until you press and let go of it again
+                    in the main window.
+                These are UB-22 to UB-28 in BASELINE-ISSUES.md in the
+                repository, to be fixed again later. With this off, every key
+                acts at once, as it always has.
                 A build older than jc-18 does not know this line and erases
                 it the next time it saves a setting.
 
@@ -581,6 +593,44 @@ AlwaysOpenInMS  Whether every level set opens under the MS ruleset, no matter
 Releases from jc-2 on carry a jc-N tag in the repository. The title bar, when
 ShowBuildTag is on, shows the build tag compiled into the jar, which matches
 the tag for that release. Newest first.
+
+
+jc-23  --  Auto-diagonals exactly as upstream wrote them, bugs and all
+----------------------------------------------------------------------
+
+  * AUTO-DIAGONALS NOW WORK EXACTLY AS IN UPSTREAM SUPERCC v2.0.3 --
+    INCLUDING ITS BUGS, ON PURPOSE. This is the last of the five
+    places where the fork had changed the upstream code it merged
+    (jc-19 says why). jc-18 fixed these; the fixes come back in a
+    later release. NOTHING CHANGES UNLESS Tools > Controls > Auto
+    diagonals IS ON -- it is off by default, and with it off every key
+    acts at once, as it always has. With it on:
+      - EVERY GAME KEY WAITS A TWENTIETH OF A SECOND (arrows, diagonal
+        keys, both waits, rewind and play), and then ONE move is made
+        from the keys still held. So a quick tap makes NO move, a held
+        key moves at about half speed, and keys pressed together make
+        one move between them: a wait pressed with two arrows is lost,
+        and with three arrows held upstream's table order wins, not the
+        newest key.
+      - Other keys and the mouse act at once, AHEAD of a move still
+        waiting: a state saved with Shift+digit is saved without it.
+      - MS waits too, though MS has no diagonal moves: holding Up and
+        pressing Right moves only Up.
+      - A key let go while another window has the keyboard still
+        counts as held, until you press and let go of it again in
+        SuperCC's main window.
+      - The waiting move is made from a background thread, beside the
+        one that draws the screen. No problem from that was seen in
+        testing.
+      - In succ_settings.ini only AutoDiagonals = true turns it on;
+        1 is now OFF (jc-18 to jc-22 said 1 was ON).
+    Section 6 (AutoDiagonals) describes the setting as it now behaves.
+
+  * Nothing else changes. Every one of the 24,212 stored solutions in
+    the maintainer's collection replays exactly as it did on jc-22. The
+    rest of this release is in the test suite and the documentation,
+    and every problem these upstream changes bring back is listed in
+    BASELINE-ISSUES.md in the repository.
 
 
 jc-22  --  Custom tilesets exactly as upstream wrote them, bugs and all

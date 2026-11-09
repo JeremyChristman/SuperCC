@@ -44,6 +44,13 @@ How to keep it:
 | UB-19 | A custom picture is saved before it is known to load; a bad one fails with an internal error or an unclear message | anyone choosing a wrong file | `5d3f0a3`, ships in jc-22 | open |
 | UB-20 | SuperCC does not start (no window) when the saved MS tileset cannot be drawn | anyone with a bad TilesheetNum or missing custom pictures | `5d3f0a3`, ships in jc-22 | open |
 | UB-21 | A Lynx tileset that cannot be drawn, or a failing custom tileset at a window resize, leaves the screen wrong | anyone with such a choice | `5d3f0a3`, ships in jc-22 | open |
+| UB-22 | With Auto diagonals on, a quick tap of any game key makes no move | anyone with Auto diagonals on (it is off by default) | `d08e6ef`, ships in jc-23 | open |
+| UB-23 | With Auto diagonals on, keys pressed within 50 ms make ONE move between them: a held key runs at about half speed, a wait pressed with two arrows is lost, three arrows go by table order | anyone with Auto diagonals on | `d08e6ef`, ships in jc-23 | open |
+| UB-24 | With Auto diagonals on, MS arrows wait too, and Up held with Right pressed moves only Up | anyone with Auto diagonals on, playing MS | `d08e6ef`, ships in jc-23 | open |
+| UB-25 | With Auto diagonals on, other input jumps ahead of a waiting move: a state saved with Shift+digit misses it | anyone with Auto diagonals on | `d08e6ef`, ships in jc-23 | open |
+| UB-26 | With Auto diagonals on, the move is made from a background thread, beside the one that draws and takes input | anyone with Auto diagonals on; no clash seen | `d08e6ef`, ships in jc-23 | open |
+| UB-27 | With Auto diagonals on, a key let go while the main window does not have the keyboard stays "held" | anyone with Auto diagonals on | `d08e6ef`, ships in jc-23 | open |
+| UB-28 | `AutoDiagonals = 1` is OFF, and a value read as OFF is usually written back as it was, so the file can look ON | anyone editing the file by hand | `d08e6ef`, ships in jc-23 | open |
 
 ---
 
@@ -388,6 +395,146 @@ custom tileset, or with a settings file that names one that cannot be drawn.
 - **Fix:** both through jc-18's `loadForRuleset`, which falls back, says why once a session, and
   moves the View › Tileset mark to what is drawn.
 - **Pinned by:** nothing (a running window and a broken settings file; measured as above).
+
+## Auto-diagonals (`d08e6ef`, ships in jc-23)
+
+The fork's rewrite of upstream's auto-diagonals (`5f928e0`, `fb8fe25`, `da35e33`, `8c95b3e`), merged
+in jc-18, was reverted: `EmulatorKeyListener` and `ControlGUI` are upstream's byte for byte
+(`ControlGUI` compiled with `formclass.ps1 -Compile`), `DiagonalCombiner` is gone, and
+`SuccPaths.Controls`, `getControls` and `setControls` are upstream's, inside the fork's own settings
+structure (the line is written where upstream writes it, between `UpRight` and `Rewind`). All of it
+comes back with `git revert d08e6ef`, which also restores `AutoDiagonalTest`, `ControlGUI`'s
+compiled classes and both baselines; re-apply it first (newest first), before step 5's. FORK.md
+step 6 has the engineering record. Two code-level changes come back that no user sees:
+`Controls.keyNames` is a mutable public static array again (nothing reassigns it), and the key
+listener asks `getControls()` — twelve key codes parsed — on every key press AND release, switch on
+or off, where jc-18 read one value (a dozen integer parses each time; not measured, too small to
+notice).
+
+**Nobody is affected unless Tools › Controls › Auto diagonals is on.** It is off by default, and with
+it off upstream's listener acts on every key at once, exactly as before (`GuiWindowTest` §6 checks
+that). How upstream's works, so the entries below make sense: with the switch on, EVERY game key —
+the arrows, the diagonal keys, both waits, Backspace (rewind) and Enter (replay) — opens or joins a
+50 ms window instead of acting. When the window closes, a `java.util.Timer` looks, on its own
+thread, at the keys STILL HELD and makes one move from them: a diagonal if both keys of a pair are
+held (the last pair in its table wins), otherwise one held key, picked by hash order. Every other
+key (states, macros, menu shortcuts) and the mouse act at once.
+
+### UB-22 — a tap makes no move
+
+- **What a user sees:** with Auto diagonals on, a key pressed and let go within 50 ms makes no move
+  at all. That is any game key, not only the arrows: a quick tap of a diagonal key, a wait,
+  Backspace or Enter is lost too.
+- **Measured:** `GuiWindowTest` §6, in a real window: a tapped arrow, a tapped wait key and a tapped
+  diagonal key each make no move, at once or after the window.
+- **Fix:** only the four arrows wait, and a tap counts (jc-18's `DiagonalCombiner`, after Tile
+  World's rule: an axis nothing holds goes to its newest key tapped inside the window).
+- **Pinned by:** `GuiWindowTest` §6 (three).
+
+### UB-23 — keys inside one window make one move between them
+
+- **What a user sees:** everything pressed within the same 50 ms makes ONE move.
+  - **A held key runs at about half speed.** Windows repeats a held key about every 33 ms (its
+    default rate); a repeat that lands in an open window is dropped, so only every other one moves.
+    That is true of a held arrow and of a held Backspace.
+  - **A wait pressed with Up and Right held is lost:** the diagonal only.
+  - **Three arrows go by the order of upstream's table**, not by what was pressed last: Down, then
+    Up, then Right held make Down-Right.
+  - **Up held, Right tapped makes Up again**, where it should make Up-Right.
+  - **Two keys that are not a pair** (an arrow and a wait, say) make ONE of the two, picked by hash
+    order, which can differ from one start of SuperCC to the next.
+- **Measured:** `GuiWindowTest` §6:
+  - four presses of Up inside one window make one move;
+  - Up, Right and Space make the diagonal only;
+  - Down, Up, Right make Down-Right;
+  - Up held with Right tapped makes Up, Up.
+
+  The half speed is reasoned from the code at a 33 ms repeat, not timed. The hash-order pick is
+  from the code too (a `HashSet` of enum constants, whose hash codes are identity hashes) and is
+  not pinned, since it can change between runs.
+- **Fix:** only arrows wait, and any other key makes the waiting move first and then acts. Each axis
+  goes to its newest held key. A repeat of an arrow already held is a move of its own, at once
+  (jc-18).
+- **Pinned by:** `GuiWindowTest` §6 (four).
+
+### UB-24 — under MS, arrows wait too, and a key is lost
+
+- **What a user sees:** MS has no diagonal moves, but with the switch on its arrows wait like
+  Lynx's. A tap makes no move (UB-22). Up held with Right pressed makes the diagonal, which
+  `SuperCC.tick` reduces to its vertical half, so Chip moves Up and the Right is lost; Tile World's
+  MS mode moves Right.
+- **Measured:** `GuiWindowTest` §6, on an MS set: an arrow waits; Up held with Right pressed records
+  only Up.
+- **Fix:** no window under MS at all: arrows act as with the switch off (jc-18).
+- **Pinned by:** `GuiWindowTest` §6 (two).
+
+### UB-25 — other input jumps ahead of a waiting move
+
+- **What a user sees:** keys that are not game keys, and the mouse, act at once while a move waits,
+  so they land BEFORE it, and the recorded route is not what was typed:
+  - Shift+digit saves a state without the move;
+  - a digit loads a state, and the waiting move is then made after the load;
+  - macro keys behave the same way;
+  - the mouse too: a drag of the time slider rewinds, and a wheel turn over the move list moves
+    through it, before the move is made.
+- **Measured:** `GuiWindowTest` §6: Up, then Shift+1 inside the window; loading state 1 afterward
+  undoes the Up. The other cases follow from the same code (only game keys wait, and the key
+  listener never sees the mouse) and are not pinned.
+- **Fix:** a waiting arrow's move is made first, before any other key, any mouse press, drag or
+  wheel turn, and any loss of focus: `keyPressed` plus an AWT event listener that runs before the
+  component sees the event (jc-18).
+- **Pinned by:** `GuiWindowTest` §6 (one).
+
+### UB-26 — the move is made on a background thread
+
+- **What a user sees:** usually nothing. The waiting move is made from the timer's own thread, while
+  the event thread draws the screen and handles every other key and click; the held keys are a
+  plain `HashSet` that both threads use. A clash could show as a drawing glitch, an internal error
+  in the log, or a move made while a level is being changed. It can also LOSE the move: if a key is
+  pressed or let go while the timer reads the held keys, that read can fail
+  (`ConcurrentModificationException`), and then no move is made at all. And the flag that says a
+  window is open is a plain field written on one thread and read on the other, so in principle a
+  stale value could stop every later window from opening. None of this was seen in testing.
+  - Each window also starts a thread of its own (a new `java.util.Timer` per window, never
+    canceled), which lingers until garbage collection; holding a key makes about 15 a second.
+  - Tools › Controls builds its window in a `SwingWorker`, off the event thread, and reads the switch
+    there with `getControls()`, as the key listener does on the event thread. That call rewrites the
+    settings file only when a key code does not parse; launch has already repaired any such code,
+    so in practice both only read.
+- **Measured:** `GuiWindowTest` §6: with the event thread kept busy for the whole window, the move
+  is made anyway.
+- **Fix:** a `javax.swing.Timer`, which fires on the event thread, created once and reused; Tools ›
+  Controls reads the switch without `getControls()` (jc-18).
+- **Pinned by:** `GuiWindowTest` §6 (one).
+
+### UB-27 — a key let go elsewhere stays held
+
+- **What a user sees:** upstream sees a key being let go only through the main window's key listener.
+  Let go of a game key while something else has the keyboard, and SuperCC goes on counting it as
+  held. That something else can be another program (Alt+Tab), a dialog, a tool window, or the move
+  list. Every later window includes the stuck key: a tapped arrow comes out as that key, and a held
+  one as a diagonal with it. This lasts until the key is pressed and let go again in the main
+  window. The same happens to a key let go after the switch was turned off, or after that key was
+  remapped, while it was held: upstream's release does nothing with the switch off, or for a code
+  that no longer maps to a key.
+- **Measured:** `GuiWindowTest` §6: Up held, let go on the move list, then Right tapped records Up, Up.
+- **Fix:** releases are seen anywhere in the program (the AWT event listener), and focus leaving the
+  program forgets what is held (jc-18).
+- **Pinned by:** `GuiWindowTest` §6 (one).
+
+### UB-28 — `AutoDiagonals = 1` is OFF, and the file can say otherwise
+
+- **What a user sees:** only `true`, in any casing, turns the switch on. `1` is OFF, though the
+  README of jc-18 to jc-22 listed it as ON. A value read as OFF is also written back as it was by
+  every settings write except one that writes the Controls section itself, so the file can say
+  `AutoDiagonals = 1` while the switch is off. The exceptions write `true` or `false`: closing
+  Tools › Controls, and launch repairing a key code that does not parse. So only a hand edit meets
+  this, and it lasts until one of those.
+- **Measured:** `SettingsTest` §14 (the raw write-back, through a tileset write); the exceptions are
+  from the code (`setControls` writes `String.valueOf` of the switch).
+- **Fix:** read it through `optedIn()` (`true` or `1`), and write it as the value read (CLAUDE.md
+  §5; jc-18).
+- **Pinned by:** `SettingsTest` §14 (two).
 
 ---
 

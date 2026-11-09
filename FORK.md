@@ -38,6 +38,7 @@ held to the claim; upstream's code is now held to upstream. What the fork *does*
 | jc-20 | **The upstream baseline, steps 2 and 3 — Seed Search and the move recorder are upstream's exactly.** Seed Search's four fixes from jc-16 are reverted (`397c7bb`): a negative start leaves one thread doing all the work, the threads race at the start, and a success at a negative seed is never shown. The recorder's both-bits fix from jc-15 is reverted too (`923d07c`), which changes nothing measurable: every stored route ends and records exactly as on jc-19. Every problem the baseline brings back is now tracked in `BASELINE-ISSUES.md`. See *The upstream baseline*. |
 | jc-21 | **The upstream baseline, step 4 — the no-level-loaded guards are upstream's exactly.** jc-17's extensions of upstream's `72476bc` are reverted (`c57f217`), and the two upstream lines it left out are in: with no level set open 29 menu controls fail again, canceling Go to..., Set RNG Seed or a file chooser fails again, a set whose level 1 will not load opens badly again (none in the collection does), and a level whose savestates fail is half-loaded again (none does). UB-11 to UB-15. Every stored route replays exactly as on jc-20. See *The upstream baseline*. |
 | jc-22 | **The upstream baseline, step 5 — custom tilesets are upstream's exactly.** jc-18's fixes to upstream's `d78f6f3` are reverted (`5d3f0a3`): custom is saved as tileset number 5 with full paths, canceling asks again and then complains, a picture is saved before it is known to load, and a saved tileset that cannot be drawn stops SuperCC from starting (no window) or fails at every Lynx set opened. UB-16 to UB-21. Nobody's tileset changes by itself, and every stored route replays exactly as on jc-21. See *The upstream baseline*. |
+| jc-23 | **The upstream baseline, step 6 — auto-diagonals are upstream's exactly.** jc-18's rewrite of the key handling is reverted (`d08e6ef`). With Tools › Controls › Auto diagonals on, every game key waits 50 ms and a background timer makes ONE move from the keys still held: taps are lost, a held key runs at about half speed, keys pressed together make one move, MS waits too and loses keys, other input jumps ahead, and a key let go elsewhere stays held; `AutoDiagonals = 1` is OFF. UB-22 to UB-28. The switch is off by default, nothing changes with it off, and every stored route replays exactly as on jc-22. That finishes the five merge deviations. See *The upstream baseline*. |
 
 > **`settings.ini` is `succ_settings.ini` from jc-8 on.** Older sections below are left in their
 > original wording where they describe historical work; read "settings.ini" in those as the same
@@ -69,7 +70,7 @@ commit is applied as a patch (`git apply -p4 --directory=java`), not merged by g
 | `b997c27`, `98366f7` | Input discarding (Lynx forced moves); the second undoes the first's MS effect | **merged, jc-15** — step 2, below |
 | `40495dd` | Seed search: an `int` overflow made long searches go negative | **merged, jc-16** — step 3, below |
 | `72476bc` | Linux test runner, plus guards for "no level loaded" in `EmulatorKeyListener`, `MenuBar` and `Gui.java` | **merged, jc-17** — step 4, below; hand-merged (its `requireNonNull` around `openFile` would undo jc-12's cancel fix, so it was left out); the Linux test runner and Maven workflow do not apply here |
-| `5f928e0`, `fb8fe25`, `da35e33`, `8c95b3e` | Auto-diagonals | **merged, jc-18** — step 6, below; the Controls window verbatim (its `.form` edit compiled by JetBrains' own form compiler, ADR 0011), the key handling rewritten |
+| `5f928e0`, `fb8fe25`, `da35e33`, `8c95b3e` | Auto-diagonals | **merged, jc-18** — step 6, below; the Controls window verbatim (its `.form` edit compiled by JetBrains' own form compiler, ADR 0011), the key handling rewritten. ⚠ The rewrite was **reverted** for the upstream baseline (jc-23): the key handling is upstream's exactly |
 | `f701c85` | Renames `BW-overlay.png` to the `bw-overlay.png` the code asks for | **merged, jc-17** — the Black and White tileset failed in every release, since jar entries are case-sensitive (step 4, *The second review*) |
 | `d78f6f3`, `3e92380` | Custom tilesets | **merged, jc-18** — step 5, below; with fork fixes for paths shared between machines, Cancel, unreadable images and a missing image at startup |
 
@@ -102,7 +103,7 @@ judged wrong; most were bug fixes, and the plan is to restore them deliberately 
   all issues doing these revisions introduces so that we can fix them later"*). A fix closes its
   entry; nothing is deleted.
 
-**Done** (the problems each one brings back are UB-1 to UB-21 in `BASELINE-ISSUES.md`):
+**Done** (the problems each one brings back are UB-1 to UB-28 in `BASELINE-ISSUES.md`):
 
 | Deviation | Reverted in | What the upstream behavior costs |
 |---|---|---|
@@ -111,6 +112,7 @@ judged wrong; most were bug fixes, and the plan is to restore them deliberately 
 | Seed Search's four fixes from jc-16 (step 3 below: the `(long)` for a negative start, threads built before any starts, the "no success yet" sentinel, `volatile` flags) | `397c7bb`, released as jc-20 | Four problems back, UB-7 to UB-10. **A negative start does not share the work** — measured in a scripted playtest in the real window (CCLP1 #1, start -5, 4 threads): threads 0-2 never moved and thread 3 did all 219,765 attempts, from -1,610,612,735. **The threads race at the start**, so "running" can go false mid-search (a Pause click in that moment starts a second set of threads; each thread start also clears a pending Pause). **A success at a negative seed is never shown** (the same playtest: 219,765 successes, no example seed). The `volatile` flags have no observed effect on HotSpot. Engine untouched, nothing replays differently. `SeedSearch` is form-bound: compiled with `formclass.ps1 -Compile`, byte-checked by `-Check`. Two of upstream's bugs are races, so `SeedSearchTest`'s pins were measured under CPU affinity (1, 2, 3, 4 and 28 CPUs, every run green on upstream's code; one 8-seed search alone missed the race 1 time in 4 on 2 CPUs, so the pin takes five; §3 checks the threads themselves rather than `running`, which the same race can drop mid-search, and a new §5 keeps Pause covered from a start where no thread can finish early), and the 3,000-seed check is skipped on this code. The revert also broke a tooling self-test that relied on the fork's SeedSearch source (`formclass.ps1 -SelfTest`, the transplant case); fixed first, in `821066c`, with a specimen whose constructor differs by construction. |
 | The no-level-loaded guards and fixes from jc-17 (step 4 below: `MenuBar.requireALevel()` and its exemptions, Cancel on Go to... / Set RNG Seed, the Copy macro hover, `ChooseTileSize`'s dead line, `openLevelset` at the first level that loads, the all-or-nothing `loadLevel`), plus upstream's two lines jc-17 left out (`Objects.requireNonNull(openFile(...))`, `assert tws != null`) | `c57f217`, released as jc-21 | Five problems back, UB-11 to UB-15. **With no level set open, 29 menu controls fail** with an internal error (a `NullPointerException` on the event thread, written to the error log) — measured on the desktop; `GuiWindowTest`'s walk of every control in a real window pins 28, since Paste solution reads the clipboard first and fails this way only when it holds text (CI caught that: `GuiWindowTest` no longer clicks it); upstream's own guards cover the rest. **Canceling Go to... or Set RNG Seed fails**, and so does **canceling the file chooser** of Solution › Open, Search for seeds or Load states (jc-12's fix, undone by upstream's `requireNonNull`). **A set whose level 1 will not load opens badly** (an error, then no level on a fresh start, or the previous set's level under the new file) — none of the 331 sets in the collection, all scanned. **A level whose savestates fail to build is half-loaded** — no level reaches it while untitled levels load (the fork's own jc-17 fix, kept). Upstream's own guards, the Black and White rename and the fork's older features (jc-9, jc-10, jc-11, jc-12's missing-file message, jc-14) stay. Corpus vs jc-20: 24,212 of 24,212 identical. `ChooseTileSize` is form-bound: compiled with `formclass.ps1 -Compile`. `GuiWindowTest`'s child gained PIN lines, judged by `Harness.upstreamBug` on the parent side; a new check pins Cancel on Solution › Open (UB-13). |
 | The custom-tileset fixes from jc-18 (step 5 below: relative paths, Cancel, load-before-save, the per-ruleset switches instead of `TilesheetNum = 5`, the fallback loaders at startup, the ruleset swap and the window resize, the size and format checks, the radio mark following what is drawn) | `5d3f0a3`, released as jc-22 | Six problems back, UB-16 to UB-21. **Custom is saved as tileset number 5**, which builds before jc-18 cannot start with (pinned in a real window by `GuiWindowTest` §5b, which answers custom's file choosers with real pictures). **Its pictures are saved as full paths**, missing on the other computer. **Canceling asks for the second picture anyway, then shows an error**, and leaves the mark on custom. **A picture is saved before it is known to load**, and bad ones fail with internal errors or unclear messages (six exact pins in `EngineTest` §6f, rewritten through upstream's API with the settings written as a file). **SuperCC does not start — no window — when the saved MS tileset cannot be drawn**: measured by launching, with `TilesheetNum = 99` and with custom's pictures missing. **A Lynx tileset that cannot be drawn fails at every Lynx set opened.** Nobody's tileset changes by itself; the maintainer's settings use no custom tileset. `TileSheet`, `SmallGamePanel` and `Gui` are upstream's byte for byte (`Gui` compiled with `formclass.ps1 -Compile`); `SuccPaths` keeps the fork's own settings structure. Corpus vs jc-21: 24,212 of 24,212 identical. |
+| The auto-diagonals rewrite from jc-18 (step 6 below: `DiagonalCombiner`, a Swing timer on the event thread, only arrows waiting, the flush before any other input, newest key per axis, repeats at full speed, no window under MS, releases seen program-wide, the switch through `optedIn()` and its cheap `getAutoDiagonals()`) | `d08e6ef`, released as jc-23 | Seven problems back, UB-22 to UB-28, all only with Tools › Controls › Auto diagonals on (off by default; off in the maintainer's settings). **Every game key waits 50 ms, and ONE move is made from the keys still held**, on a `java.util.Timer`'s own thread: a tap makes no move, four presses inside one window make one, a wait pressed with two arrows is lost, three arrows go by table order, and Up held with Right tapped makes Up. **MS waits too**, and Up held with Right pressed moves only Up. **Other input jumps ahead**: a state saved with Shift+1 misses the waiting move. **A key let go elsewhere stays held.** `AutoDiagonals = 1` reads OFF and is written back as `1`. Pinned in a real window by `GuiWindowTest` §6 (12 pins, every one also measured at 1 and at 2 CPUs) and by `SettingsTest` §14 (2). Against jc-22's jar exactly those 14 fail, as "the correct answer came back", and nothing else does. `EmulatorKeyListener` and `ControlGUI` are upstream's byte for byte (`ControlGUI` compiled with `formclass.ps1 -Compile`); `SuccPaths` keeps the fork's own settings structure. Corpus vs jc-22: 24,212 of 24,212 identical (replay never goes through the key listener). |
 
 **To do after the baseline (the plan):** re-apply the trap fixes off the baseline, starting with
 Fix 1, so those 5 levels open again and the 6 routes solve again. All four at once is
@@ -130,9 +132,14 @@ which restores `ChooseTileSize`'s class and both baselines the same way, and tur
 `EngineTest` and `GuiWindowTest` pins back into checks. Re-applying the custom-tileset fixes is
 `git revert 5d3f0a3`, which restores `Gui`'s compiled class and both baselines the same way. Steps 4
 and 5 both rewrote View › Tileset's listener in `MenuBar`, so re-apply them NEWEST FIRST — step 5,
-then step 4 — or resolve that hunk by hand.
+then step 4 — or resolve that hunk by hand. Re-applying the auto-diagonals rewrite is
+`git revert d08e6ef`, which restores `DiagonalCombiner`, `AutoDiagonalTest`, `ControlGUI`'s
+compiled classes, the splice list and both baselines, and turns the `GuiWindowTest` §6 and
+`SettingsTest` §14 pins back into checks. It is the newest revert, so it goes first of all; steps 5
+and 6 both edited `SuccPaths`.
 
-**Still to decide, one at a time** — every other `MOD (Jeremy, upstream merge)` in `java/`:
+**The queue — every `MOD (Jeremy, upstream merge)` in `java/`, one at a time** (all five reverted as
+of jc-23):
 1. ~~**Input discarding** (`SuperCC.tick`): the key is kept when the multi-tick bit is also set.~~
    Reverted, `923d07c` (table above).
 2. ~~**Seed search** (`SeedSearch`, six edits): the `(long)` cast for a negative start, threads built
@@ -144,12 +151,12 @@ then step 4 — or resolve that hunk by hand.
    fix) and `assert tws != null`.~~ Reverted, `c57f217` (and the two lines put in).
 4. ~~**Custom tilesets** (step 5): relative paths, Cancel, load-before-save, the per-ruleset switches
    instead of `TilesheetNum = 5`, the fallback loaders, size/format checks.~~ Reverted, `5d3f0a3`.
-5. **Auto-diagonals** (step 6): the rewritten key handling (`DiagonalCombiner`), `SuccPaths.Controls`
-   edits, `ControlGUI` reading `getAutoDiagonals()`.
+5. ~~**Auto-diagonals** (step 6): the rewritten key handling (`DiagonalCombiner`), `SuccPaths.Controls`
+   edits, `ControlGUI` reading `getAutoDiagonals()`.~~ Reverted, `d08e6ef`.
 
 Separate from these are the fork's own features and fixes from before the merge (jc-1–jc-14, and
 jc-17's untitled-level fix), which change upstream's behavior without having been part of a merged
-upstream commit. Whether the baseline reverts those too is its own question.
+upstream commit. Whether the baseline reverts those too is its own question, and the next one.
 
 ### Step 1 — the trap rework (`858dbd0`), and four fixes to it
 
@@ -936,6 +943,13 @@ file gaining the keys);
 and saved, the mark returns to it, nothing is saved). Corpus identical to jc-17, 24,212 of 24,212.
 
 ### Step 6 — auto-diagonals (`5f928e0`, `fb8fe25`, `da35e33`)
+
+> ⚠ **The fork's rewrite of the key handling is REVERTED for the upstream baseline (2026-11-09,
+> `d08e6ef`, jc-23)**: `EmulatorKeyListener` and `ControlGUI` are upstream's byte for byte,
+> `DiagonalCombiner` and `AutoDiagonalTest` are gone, and `SuccPaths` reads and writes the switch
+> as upstream does (`Boolean.parseBoolean`, written back raw between `UpRight` and `Rewind`), inside
+> the fork's own settings structure. The problems that brings back are UB-22 to UB-28 in
+> `BASELINE-ISSUES.md`. The record below describes jc-18 to jc-22.
 
 **What upstream added.** Tools › Controls › Auto diagonals (`[Controls] AutoDiagonals`): arrows
 pressed together make a diagonal, and the diagonal keys' remap boxes gray out while it is on.
