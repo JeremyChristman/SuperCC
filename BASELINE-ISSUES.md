@@ -33,6 +33,11 @@ How to keep it:
 | UB-8 | Seed Search's threads race at the start: "running" can drop mid-search, a Pause can be undone | anyone, mostly on short searches | `397c7bb`, ships in jc-20 | open |
 | UB-9 | Seed Search never shows a success at a negative seed as the example | anyone searching from a negative start | `397c7bb`, ships in jc-20 | open |
 | UB-10 | Seed Search's Pause flag is not `volatile` | nobody observed (theoretical) | `397c7bb`, ships in jc-20 | open |
+| UB-11 | With no level set open, most menu controls fail with an internal error | everyone, from launch until a set is opened | `c57f217`, ships in jc-21 | open |
+| UB-12 | Canceling Go to... or Set RNG Seed fails with an internal error | anyone who cancels either | `c57f217`, ships in jc-21 | open |
+| UB-13 | Canceling the file chooser of Solution › Open, Search for seeds or Load states fails | anyone who cancels one | `c57f217`, ships in jc-21 | open |
+| UB-14 | A set whose level 1 will not load opens badly: an error, then no level, or the previous set's level under the new file | none of the 331 sets in the collection | `c57f217`, ships in jc-21 | open |
+| UB-15 | A level whose savestates cannot be built is left half-loaded | nobody today (no level reaches it) | `c57f217`, ships in jc-21 | open (latent) |
 
 ---
 
@@ -177,6 +182,103 @@ engineering record.
   Pause. HotSpot happens to make it work: Pause worked in every test and playtest.
 - **Fix:** declare both `volatile` (jc-16).
 - **Pinned by:** nothing. A memory-model guarantee cannot be tested reliably.
+
+## The no-level-loaded guards (`c57f217`, ships in jc-21)
+
+Upstream's `72476bc` guarded the state every launch starts in — no level set open — in three places:
+the key listener, the main window's play button and sliders, and six Level-menu items. jc-17 extended
+that to every menu and fixed what it found on the way; all of it was reverted, and the two upstream
+lines jc-17 had left out are in. Upstream's own guards stay. All of it comes back with
+`git revert c57f217`, which also restores `ChooseTileSize`'s compiled class and both baselines.
+FORK.md step 4 has the engineering record.
+
+"Fails with an internal error" below means a `NullPointerException` on the event thread: nothing
+visible happens except that it is written to the error log (`succ_error-<MACHINE>.log`).
+
+### UB-11 — most menu controls fail before a level set is open
+
+- **What a user sees:** until a level set is opened, these controls fail instead of doing nothing:
+  - Level › Change stepping value, and Level › Go to... when its box is canceled (UB-12; a number
+    typed there does nothing with no set open);
+  - Solution › Save as, Save (so Ctrl+S and Ctrl+Shift+S), Open, Search for seeds, Copy solution,
+    Paste solution, Copy all previous moves, Copy all future moves, Save all states to disk and Load
+    states from disk, and merely hovering over Copy macro moves;
+  - TWS › Write solution to new tws and Verify tws;
+  - all five built-in View › Tileset choices — the tileset is drawn, but not saved, so it is gone at
+    the next launch — and View › Tileset › custom the same way once two pictures are chosen (not
+    pinned: the test cancels its chooser), and View › Tile size › custom;
+  - Tools › Variation testing and TSP Solver;
+  - all six Cheats.
+
+  Upstream's own guards keep Restart, Next, Previous, Set RNG Seed, Change ruleset and Change Initial
+  RFF Direction safe, and the keys, play button and sliders.
+- **Measured:** `GuiWindowTest` clicks every control in a real window with no level open, canceling
+  every box it opens: these 29 throw (jc-16 had 46; upstream's guards remove the rest). All others
+  work.
+- **Cause:** upstream guards six items by hand.
+- **Fix:** jc-17's `MenuBar.requireALevel()` — one guard over every menu, so a new item is covered
+  too — with `worksWithoutALevel(...)` on what makes sense without a level (Open levelset, Open tws,
+  the tile sizes, the window size, the View toggles and tilesets — a tileset chosen with no level is
+  saved as the MS one, the one drawn at startup — and Controls); the Copy macro hover checking for
+  itself; and `ChooseTileSize`'s dead `getKeys()` line removed.
+- **Pinned by:** `GuiWindowTest` §2 (each of the 29, with a check that all 29 were found, and the
+  tileset save).
+
+### UB-12 — canceling Go to... or Set RNG Seed fails
+
+- **What a user sees:** pressing Cancel (or the close box) in either box fails with an internal
+  error, with a level open or not.
+- **Cause:** the reply to a canceled box is `null`, and upstream tests it for empty only.
+- **Fix:** test for `null` too (jc-17).
+- **Pinned by:** `GuiWindowTest` §4 (both, with a level open) and §2 (Go to..., with none).
+
+### UB-13 — canceling a file chooser fails
+
+- **What a user sees:** canceling the file chooser of Solution › Open, Solution › Search for seeds
+  or Solution › Load states from disk fails with an internal error. (jc-12 fixed this; its clearer
+  message for a file that is not there stays.) With assertions on (`java -ea`, never a normal
+  launch), canceling TWS › Write solution to new tws fails too, on upstream's `assert tws != null`.
+- **Cause:** upstream's `72476bc` wraps the chooser's reply in `Objects.requireNonNull`, which jc-17
+  left out because it undoes jc-12; the baseline has upstream's line.
+- **Fix:** treat a `null` reply as "nothing to do", as jc-12 did.
+- **Pinned by:** `GuiWindowTest` §4 (Solution › Open, then Cancel, with a level open).
+
+### UB-14 — a set whose level 1 will not load opens badly
+
+- **What a user sees:** a level set opens at level 1 only. If level 1 will not load:
+  - on a fresh start, its error is shown and then the open fails (an internal error), leaving no
+    level loaded;
+  - with a set already open, the previous set's level stays on screen under the new set's file, so
+    Solution › Save would put that route in the new set's save folder;
+  - a set with no levels at all behaves the same;
+  - opened from the command line or a file association (`SuperCC.jar set.dat`), the failure also
+    escapes the startup code, so the tileset is never set up and a level asked for with `-l` is
+    never loaded: the window is left half-built. (Reproduced to the error dialog on the jc-21
+    candidate; the rest is jc-16's code, measured then — FORK.md step 4, *The second review*.)
+
+  Its other levels can still be reached with Level › Go to.... Separately, an error in the window's
+  repaint during a load (CLAUDE.md §9's jar replaced under a running instance) is reported as
+  "Could not load level" although the level loaded, and the title bar keeps the previous level's
+  name.
+- **Measured:** none of the collection: a scan opening all 331 sets (2026-11-08) found every level 1
+  loads. The only levels that do not load are UB-1's five, none of them a level 1.
+- **Fix:** jc-17's `openLevelset`: open at the first level that loads, report all failures once
+  ("Levels 1 to 3 could not be loaded … Opened at level 4"), put the previous set back before the
+  error is shown when nothing loads, and count positions, not record numbers — through
+  `tryLoadLevel`, which returns a failure instead of reporting it.
+- **Pinned by:** `EngineTest` §6c and §6d; `GuiWindowTest` §3a (including the open level kept under
+  the new set's file, in a real window) and §5.
+
+### UB-15 — a level whose savestates cannot be built is half-loaded
+
+- **What a user sees:** nothing today. `loadLevel` assigns the level before it builds the level's
+  savestates, so if that second step failed the level would be "loaded" with no savestates, or with
+  the previous level's, and slip past the guards that ask whether a level is loaded.
+- **Measured:** no level reaches it. The one cause ever seen, a level with no title, is handled by the
+  fork's own untitled-level fix (jc-17, kept: it is not part of this step), and all 23,476 levels of
+  the collection load except UB-1's five, which fail earlier, while parsing.
+- **Fix:** build the level and its savestates first, then assign both, or neither (jc-17).
+- **Pinned by:** nothing — no fixture reaches it while untitled levels load.
 
 ---
 

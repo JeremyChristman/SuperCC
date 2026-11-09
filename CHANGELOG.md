@@ -12,6 +12,37 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## jc-21 — 2026-11-08 (the upstream baseline, step 4: the no-level-loaded guards)
+
+The guards for the state every launch starts in, no level set open, go back to upstream's `72476bc`
+exactly. Five problems come back, UB-11 to UB-15 in [`BASELINE-ISSUES.md`](BASELINE-ISSUES.md).
+
+### Changed — deliberately, to match upstream
+- **jc-17's extensions of `72476bc` are reverted (`c57f217`)**, and the two upstream lines jc-17 left
+  out are in:
+  - `MenuBar.requireALevel()` and its exemptions are gone, with the Copy macro hover check and
+    `ChooseTileSize`'s removed line: **with no level set open, 29 menu controls fail** with a
+    `NullPointerException` on the event thread (UB-11). Upstream's six Level-menu guards, and its
+    guards in the key listener and main window, stay.
+  - **Canceling Go to... or Set RNG Seed fails** again (UB-12).
+  - `Objects.requireNonNull(openFile(...))` is in, so **canceling the file chooser** of Solution ›
+    Open, Search for seeds or Load states **fails** again (UB-13); jc-12's message for a file that is
+    not there stays. `assert tws != null` is in too (inert: assertions are off).
+  - `openLevelset` and `loadLevel` are jc-16's again: **a set whose level 1 will not load opens
+    badly** (UB-14; none of the 331 sets in the collection) and **a level whose savestates cannot be
+    built is half-loaded** (UB-15; no level reaches it).
+
+  Every stored solution replays exactly as on jc-20 (24,212 of 24,212). Kept, as the fork's own and
+  not part of this step: jc-9's AlwaysOpenInMS, jc-11's guards, jc-14's window title, jc-10 and
+  jc-12's file handling, and jc-17's untitled-level fix.
+
+### Added (tests only)
+- `GuiWindowTest`'s child reports PIN lines (what it saw, upstream's answer, the correct one), judged
+  by `Harness.upstreamBug`; a new check pins Cancel on Solution › Open (UB-13). `EngineTest` §6c/§6d
+  pin the open, and no longer throw out of the section on upstream's missing level.
+- Coverage re-baselined: `emulator\**` 36.0% → 33.6% (170/506), the step-4 code gone; the target is
+  unchanged at 56.6%.
+
 ## jc-20 — 2026-11-08 (the upstream baseline, steps 2 and 3: the move recorder and Seed Search)
 
 Two more deviations go back to upstream v2.0.3 exactly. Every problem the baseline brings back is now

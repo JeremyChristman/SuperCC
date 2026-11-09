@@ -1,5 +1,5 @@
 ==============================================================================
-  SuperCC  --  Jeremy Christman's fork                      build jc-20
+  SuperCC  --  Jeremy Christman's fork                      build jc-21
 ==============================================================================
 
   1. What this is
@@ -596,6 +596,37 @@ AlwaysOpenInMS  Whether every level set opens under the MS ruleset, no matter
 Releases from jc-2 on carry a jc-N tag in the repository. The title bar, when
 ShowBuildTag is on, shows the build tag compiled into the jar, which matches
 the tag for that release. Newest first.
+
+
+jc-21  --  Before a level set is open: exactly as upstream, bugs and all
+------------------------------------------------------------------------
+
+  * THE PROGRAM BEFORE A LEVEL SET IS OPEN, AND A FEW CANCEL BUTTONS,
+    NOW WORK EXACTLY AS IN UPSTREAM SUPERCC v2.0.3 -- INCLUDING ITS
+    BUGS, ON PURPOSE. This is the next piece of bringing the fork back
+    to upstream's code exactly (jc-19 says why). jc-17 fixed these; the
+    fixes come back in a later release. Until then:
+      - SuperCC starts with no level set open, and until you open one,
+        many menu items fail with an internal error instead of doing
+        nothing: most of the Solution and TWS menus (Ctrl+S included),
+        View > Tileset (the tileset is shown but not remembered for the
+        next launch) and Tile size > custom, Tools > Variation testing
+        and TSP Solver, the Cheats, and Level > Change stepping value.
+        Nothing else happens; each one is written to the error log.
+        Open a level set first and they all work as usual.
+      - Pressing Cancel in Level > Go to... or Level > Set RNG Seed fails
+        the same way, and so does canceling the file chooser of
+        Solution > Open, Search for seeds or Load states from disk.
+      - A level set whose first level cannot be loaded opens badly:
+        after its error, either no level is open, or the level set you
+        had open before stays on screen. None of the 331 level sets the
+        maintainer has is like that.
+
+  * Nothing else changes. Every one of the 24,212 stored solutions in
+    the maintainer's collection replays exactly as it did on jc-20. The
+    rest of this release is in the test suite and the documentation,
+    and every problem these upstream changes bring back is listed in
+    BASELINE-ISSUES.md in the repository.
 
 
 jc-20  --  Seed Search exactly as upstream wrote it, bugs and all

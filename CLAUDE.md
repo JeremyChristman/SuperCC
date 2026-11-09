@@ -248,7 +248,7 @@ test/LinkTest.java           every call between the fork's classes resolves IN T
 test/InputDiscardTest.java   which keys Level.tick reports as DISCARDED, and the WAIT the move list records
 test/SeedSearchTest.java     Seed Search through its REAL constructor, headless: stops at the top seed, threads, Pause
 test/FormClassTest.java      every form window's REAL constructor builds its components (14 of 15; Gui is the JFrame)
-test/GuiWindowTest.java      the MAIN window (Gui) built for real in a NON-headless child JVM; no-level-open guards
+test/GuiWindowTest.java      the MAIN window (Gui) built for real in a NON-headless child JVM; no level open (PIN lines, UB-11..14)
 ```
 
 **Testing a form-based window headless.** Its constructor builds every component
@@ -332,7 +332,7 @@ taken. JaCoCo is a test-time tool cached under `%LOCALAPPDATA%\jacoco\<version>\
 dependency**, never committed, never shipped. Output goes to `coverage-report\` (gitignored);
 `coverage.csv` is the evidence behind every percentage below.
 
-As of jc-20, with all 2,362 assertions passing (24 of them `upstreamBug` pins, §6) and 4 skipped —
+As of jc-21, with all 2,369 assertions passing (70 of them `upstreamBug` pins, §6) and 4 skipped —
 counts for a machine with 4 or more CPUs. `SeedSearchTest` §3 makes one pin per search thread, so a
 3-CPU run has one pass and pin fewer and a 2-CPU run two; at 1 CPU §3 and §2's pin are skipped
 (measured: 7 passes and 6 pins fewer, 2 skips more) — **measured on JDK 16.0.2** (16.0.2+7-67 on the desktop; Temurin 16.0.2+7, what CI pins, gives the
@@ -346,10 +346,10 @@ same figures):
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\Lynx\**` | 62.8% | 70.6% | 460/732 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 54.2% | 73.0% | 186/343 |
 | &nbsp;&nbsp;`io\**` (file formats) | 73.9% | 81.8% | 323/437 |
-| `emulator\**` | 36.0% | 37.9% | 191/530 |
-| `tools\**` + `graphics\**` — *not a target* | 4.3% | 9.6% | 86/2023 |
+| `emulator\**` | 33.6% | 36.1% | 170/506 |
+| `tools\**` + `graphics\**` — *not a target* | 4.3% | 9.7% | 86/1997 |
 
-**Read this correctly.** Whole-project branch coverage is 30.7% (1903/6195), and that number is
+**Read this correctly.** Whole-project branch coverage is 30.6% (1882/6145), and that number is
 meaningless: 15 form-based classes can be rebuilt here only by copying IntelliJ's output (ADR 0010), `tools\**`
 is 35 files of upstream code this fork does not modify, `graphics\**` is Swing with no headless test
 story, and the rest is vendored `org.json` / `com.intellij`. What this fork can break is the engine
@@ -600,9 +600,11 @@ Things that are load-bearing in `CorpusCheck` and `corpus.ps1`:
   unchanged means the previous level is still loaded; the savestate manager unchanged means the
   level parsed but `SavestateManager`'s constructor threw (a level with no title did this — MO3
   #12 and #14 — until jc-17 named such a level `""`, as Tile World does). Either is `LOADFAIL`.
-  Reporting a stale level as a result is the failure to avoid. From jc-17 a set opens at its first
+  Reporting a stale level as a result is the failure to avoid. jc-17 to jc-20 open a set at its first
   level that loads, and a set where NONE loads leaves no set open on a fresh emulator, so its saves
-  read `OPENFAIL` (an NPE from `lastLevelNumber()`) instead; no set in the collection does either.
+  read `OPENFAIL` (an NPE from `lastLevelNumber()`) instead. jc-21, the upstream baseline, opens at
+  level 1 only again (UB-14), as builds before jc-17 did. No set in the collection is affected
+  either way: all 331 open at level 1 (scanned 2026-11-08).
 - **The set may be `<pack>.dat` or `<pack>.ccl`** — SuperCC names the solution folder after the set
   with any extension removed. Both present is reported, not guessed.
 - **The replay loop mirrors `Solution.tickBasicMoves`** exactly, like `TraceLevel`'s, because that
@@ -727,7 +729,8 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
   *The upstream baseline*, which lists every step). Reverted so far: the trap code (`79b0032`),
   `SuperCC.tick`'s recorder (`923d07c`: upstream writes a wait on ANY discarded tick, even one that
   also ran automatic ticks; no real level returns both bits, and `InputDiscardTest` §5 pins it
-  through a wrapped level) and Seed Search (`397c7bb`). **Every problem a revert brings back goes
+  through a wrapped level), Seed Search (`397c7bb`) and the no-level-loaded guards (`c57f217`; see
+  the next bullet). **Every problem a revert brings back goes
   into `BASELINE-ISSUES.md` in the same push** (Jeremy's standing request, 2026-11-08) — and a fix
   closes its entry there rather than deleting it. ⚠ That makes "no tick returns both bits" load-bearing with nothing
   guarding it: `LynxLevel.tick` CAN return `MASK_TICK_MULTI | discard`, and only the reasoning in
@@ -743,11 +746,13 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
   fails as a regression on anything else. "The correct answer came back" is the cue to turn the
   pin back into a `check()` (if a fix was re-applied) or to find what moved (if not, e.g. hash
   order in `MsCloneTrapTest` §7) — never to restore the bug.
-- **Every menu button does nothing until a level is loaded — on purpose.** `MenuBar.requireALevel()`
-  wraps their action listeners at the end of the constructor (jc-17; 46 of 56 threw on jc-16 with no
-  level open). A new menu item is covered automatically. If it genuinely works with no level set
-  open, mark it `worksWithoutALevel(...)` where you create it; do not add a per-item
-  `isLevelLoaded()` check. `GuiWindowTest` clicks every button in the bar with no level open.
+- **With no level set open, 29 menu controls fail — on purpose, for now (jc-21).** The menus are
+  upstream's again (`c57f217`, UB-11): `72476bc` guards six Level items by hand, and jc-17's
+  `MenuBar.requireALevel()`, which wrapped every menu's listeners so a new item was covered
+  automatically, is reverted. Do not add guards in passing — per-item `isLevelLoaded()` checks would
+  be a new deviation, and the real fix (one guard over the whole bar, with `worksWithoutALevel(...)`
+  exemptions) comes back as its own step with `git revert c57f217`. `GuiWindowTest` still clicks
+  every button in the bar with no level open, and pins the 29 that fail.
 - **`formclass/FormTransplant.java` imports `jdk.internal.org.objectweb.asm`.** That is the JDK's own
   internal ASM, chosen so this repo takes on no dependency (ADR 0002); the tool is pinned to JDK
   16.0.2, where it exists. Do not "modernize" it to a downloaded ASM or to a newer JDK's class-file
