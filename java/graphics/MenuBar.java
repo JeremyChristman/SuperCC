@@ -26,7 +26,6 @@ import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.Transferable;
 import java.awt.datatransfer.UnsupportedFlavorException;
-import java.awt.event.ActionListener;
 import java.awt.event.InputEvent;
 import java.awt.image.BufferedImage;
 import java.io.*;
@@ -69,7 +68,7 @@ class MenuBar extends JMenuBar{
         LevelMenu(){
             super("Level");
 
-            JMenuItem openLevelset = worksWithoutALevel(new JMenuItem("Open levelset"));
+            JMenuItem openLevelset = new JMenuItem("Open levelset");
             openLevelset.addActionListener(e -> {
                 File levelset = openFile(emulator.getPaths().getLevelsetFolderPath(), "Levelset file", "dat", "ccl");
                 if (levelset != null) {
@@ -118,10 +117,7 @@ class MenuBar extends JMenuBar{
             goTo.addActionListener(e -> {
                 if (!SuperCC.areToolsRunning()) {
                     String s = JOptionPane.showInputDialog(window, "Choose a level number");
-                    // MOD (Jeremy, upstream merge): null is Cancel (or the dialog's close box). Upstream
-                    // tested only for empty, so canceling threw NullPointerException on the event
-                    // thread -- the file-chooser version of this was jc-12's fix.
-                    if (s == null || s.isEmpty()) return;
+                    if (s.length() == 0) return;
                     try {
                         int n = Integer.parseInt(s);
                         emulator.loadLevel(n, 0, Step.EVEN, true, Ruleset.CURRENT, Direction.UP);
@@ -138,7 +134,6 @@ class MenuBar extends JMenuBar{
 
             JMenuItem changeStep = new JMenuItem("Change stepping value");
             changeStep.addActionListener(e -> {
-                // (72476bc guarded its neighbors but not this item; requireALevel() covers it.)
                 if (!SuperCC.areToolsRunning()) {
                     Level oldLevel = emulator.getLevel();
                     Step newStep = Step.EVEN;
@@ -157,8 +152,7 @@ class MenuBar extends JMenuBar{
             rngSeed.addActionListener(e -> {
                 if (!SuperCC.areToolsRunning() && emulator.isLevelLoaded()) {
                     String s = JOptionPane.showInputDialog(window, "Choose a starting seed");
-                    // MOD (Jeremy, upstream merge): null is Cancel; see "Go to..." above.
-                    if (s == null || s.isEmpty()) return;
+                    if (s.equals("")) return;
                     try {
                         Level oldLevel = emulator.getLevel();
                         int n = Integer.parseInt(s);
@@ -359,10 +353,6 @@ class MenuBar extends JMenuBar{
                 @Override
                 public void menuSelected(MenuEvent e) {
                     copyMacroMenu.removeAll(); //clear the previous menu
-                    // MOD (Jeremy, upstream merge): merely hovering here with no level open threw
-                    // (getSavestates() is null). requireALevel() wraps only ActionListeners, so this
-                    // one MenuListener checks for itself.
-                    if (!emulator.isLevelLoaded()) return;
 
                     CharList[] macros = emulator.getSavestates().getMacros();
                     Level level = emulator.getLevel();
@@ -459,6 +449,7 @@ class MenuBar extends JMenuBar{
                  * is null for a file with no parent. The pre-jc-8 code dereferenced the first of
                  * those unconditionally and crashed; both are checked here. */
                 Path tws = saveNewFile(TWSWriter.write(level, solution, emulator.getSavestates()), emulator.getPaths().getTWSPath(), "tws");
+                assert tws != null;
                 if (tws != null && tws.getParent() != null) {
                     emulator.getPaths().setTWSPath(tws.getParent().toString());
                 }
@@ -466,7 +457,7 @@ class MenuBar extends JMenuBar{
             add(newTWS);
             addIcon(newTWS, "/resources/icons/new.gif");
 
-            JMenuItem openTWS = worksWithoutALevel(new JMenuItem("Open tws"));  // it only chooses the file
+            JMenuItem openTWS = new JMenuItem("Open tws");
             openTWS.addActionListener(e -> {
                 File file = openFile(emulator.getPaths().getTWSPath(), "TWS solution file", "tws");
                 if (file != null) {
@@ -510,13 +501,7 @@ class MenuBar extends JMenuBar{
             TileSheet[] tileSheets = TileSheet.values();
             tilesetButtons = new JRadioButton[tilesetNames.length];
             for (int i = 0; i < tilesetNames.length; i++) {
-                /* MOD (Jeremy, jc-17): works with no level open. requireALevel() would otherwise skip
-                 * this listener while the radio mark still moved, so the menu showed a tileset that
-                 * was neither drawn nor saved, and opening a set then snapped the mark back (review).
-                 * With no level there is no ruleset to file the choice under, so it is saved as the
-                 * MS tileset -- the one SuperCC draws at startup, which is what is on screen in
-                 * exactly that state. */
-                JRadioButton tilesheetButton = worksWithoutALevel(new JRadioButton(tilesetNames[i]));
+                JRadioButton tilesheetButton = new JRadioButton(tilesetNames[i]);
                 TileSheet tileSheet = tileSheets[i];
                 tilesetButtons[i] = tilesheetButton;
                 tilesheetButton.addActionListener(e -> {
@@ -564,7 +549,7 @@ class MenuBar extends JMenuBar{
                         window.getInventoryPanel().initialise(emulator);  // aen-exempt: upstream method name
                         window.repaint(true);
 
-                        boolean lynx = emulator.isLevelLoaded() && emulator.getLevel().getRuleset() != Ruleset.MS;
+                        boolean lynx = emulator.getLevel().getRuleset() != Ruleset.MS;
                         // Custom is a switch beside the ruleset's built-in number, never the number
                         // itself, so a build before jc-18 can still read the file (SuccPaths.getCustomTileset).
                         if (tileSheet == TileSheet.CUSTOM)
@@ -585,7 +570,7 @@ class MenuBar extends JMenuBar{
             ButtonGroup tileSizes = new ButtonGroup();
             int[] sizes = new int[] {16, 20, 24, 32};
             for (int size : sizes) {
-                JRadioButton sizeButton = worksWithoutALevel(new JRadioButton(size + "x" + size));
+                JRadioButton sizeButton = new JRadioButton(size + "x" + size);
                 sizeButton.addActionListener((e) -> {
                     try {
                         TileSheet ts;
@@ -611,13 +596,13 @@ class MenuBar extends JMenuBar{
                 tileSizes.add(sizeButton);
                 tileSize.add(sizeButton);
             }
-            JRadioButton sizeButton = worksWithoutALevel(new JRadioButton("custom"));
+            JRadioButton sizeButton = new JRadioButton("custom");
             sizeButton.addActionListener(e -> new ChooseTileSize(emulator, window.getGamePanel().getTileWidth(), 0, 256));
             tileSizes.add(sizeButton);
             tileSize.add(sizeButton);
             add(tileSize);
             
-            JMenu windowSize = worksWithoutALevel(new JMenu("Game window size"));
+            JMenu windowSize = new JMenu("Game window size");
             ButtonGroup windowSizes = new ButtonGroup();
             sizes = new int[] {9, 32};
             for (int size : sizes) {
@@ -660,7 +645,7 @@ class MenuBar extends JMenuBar{
             );
             
             for (int i = 0; i < setterNames.length; i++){
-                JToggleButton b = worksWithoutALevel(new JToggleButton(setterNames[i]));
+                JToggleButton b = new JToggleButton(setterNames[i]);
                 Consumer<Boolean> setter = setters.get(i);
                 if (i == 0 || i == 1 || i == 2 || i == 3) b.setSelected(true); //MOD (Jeremy): Clone (2) & Trap (3) buttons default ON too, matching the backend state in GamePanel.java
                 b.addActionListener(e -> {
@@ -685,7 +670,7 @@ class MenuBar extends JMenuBar{
             );
 
             for (int i = 0; i < setterHUDNames.length; i++){
-                JToggleButton b = worksWithoutALevel(new JToggleButton(setterHUDNames[i]));
+                JToggleButton b = new JToggleButton(setterHUDNames[i]);
                 Consumer<Boolean> setter = HUDSetters.get(i);
                 b.setSelected(selected.get(i));
                 b.addActionListener(e -> {
@@ -701,7 +686,7 @@ class MenuBar extends JMenuBar{
         ToolMenu() {
             super("Tools");
     
-            JMenuItem controls = worksWithoutALevel(new JMenuItem("Controls"));
+            JMenuItem controls = new JMenuItem("Controls");
             controls.addActionListener(e -> new SwingWorker<Void, Void>(){
                 @Override
                 protected Void doInBackground() {
@@ -841,25 +826,19 @@ class MenuBar extends JMenuBar{
     }
 
     /**
-     * MOD (Jeremy, jc-12): two fixes, both in the two lines this used to be.
+     * MOD (Jeremy, jc-12): a file that simply is not there was reported by dumping a fifty-line JDK
+     * stack trace to stderr and putting NoSuchFileException's message -- which is the bare path,
+     * with no words around it -- in front of the user. That is the ordinary case of asking for a
+     * solution before one has been saved, not a defect worth a stack trace. It was found because
+     * jc-11's error log recorded it three times in two sessions on succsave\SokobanCCLP\65.
      *
-     * openFile() returns NULL when the user cancels the chooser -- the other two callers of it,
-     * "Open levelset" and "Open tws", both test for that. This one did not: it called .toPath() on
-     * the result, and a NullPointerException is not an IOException, so the catch below could not
-     * see it and it escaped into the event thread. Canceling Solution > Open, the seed search, or
-     * Load states threw.
-     *
-     * And a file that simply is not there was reported by dumping a fifty-line JDK stack trace to
-     * stderr and putting NoSuchFileException's message -- which is the bare path, with no words
-     * around it -- in front of the user. That is the ordinary case of asking for a solution before
-     * one has been saved, not a defect worth a stack trace. It was found because jc-11's error log
-     * recorded it three times in two sessions on succsave\SokobanCCLP\65: the log did its job.
-     *
-     * Callers all test the return for null already, so canceling is now simply a no-op.
+     * ⚠ UPSTREAM BASELINE: jc-12 also made a CANCELED chooser a no-op here (openFile() returns
+     * null). Upstream's 72476bc wraps that null in Objects.requireNonNull instead, and the baseline
+     * keeps upstream's line, so canceling Solution > Open, the seed search or Load states throws
+     * NullPointerException on the event thread again (BASELINE-ISSUES.md UB-13).
      */
     private byte[] openFileBytes(String path, String description, String... extensions) {
-        File file = openFile(path, description, extensions);
-        if (file == null) return null;      // the user canceled: not an error, nothing to report
+        File file = Objects.requireNonNull(openFile(path, description, extensions));
         try {
             return Files.readAllBytes(file.toPath());
         }
@@ -917,45 +896,6 @@ class MenuBar extends JMenuBar{
         add(toolMenu);
         add(cheatMenu);
 //        add(helpMenu);
-        for (int i = 0; i < getMenuCount(); i++) requireALevel(getMenu(i));
-    }
-
-    /* MOD (Jeremy, upstream merge): ONE guard for the whole menu bar, instead of one per item.
-     *
-     * Every launch starts with no level set open, and most of these controls read the level or its
-     * savestates the moment they run. Upstream's 72476bc guarded six of them by hand; clicking each
-     * of the 56 buttons in these menus with no level open, after that merge, still found 26 that
-     * threw NullPointerException on the event thread -- Solution (Save, Copy, the state files...),
-     * TWS, View > Tileset, Tools > Variation testing and TSP Solver, and every cheat -- each one
-     * written to jc-11's error log, and Ctrl+S is a keystroke away.
-     *
-     * So the rule is inverted: a button in these menus does NOTHING until a level is loaded, unless
-     * it is marked WORKS_WITHOUT_A_LEVEL where it is made (Open levelset, the fixed tile sizes, the
-     * game window sizes, the View toggles, Controls). A new item is covered without anyone having
-     * to remember. Accelerators go through the same listeners, so they are covered too.
-     * GuiWindowTest clicks every button in the bar with no level open and fails on any that throws.
-     *
-     * Only OUR ActionListeners are wrapped: Swing's menu UIs listen through other interfaces, and
-     * the one MenuListener here (Copy macro moves) checks the level itself. */
-    private static final String WORKS_WITHOUT_A_LEVEL = "supercc.worksWithoutALevel";
-
-    private static <T extends JComponent> T worksWithoutALevel(T c) {
-        c.putClientProperty(WORKS_WITHOUT_A_LEVEL, Boolean.TRUE);
-        return c;
-    }
-
-    private void requireALevel(JMenu menu) {
-        if (menu == null || Boolean.TRUE.equals(menu.getClientProperty(WORKS_WITHOUT_A_LEVEL))) return;
-        for (Component c : menu.getMenuComponents()) {
-            if (c instanceof JMenu) { requireALevel((JMenu) c); continue; }
-            if (!(c instanceof AbstractButton)) continue;
-            AbstractButton b = (AbstractButton) c;
-            if (Boolean.TRUE.equals(b.getClientProperty(WORKS_WITHOUT_A_LEVEL))) continue;
-            for (ActionListener l : b.getActionListeners()) {
-                b.removeActionListener(l);
-                b.addActionListener(e -> { if (emulator.isLevelLoaded()) l.actionPerformed(e); });
-            }
-        }
     }
 
 }

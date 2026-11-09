@@ -40,21 +40,26 @@ import java.util.zip.ZipFile;
  *   1. The window builds itself: every component Gui.form binds exists, and the content pane is
  *      the form's root. A Gui.class rebuilt by formclass.ps1 without a working $$$setupUI$$$ call
  *      fails here and nowhere else.
- *   2. With NO level set open -- the state every launch starts in -- nothing a user can touch
- *      throws: EVERY button in EVERY menu (found by walking the menu bar, so an item added later is
- *      covered), every submenu hovered, a key press, the play button, the speed slider, and a full
- *      repaint. Measured on the build with only upstream's 72476bc guards: 26 of the 56 menu
- *      controls still threw NullPointerException on the event thread, which is why the fork guards
- *      the whole bar at once (MenuBar.requireALevel). On jc-16 more threw; the maintainer's own
- *      error log holds Restart and Next/Previous.
+ *   2. With NO level set open -- the state every launch starts in -- EVERY button in EVERY menu
+ *      (found by walking the menu bar, so an item added later is covered), every submenu hovered, a
+ *      key press, the play button, the speed slider, and a full repaint. Measured on the build with
+ *      only upstream's 72476bc guards: 26 of the 56 menu controls still threw NullPointerException
+ *      on the event thread, which is why jc-17 to jc-20 guarded the whole bar at once
+ *      (MenuBar.requireALevel). On jc-16 more threw; the maintainer's own error log holds Restart
+ *      and Next/Previous.
  *   3a. A set whose level 1 cannot load, one whose first three cannot, and one with no levels
  *      each show exactly ONE error (counted by a closer that stays on for the whole open, so a
- *      second dialog fails the count rather than hanging the child), and leave nothing half-open.
+ *      second dialog fails the count rather than hanging the child).
  *   3. After a level set opens, the same repaint works.
- *   4. Canceling Go to... and Set RNG Seed does not throw (it did: the reply is null, and the code
- *      tested it for empty only). A helper thread closes each dialog as its close box would.
+ *   4. Canceling Go to..., Set RNG Seed and a file chooser (the reply is null).
  *   5. A level that loads is not reported as failed when the repaint after it throws.
  *   Nothing reaches the error log before 3a, nothing after 3a until 5, whose trace is expected.
+ *
+ * ⚠ UPSTREAM BASELINE (from jc-21): jc-17's fixes behind 2, 3a, 4 and 5 were REVERTED at the
+ * maintainer's request (FORK.md, "The upstream baseline"; BASELINE-ISSUES.md UB-11 to UB-14). Where
+ * upstream's code gives another answer, the child reports a PIN line -- what it saw, upstream's
+ * measured answer, the correct one -- and this side judges it with Harness.upstreamBug. Every check
+ * upstream passes is still an ordinary one.
  *
  * Run with -Dsupercc.jar (run-tests.ps1 passes it); the child gets this JVM's own classpath.
  */
@@ -116,6 +121,13 @@ public class GuiWindowTest {
         for (String s : out) {
             if (s.startsWith("PASS ")) { Harness.check(s.substring(5), true); facts++; }
             else if (s.startsWith("FAIL ")) { Harness.check(s.substring(5), false); facts++; }
+            else if (s.startsWith("PIN ")) {
+                // The upstream baseline's pins (Probe.pin): what, actual, upstream's answer, the correct one.
+                String[] pin = s.substring(4).split("\t", -1);
+                if (pin.length == 4) Harness.upstreamBug(pin[0], pin[1], pin[2], pin[3]);
+                else Harness.check("a well-formed PIN line from the child: " + s, false);
+                facts++;
+            }
         }
         Harness.check("the child reported its checks (" + facts + ")", facts >= 20);
         Harness.check("and reached its last line (nothing quit the program partway)", out.contains("END"));
@@ -134,15 +146,35 @@ public class GuiWindowTest {
             if (!ok) failed++;
         }
 
-        /** Runs on the event thread, as a click would, and reports whether it threw. */
-        static void noThrow(String what, Runnable r) {
+        /** Runs on the event thread, as a click would, and returns what it threw, or null. */
+        static Throwable onEventThread(Runnable r) {
             Throwable[] thrown = { null };
             try {
                 SwingUtilities.invokeAndWait(() -> {
                     try { r.run(); } catch (Throwable t) { thrown[0] = t; }
                 });
             } catch (InvocationTargetException | InterruptedException e) { thrown[0] = e; }
-            fact(what + (thrown[0] == null ? "" : " (threw " + thrown[0] + ")"), thrown[0] == null);
+            return thrown[0];
+        }
+
+        /** Runs on the event thread, as a click would, and reports whether it threw. */
+        static void noThrow(String what, Runnable r) {
+            Throwable t = onEventThread(r);
+            fact(what + (t == null ? "" : " (threw " + t + ")"), t == null);
+        }
+
+        /** Runs on the event thread, as a click would: "works", or "throws <its class>". */
+        static String outcome(Runnable r) {
+            Throwable t = onEventThread(r);
+            return t == null ? "works" : "throws " + t.getClass().getSimpleName();
+        }
+
+        /**
+         * An upstream-baseline pin, judged by the parent with Harness.upstreamBug: it passes only on
+         * upstream's own answer (BASELINE-ISSUES.md). The name must stay the same whatever happens.
+         */
+        static void pin(String what, String actual, String upstream, String correct) {
+            System.out.println("PIN " + what + "\t" + actual + "\t" + upstream + "\t" + correct);
         }
 
         /**
@@ -330,11 +362,12 @@ public class GuiWindowTest {
             for (String name : bound) fact("bound component '" + name + "' exists", field(w, name) != null);
             fact("the content pane is the form's root panel", w.getContentPane() == field(w, "mainPanel"));
 
-            // 2. No level set open: nothing a user can touch may throw. EVERY button in EVERY menu,
-            //    found by walking the menu bar -- so a menu item added later is covered too -- plus
-            //    hovering each submenu (Copy macro moves threw on hover). A dialog or file chooser a
-            //    click opens is closed, as its close box would, so a regression is a failure rather
-            //    than a hang; the closer is stopped after each click so it cannot close a later one.
+            // 2. No level set open: EVERY button in EVERY menu, found by walking the menu bar -- so a
+            //    menu item added later is covered too -- plus hovering each submenu (Copy macro moves
+            //    threw on hover). On upstream's menus 29 of them throw, each pinned (below); all the
+            //    others must not. A dialog or file chooser a click opens is closed, as its close box
+            //    would, so a regression is a failure rather than a hang; the closer is stopped after
+            //    each click so it cannot close a later one.
             fact("no level is loaded yet", !emu.isLevelLoaded());
             List<Object[]> controls = new ArrayList<>();
             for (int i = 0; i < w.getJMenuBar().getMenuCount(); i++) {
@@ -342,35 +375,72 @@ public class GuiWindowTest {
                 if (m != null) walk(m, m.getText() + " > ", controls);
             }
             fact("the menu bar has its controls (" + controls.size() + ")", controls.size() >= 50);
+            /* ⚠ UPSTREAM BASELINE (from jc-21): jc-17's one guard over the whole menu bar
+             * (MenuBar.requireALevel) was REVERTED at the maintainer's request, so the menus are
+             * upstream's: 72476bc guards six Level items and nothing else (FORK.md, "The upstream
+             * baseline"; BASELINE-ISSUES.md UB-11). These are the controls that throw on upstream's
+             * code with no level open, measured; each is pinned at exactly that, and every other
+             * control must still work. To re-apply: `git revert` the commit "Upstream baseline:
+             * revert the no-level-loaded guards"; it holds this change too. */
+            java.util.Set<String> upstreamThrows = new java.util.HashSet<>(java.util.Arrays.asList(
+                    "Level > Go to...", "Level > Change stepping value",
+                    "Solution > Save as", "Solution > Save", "Solution > Open", "Solution > Search for seeds",
+                    "Solution > Copy solution", "Solution > Paste solution",
+                    "Solution > Copy all previous moves", "Solution > Copy all future moves",
+                    "hovering Solution > Copy macro moves",
+                    "Solution > Save all states to disk", "Solution > Load states from disk",
+                    "TWS > Write solution to new tws", "TWS > Verify tws",
+                    "View > Tileset > Tile World (CCEdit)", "View > Tileset > Tile World",
+                    "View > Tileset > MSCC (CCEdit)", "View > Tileset > MSCC",
+                    "View > Tileset > MSCC (Black and White - Editor)", "View > Tile size > custom",
+                    "Tools > Variation testing", "Tools > TSP Solver",
+                    "Cheats > Change inventory", "Cheats > Change timer",
+                    "Cheats > Change Monster List Positions", "Cheats > Change Slip List Positions",
+                    "Cheats > Press Green Button", "Cheats > Press Blue Button"));
+            int pinnedControls = 0;
             for (Object[] c : controls) {
                 Thread closer = closeNextDialog();
+                String name;
+                Runnable act;
                 if (c[1] instanceof JMenu) {
                     JMenu sub = (JMenu) c[1];
-                    noThrow("hovering " + c[0] + " with no level open", () -> {
+                    name = "hovering " + c[0];
+                    act = () -> {
                         for (javax.swing.event.MenuListener l : sub.getMenuListeners())
                             l.menuSelected(new javax.swing.event.MenuEvent(sub));
-                    });
+                    };
                 } else {
-                    noThrow(c[0] + " with no level open", ((AbstractButton) c[1])::doClick);
+                    name = (String) c[0];
+                    act = ((AbstractButton) c[1])::doClick;
+                }
+                if (upstreamThrows.contains(name)) {
+                    pinnedControls++;
+                    pin(name + " with no level open", outcome(act), "throws NullPointerException", "works");
+                } else {
+                    noThrow(name + " with no level open", act);
                 }
                 closer.interrupt();
                 closeToolWindows(w);
             }
+            fact("every control upstream throws on was found in the menus (" + pinnedControls + " of "
+                 + upstreamThrows.size() + ")", pinnedControls == upstreamThrows.size());
             fact("and still no level is loaded (Open levelset was canceled)", !emu.isLevelLoaded());
 
-            //    View > Tileset works with no level open (jc-17). It used to be skipped by
-            //    requireALevel() while its radio mark still moved: the menu showed a tileset that was
-            //    neither drawn nor saved (review). The walk above clicked every tileset in menu order.
-            //    The last BUILT-IN one -- MSCC (Black and White - Editor), whose overlay image could not
-            //    be found in any jar before jc-17 -- must now be drawn and saved, as the MS tileset,
-            //    the one drawn at startup. The Lynx choice is untouched.
+            //    View > Tileset with no level open. jc-17 to jc-20 made it work (it had been skipped by
+            //    requireALevel() while its radio mark still moved: a tileset neither drawn nor saved).
+            //    The walk above clicked every tileset in menu order. The last BUILT-IN one -- MSCC
+            //    (Black and White - Editor), whose overlay image could not be found in any jar before
+            //    jc-17 -- is drawn; saving it as the MS tileset is pinned (UB-11), since upstream
+            //    throws before it saves. The Lynx choice is untouched.
             //    Then came "custom" (jc-18), whose first file chooser the closer canceled: canceling
             //    is a no-op, so Black and White stays drawn and saved, the radio mark goes back to
             //    it, and no image path is saved (upstream made the cancel an error dialog).
             graphics.TileSheet bw = graphics.TileSheet.CCEDIT_BLACK_AND_WHITE;
             fact("custom is the last tileset in the menu", graphics.TileSheet.values()[graphics.TileSheet.values().length - 1] == graphics.TileSheet.CUSTOM);
             fact("the last built-in tileset clicked is drawn (" + bw + ")", w.getGamePanel().getTileSheet() == bw);
-            fact("and saved as the MS tileset", emu.getPaths().getMSTilesetNum() == bw.ordinal());
+            // ⚠ UPSTREAM BASELINE (UB-11): upstream draws it, then throws reading the level's ruleset
+            // before it saves, so the stock 0 stays.
+            pin("and saved as the MS tileset", String.valueOf(emu.getPaths().getMSTilesetNum()), "0", String.valueOf(bw.ordinal()));
             fact("and the Lynx tileset is left alone", emu.getPaths().getLynxTilesetNum() == 0);
             Object[] tilesetMarks = (Object[]) field(w.getJMenuBar(), "tilesetButtons");
             fact("canceling custom put the radio mark back on " + bw, ((AbstractButton) tilesetMarks[bw.ordinal()]).isSelected()
@@ -416,13 +486,18 @@ public class GuiWindowTest {
             fact("nothing so far wrote to the error log", logSize() == 0);
 
             // 3a. A set whose level 1 cannot load (a corrupt record -- an untitled level was the
-            //     fixture until jc-17 made those load). It used to throw on a null level right
-            //     after the error; now the error is shown once and nothing is left half-open. The
-            //     failed load is a real error, so it SHOULD reach the log -- and nothing else may.
+            //     fixture until jc-17 made those load). Before jc-17 it threw on a null level right
+            //     after the error; jc-17 to jc-20 showed the error once and left nothing half-open;
+            //     upstream's code, restored, throws again (pinned below). The failed load is a real
+            //     error, so it SHOULD reach the log -- and nothing else may.
             //     Each open below runs under closeEveryDialog, so a second dialog is counted, not hung on.
+            //     ⚠ UPSTREAM BASELINE (from jc-21, UB-14): jc-17's open-at-the-first-level-that-loads
+            //     was REVERTED. Upstream tries level 1 only, shows its error, and then throws on the
+            //     null level swapping the tileset; each check below that differs is pinned at that.
             int beforeBad = dialogsClosed.get();
             Thread badCloser = closeEveryDialog();
-            noThrow("opening a set whose first level cannot load", () -> emu.openLevelset(new File(args[1])));
+            pin("opening a set whose first level cannot load", outcome(() -> emu.openLevelset(new File(args[1]))),
+                "throws NullPointerException", "works");
             stop(badCloser);
             fact("and its error was shown, once", dialogsClosed.get() == beforeBad + 1);
             fact("and still no level is loaded", !emu.isLevelLoaded());
@@ -432,17 +507,26 @@ public class GuiWindowTest {
             //     error for all three (it was one modal dialog per level).
             int beforeMulti = dialogsClosed.get();
             Thread multiCloser = closeEveryDialog();
-            noThrow("opening a set whose first three levels cannot load", () -> emu.openLevelset(new File(args[2])));
+            pin("opening a set whose first three levels cannot load", outcome(() -> emu.openLevelset(new File(args[2]))),
+                "throws NullPointerException", "works");
             stop(multiCloser);
-            fact("it opens at level 4", emu.isLevelLoaded() && emu.getLevel().getLevelNumber() == 4
-                                        && "Fourth".equals(emu.getLevel().getTitle()));
+            pin("it opens at level 4", !emu.isLevelLoaded() ? "no level loaded"
+                                       : "level " + emu.getLevel().getLevelNumber() + " " + emu.getLevel().getTitle(),
+                "no level loaded", "level 4 Fourth");
             fact("with one error for the three, not three", dialogsClosed.get() == beforeMulti + 1);
 
-            //     A set with no levels at all: it said nothing before. Now one error, and the open
-            //     set is kept -- and kept WHILE the error is on screen, not only after it: the dialog
-            //     runs a nested event loop, and the previous set used to be put back only once it
-            //     closed, so for as long as it was open the new file sat under the old level (review).
+            //     A set with no levels at all, opened while a GOOD set is open -- the case where a
+            //     failed open does its damage. jc-17 to jc-20 show one error and keep the open set,
+            //     and keep it WHILE the error is on screen, not only after it: the dialog runs a nested
+            //     event loop, and the previous set used to be put back only once it closed (review).
             //     The closer reads the open set's file from inside that loop, then closes it.
+            //     Upstream keeps the open LEVEL, but under the new set's FILE (UB-14, pinned), so
+            //     Solution > Save would file that level's route in the new set's folder.
+            int beforeGood = dialogsClosed.get();
+            Thread goodCloser = closeEveryDialog();
+            noThrow("opening a good set first", () -> emu.openLevelset(new File(args[0])));
+            stop(goodCloser);
+            fact("and no error dialog appeared while it opened", dialogsClosed.get() == beforeGood);
             int beforeEmpty = dialogsClosed.get();
             String openSet = emu.getLevelsetPath();
             List<String> duringDialog = java.util.Collections.synchronizedList(new ArrayList<>());
@@ -450,9 +534,15 @@ public class GuiWindowTest {
             noThrow("opening a set with no levels", () -> emu.openLevelset(new File(args[3])));
             stop(emptyCloser);
             fact("says so, once", dialogsClosed.get() == beforeEmpty + 1);
-            fact("and keeps the set that was open", emu.isLevelLoaded() && emu.getLevel().getLevelNumber() == 4);
-            fact("and had already put it back while the error was showing (saw " + duringDialog + ")",
-                 duringDialog.size() == 1 && openSet.equals(duringDialog.get(0)));
+            fact("and keeps the level that was open", emu.isLevelLoaded() && "Gui Probe".equals(emu.getLevel().getTitle()));
+            String fileNow = emu.getLevelsetPath();
+            pin("and the open set's file with it", fileNow.equals(openSet) ? "the open set's file"
+                                                  : fileNow.endsWith("nolevels.dat") ? "the new set's file" : fileNow,
+                "the new set's file", "the open set's file");
+            String seen = duringDialog.size() != 1 ? duringDialog.size() + " readings"
+                        : openSet.equals(duringDialog.get(0)) ? "the open set's file"
+                        : duringDialog.get(0).endsWith("nolevels.dat") ? "the new set's file" : duringDialog.get(0);
+            pin("and had already put it back while the error was showing", seen, "the new set's file", "the open set's file");
             long logAfterBad = logSize();
 
             // 3. With a level set open, the full repaint path runs. Any dialog while opening it is an
@@ -474,12 +564,27 @@ public class GuiWindowTest {
                 if (it == null) continue;
                 int shown = dialogsClosed.get();
                 Thread closer = closeNextDialog();
-                noThrow("Level > " + text + ", then Cancel", it::doClick);
+                // ⚠ UPSTREAM BASELINE (from jc-21, UB-12): upstream tests the reply for empty only,
+                // and Cancel's reply is null.
+                pin("Level > " + text + ", then Cancel", outcome(it::doClick), "throws NullPointerException", "works");
                 closer.interrupt();
                 // Otherwise this passes when the dialog never appears at all.
                 fact("and its dialog really appeared and was canceled", dialogsClosed.get() == shown + 1);
             }
             fact("and the level is still loaded", emu.isLevelLoaded());
+
+            //    And a file chooser. ⚠ UPSTREAM BASELINE (from jc-21, UB-13): jc-12 made a canceled
+            //    chooser a no-op in MenuBar.openFileBytes; upstream's 72476bc wraps the null reply in
+            //    Objects.requireNonNull, and the baseline keeps upstream's line.
+            JMenuItem openRoute = item(w, "Solution", "Open");
+            fact("Solution > Open exists", openRoute != null);
+            if (openRoute != null) {
+                int shownOpen = dialogsClosed.get();
+                Thread closer = closeNextDialog();
+                pin("Solution > Open, then Cancel", outcome(openRoute::doClick), "throws NullPointerException", "works");
+                closer.interrupt();
+                fact("and its file chooser really appeared and was canceled", dialogsClosed.get() == shownOpen + 1);
+            }
 
             Thread.sleep(200);
             fact("nothing after the failed load wrote to the error log", logSize() == logAfterBad);
@@ -503,8 +608,12 @@ public class GuiWindowTest {
             });
             playButton.set(w, realButton);
             stop(faultCloser);
-            fact("a level that loads is not reported as failed when its repaint throws",
-                 dialogsClosed.get() == beforeFault);
+            // ⚠ UPSTREAM BASELINE (from jc-21, UB-14): upstream's loadLevel reports any throw inside
+            // it, the repaint's included, as "Could not load level".
+            int faultDialogs = dialogsClosed.get() - beforeFault;
+            pin("a level that loads is not reported as failed when its repaint throws",
+                faultDialogs == 0 ? "not reported" : faultDialogs == 1 ? "reported as failed" : faultDialogs + " dialogs",
+                "reported as failed", "not reported");
             fact("and it did load", emu.getLevel() != levelBefore && emu.getSavestates() != null
                                     && "Gui Probe".equals(emu.getLevel().getTitle()));
             noThrow("and the window repaints again with its play button back", () -> w.repaint(true));

@@ -39,6 +39,11 @@ public class EngineTest {
         return Harness.tempDir("scc-engine-" + name + "-");
     }
 
+    /** The loaded level's title, or "(no level)" -- upstream's open can leave none (UB-14). */
+    private static String titleOf(SuperCC emu) {
+        return emu.getLevel() == null ? "(no level)" : emu.getLevel().getTitle();
+    }
+
     /** A PNG that is well-formed in every byte but claims a width x height of its choosing. */
     private static byte[] pngClaiming(int width, int height) throws IOException {
         java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
@@ -300,9 +305,11 @@ public class EngineTest {
          * with the PREVIOUS level's. Measured before the fix, with an untitled level (whose
          * SavestateManager threw on getTitle().getBytes()): load level 2, then the untitled level 1,
          * and level 1 ran against level 2's savestates; on a fresh open, isLevelLoaded() was true with
-         * getSavestates() null, so every no-level guard in jc-17 was bypassed. Now the load is all or
-         * nothing. The fixture here is a level whose record does not parse (DatBuilder.unreadable()),
-         * since jc-17 also makes untitled levels load -- see 6d. */
+         * getSavestates() null, so every no-level guard in jc-17 was bypassed. jc-17 made the load all
+         * or nothing; the upstream baseline REVERTED that (UB-15), so a level whose savestates cannot
+         * be built is half-loaded again. No real level does that now that untitled levels load (6d),
+         * and the fixture here is a level whose record does not parse (DatBuilder.unreadable()),
+         * which fails before anything is assigned -- so these first checks hold on either code. */
         Path d6c = tempDir("unreadable");
         DatBuilder goodFirst = new DatBuilder().signature(DatBuilder.SIG_MS);
         goodFirst.level().title("Titled").password("ABCD").chips(0).timeLimit(100).tile(3, 5, Tile.CHIP_RIGHT).end();
@@ -321,27 +328,38 @@ public class EngineTest {
         Harness.eq("loading the unreadable level 2 keeps level 1", emu3.getLevel().getLevelNumber(), 1);
         Harness.check("with level 1's own savestates, not a mismatch", emu3.getSavestates() == level1States);
 
-        /* And openLevelset, where it is level 1 that fails. The set opens at its first level that
-         * loads. Two wrong answers came first, both measured by review: keeping the new file with the
-         * old level (set A's level sat under set B's file, and getJSONPath() pointed into B's save
-         * folder, so a save would have written A's route there), and restoring set A outright (all of
-         * set B unreachable, and every save in such a pack an OPENFAIL in the corpus harness). */
+        /* And openLevelset, where it is level 1 that fails. The right answer -- jc-17 to jc-20's -- is
+         * to open the set at its first level that loads. Two wrong answers came first, both measured
+         * by review: keeping the new file with the old level (set A's level sat under set B's file,
+         * and getJSONPath() pointed into B's save folder, so a save would have written A's route
+         * there), and restoring set A outright (all of set B unreachable, and every save in such a
+         * pack an OPENFAIL in the corpus harness). The first of those IS upstream's behavior, which
+         * the baseline restores (UB-14, pinned below). */
         File setC = new DatBuilder().signature(DatBuilder.SIG_MS)
                 .level().title("Only").password("QRST").chips(0).timeLimit(100).unreadable().end()  // its only level
                 .writeTo(d6c, "nothingloads.dat").toFile();
+        /* ⚠ UPSTREAM BASELINE (from jc-21): jc-17's open-at-the-first-level-that-loads was REVERTED
+         * (FORK.md, "The upstream baseline"; BASELINE-ISSUES.md UB-14). Upstream opens a set at level
+         * 1 only, so where level 1 fails the PREVIOUS set's level stays under the new set's file, and
+         * a fresh open is left with no level at all. Those checks are pinned at upstream's answers.
+         * To re-apply: `git revert` the commit "Upstream baseline: revert the no-level-loaded
+         * guards"; it holds this change too. */
         emu3.openLevelset(setB);
-        Harness.eq("opening set B, whose level 1 fails, opens it at level 2", emu3.getLevel().getTitle(), "Second");
+        Harness.upstreamBug("opening set B, whose level 1 fails, opens it at level 2", titleOf(emu3), "Titled", "Second");
         Harness.eq("and it is set B's file now", emu3.getLevelsetPath(), setB.getAbsolutePath());
-        Harness.check("with level 2's own savestates", emu3.getSavestates() != level1States);
+        Harness.upstreamBug("with level 2's own savestates", emu3.getSavestates() != level1States);
 
         String pathB = emu3.getLevelsetPath();
         emu3.openLevelset(setC);  // no level in it loads at all
-        Harness.eq("a set where nothing loads leaves the open set's level", emu3.getLevel().getTitle(), "Second");
-        Harness.eq("and its file", emu3.getLevelsetPath(), pathB);
+        Harness.upstreamBug("a set where nothing loads leaves the open set's level", titleOf(emu3), "Titled", "Second");
+        String fileNow = emu3.getLevelsetPath();
+        Harness.upstreamBug("and its file",
+                fileNow.equals(pathB) ? "the open set's file" : fileNow.equals(setC.getAbsolutePath()) ? "the new set's file" : fileNow,
+                "the new set's file", "the open set's file");
 
         SuperCC emu4 = new SuperCC(false);
         emu4.openLevelset(setB);  // a FRESH open whose level 1 fails
-        Harness.eq("a fresh open of set B lands on level 2", emu4.getLevel().getTitle(), "Second");
+        Harness.upstreamBug("a fresh open of set B lands on level 2", titleOf(emu4), "(no level)", "Second");
         SuperCC emu5 = new SuperCC(false);
         emu5.openLevelset(setC);  // a fresh open where nothing loads
         Harness.check("a fresh open where nothing loads leaves nothing loaded", !emu5.isLevelLoaded());
@@ -389,8 +407,10 @@ public class EngineTest {
             System.setErr(realErr);
         }
         String said = captured.toString("UTF-8");
-        Harness.check("it reports the two failures by position", said.contains("Levels 1 to 2 could not be loaded"));
-        Harness.check("and the landing level by its position, 3", said.contains("Opened at level 3."));
+        /* ⚠ UPSTREAM BASELINE (from jc-21, UB-14): upstream tries level 1 only and reports it as any
+         * load ("Could not load level: ..."), so the first two are pinned; the third holds either way. */
+        Harness.upstreamBug("it reports the two failures by position", said.contains("Levels 1 to 2 could not be loaded"));
+        Harness.upstreamBug("and the landing level by its position, 3", said.contains("Opened at level 3."));
         Harness.check("never by its record number, 7", !said.contains("Opened at level 7"));
 
         Harness.section("6e. every built-in tileset loads from the built jar");

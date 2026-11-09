@@ -17,10 +17,7 @@ public class ChooseTileSize {
     private JButton okButton;
     
     public ChooseTileSize(SuperCC emulator, int defaultValue, int min, int max){
-        // MOD (Jeremy, upstream merge): `short[] keys = emulator.getLevel().getKeys();` removed. The
-        // array was never used, and it was the only reason a custom tile size needed a level open:
-        // with none, it threw, and since jc-17 that menu button would otherwise be skipped while its
-        // radio mark still moved.
+        short[] keys = emulator.getLevel().getKeys();
         SpinnerModel sm = new SpinnerNumberModel(defaultValue, min, max, 1);
         heightSpinner.setModel(sm);
         sm = new SpinnerNumberModel(defaultValue, min, max, 1);
