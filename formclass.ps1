@@ -549,13 +549,27 @@ try {
             $why = if ($cgJc) { Test-CompiledBytes $edited $cgJc "tools" "ControlGUI" (Join-Path $root "tools") (Join-Path $work "bc-form") } else { $null }
             Assert-Self "the byte check FAILS a .form edit that was never compiled" ($why -match 'is not what javac') $why
             # A class built by the transplant keeps javac's stack-map frames; IntelliJ recomputed them.
+            # Whether that changes any BYTES depends on the source: the fork's own SeedSearch happened
+            # to differ, upstream's (restored for the baseline, 2026-11-08) does not, and this case went
+            # red. So the specimen's CONSTRUCTOR -- the method the transplant edits, where the setup call
+            # goes -- opens with code whose frames are known to differ: a local assigned a JLabel on one
+            # branch and a JButton on the other. javac records its declared type (Object), a
+            # recomputing compiler their common superclass. (In a separate method it differs too.)
+            $tpCtor = [regex]::Match($seed, 'public SeedSearch\([^)]*\)\s*\{')
+            if (-not $tpCtor.Success) { throw "formclass -SelfTest: SeedSearch.java has no public constructor to put the frame probe in" }
+            $tpAt  = $tpCtor.Index + $tpCtor.Length
+            $tpSrc = $seed.Substring(0, $tpAt) +
+                     "`n        Object formclassFrameProbe;`n" +
+                     "        if (emulator == null) formclassFrameProbe = new javax.swing.JLabel(); else formclassFrameProbe = new javax.swing.JButton();`n" +
+                     "        formclassFrameProbe.hashCode();`n" +
+                     $seed.Substring($tpAt)
             # Put it where the committed classes would be, beside the real committed inner classes.
-            $t = Test-Specimen SeedSearch $seed
+            $t = Test-Specimen SeedSearch $tpSrc
             $fake = Join-Path $work "fake-committed\tools"
             New-Item -ItemType Directory -Force -Path $fake | Out-Null
             foreach ($c in (Get-ClassSet (Join-Path $root "tools") "SeedSearch")) { [IO.File]::Copy($c.FullName, (Join-Path $fake $c.Name), $true) }
             if ($t.Exit -eq 0) { [IO.File]::Copy((Join-Path $t.Out "tools\SeedSearch.class"), (Join-Path $fake "SeedSearch.class"), $true) }
-            $ssJc = Javac-Specimen SeedSearch $seed
+            $ssJc = Javac-Specimen SeedSearch $tpSrc
             $why = if ($t.Exit -eq 0 -and $ssJc) { Test-CompiledBytes (Join-Path $srcRoot "tools\SeedSearch.form") $ssJc "tools" "SeedSearch" $fake (Join-Path $work "bc-tp") } else { $null }
             Assert-Self "the byte check FAILS a class built by the transplant" ($why -match 'SeedSearch\.class is not what javac') ("$why $($t.Text)")
             # The lint: IntelliJ's flag mistakes `new ChangeTimer(0)` for this(...) and places the call
