@@ -1,5 +1,5 @@
 ==============================================================================
-  SuperCC  --  Jeremy Christman's fork                      build jc-24
+  SuperCC  --  Jeremy Christman's fork                      build jc-25
 ==============================================================================
 
   1. What this is
@@ -593,6 +593,25 @@ AlwaysOpenInMS  Whether every level set opens under the MS ruleset, no matter
 Releases from jc-2 on carry a jc-N tag in the repository. The title bar, when
 ShowBuildTag is on, shows the build tag compiled into the jar, which matches
 the tag for that release. Newest first.
+
+
+jc-25  --  A trap's state no longer depends on hash order
+-------------------------------------------------------------
+
+  * THE SECOND FIX ON TOP OF UPSTREAM. An empty trap is now open at the
+    end of a move whenever a brown button wired to it is held. Upstream's
+    code could leave it marked shut when it had two or more buttons,
+    depending on the order in which a hash map happened to list the
+    wires, and always did when one held button was wired to it twice. (A
+    button wired to several traps still holds only the first of them, as
+    in every SuperCC.) Nothing you play changes: a creature stepping into
+    a trap checks its buttons again anyway, so every one of the 24,212
+    stored solutions replays exactly as on jc-24. Only the trap state kept
+    in savestates, in memory and on disk, could differ.
+
+  * Still there, on purpose until their own fixes come back: two trap
+    problems from jc-19 (UB-4 and UB-5 in BASELINE-ISSUES.md in the
+    repository).
 
 
 jc-24  --  Levels with a trap that starts occupied work again

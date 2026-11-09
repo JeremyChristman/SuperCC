@@ -12,6 +12,28 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## jc-25 — 2026-11-09 (the fix layer: trap Fix 2)
+
+The second trap fix goes back on the upstream baseline. It closes UB-3 in
+[`BASELINE-ISSUES.md`](BASELINE-ISSUES.md). No stored solution changes.
+
+### Fixed
+- **An empty trap with two or more buttons, one held, is open whatever the hash order (`be0d0fb`,
+  UB-3).** `MSLevel.finaliseTraps` decides each trap once, after all its wires: open if any wire
+  into it comes from a held button (jc-15's Fix 2, re-applied alone) — SuperCC's own rule from
+  before upstream's rework. Upstream decided wire by wire, so the last wire a hash map visited won.
+  The same update also shut, every time, a trap wired twice from one held button; that comes out
+  open now too (review; measured). A button wired to several traps still counts for its first one
+  only, as in every SuperCC and in Tile World's `springtrap()`. Latent: a creature entering a trap
+  re-checks its buttons, and the engine's other reads are of occupied traps, so no play depended on
+  it; the wrong bit reached only savestates, in memory and on disk. Corpus against jc-24: 24,212 of
+  24,212 identical.
+
+### Changed (tests only)
+- `MsCloneTrapTest` §7's 3 `upstreamBug` pins are checks again, and a new check covers the trap
+  wired twice; on jc-24's jar exactly those 4 fail. Suite 2,333 assertions, 88 pins. Coverage
+  re-baselined: target 56.8% → 56.9% (1517/2668), `game\MS\**` 560/1172.
+
 ## jc-24 — 2026-11-09 (the fix layer begins: trap Fix 1)
 
 The upstream baseline is done: the fork is the latest official SuperCC, 2.0.3, plus its own

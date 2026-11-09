@@ -25,7 +25,7 @@ How to keep it:
 |---|---|---|---|---|
 | UB-1 | MS levels with a trap that starts with Chip or a block on it, wired to 2+ buttons, do not open | anyone opening such a level; 5 levels in the collection | `79b0032`, jc-19 | **FIXED in `0cd4140` (jc-24)** |
 | UB-2 | ...and wired to 1 button, that trap starts SHUT (MSCC and Tile World start it open) | anyone playing such a level; 6 solved routes lost, 2 unsolved changed | `79b0032`, jc-19 | **FIXED in `0cd4140` (jc-24)** |
-| UB-3 | An empty trap with 2+ buttons, one held: open or shut depending on hash order | none seen in a real route | `79b0032`, jc-19 | open |
+| UB-3 | An empty trap with 2+ buttons, one held: open or shut depending on hash order | none seen in a real route | `79b0032`, jc-19 | **FIXED in `be0d0fb` (jc-25)** |
 | UB-4 | Lynx `isTrapOpen` throws on a position no button is wired to | code only; nothing in the game asks | `79b0032`, jc-19 | open |
 | UB-5 | Trap bits in a `.ser` savestate are numbered by hash order | anyone loading a `.ser` saved by another build | `79b0032`, jc-19 | open |
 | UB-6 | A tick that reports both "discard" and "automatic ticks" is recorded as a wait, so the route saves short | nobody today: no real tick does that | `923d07c`, ships in jc-20 | open (latent) |
@@ -57,8 +57,8 @@ How to keep it:
 ## The trap code (`79b0032`, released in jc-19)
 
 The fork's four fixes to upstream's trap rework (`858dbd0`), merged in jc-15, were reverted. Fix 1
-came back in jc-24 (`0cd4140`, the fix layer: UB-1 and UB-2 below). The other three are re-applied by
-hand, one at a time, from `79b0032`'s diff; a whole `git revert 79b0032` no longer applies cleanly,
+came back in jc-24 (`0cd4140`, the fix layer: UB-1 and UB-2 below), and Fix 2 after it in jc-25 (`be0d0fb`,
+UB-3). Fixes 3 and 4 are re-applied by hand, one at a time, from `79b0032`'s diff; a whole `git revert 79b0032` no longer applies cleanly,
 since jc-24 rewrote the same lines of `MSLevel`'s constructor. FORK.md step 1 has the full
 engineering record, and *The fix layer* how each fix goes back.
 
@@ -98,15 +98,23 @@ Measured on the whole collection.
 
 ### UB-3 — an empty trap's state depends on hash order
 
-- **What a user sees:** nothing known. An empty trap with two or more buttons, one of them held, can
-  read shut at the end of a tick, depending on which wire a hash map visits last.
-- **Measured:** shut in 3 of the 6 test arrangements; no stored route depends on it (a creature
-  entering a trap re-checks its buttons).
-- **Fix:** decide each trap once, after all its wires: open if any button is held (jc-15's Fix 2,
-  `MSLevel.finaliseTraps`). Tile World's `istrapopen()` is the reference.
-- **Pinned by:** `MsCloneTrapTest` §7 (three arrangements). The order is fixed for a given
-  `Position.hashCode`, map capacity and JDK; if one of those changes, those pins can fail with no fix
-  involved.
+**Status: FIXED in `be0d0fb` (jc-25).** Every arrangement now comes out open; the corpus against
+jc-24 is unchanged, as expected for a latent defect.
+
+- **What a user saw:** nothing. An empty trap with two or more buttons, one of them held, could read
+  shut at the end of a tick, depending on which wire a hash map visited last.
+- **Measured:** shut in 3 of the 6 test arrangements; no stored route depends on it. Traced on
+  jc-24: a creature entering a trap re-checks its buttons and overwrites the bit, every other read
+  in the engine is of an occupied trap (which upstream decides correctly), and nothing in the UI
+  shows it. The wrong bit did reach savestates, in memory (rewind) and on disk.
+- **Fix:** decide each trap once, after all its wires: open if any wire into it comes from a held
+  button (jc-15's Fix 2, `MSLevel.finaliseTraps`). Tile World's `istrapopen()`, which reads every
+  wire into a trap, is the reference for the arrangements tested. The same wire-by-wire update also
+  shut, every time, a trap wired TWICE from one held button; the fix opens that one too (measured on
+  jc-24's jar: shut; jc-25: open). A button wired to several traps still counts for its first wire
+  only, as in every SuperCC (see the last section).
+- **Checked by:** `MsCloneTrapTest` §7, all six arrangements (three were pinned at upstream's shut from
+  jc-19 to jc-24; with the fix, none depends on hash order), and the trap wired twice.
 
 ### UB-4 — Lynx `isTrapOpen` throws on an unwired position
 
@@ -551,9 +559,26 @@ key (states, macros, menu shortcuts) and the mouse act at once.
 
 ## Seen while testing — NOT introduced by the baseline
 
-These were already in upstream and in every fork build. They are listed so they are not lost.
+These were already in upstream, and in the fork before the baseline began. They are listed so they
+are not lost.
 
 - **Seed Search's button still says "Pause" after a search finishes by itself.** Seen in the
   2026-11-08 playtest (CCLP1 #1, the last 3,000 seeds: 3000/3000, button "Pause"). Since the search
   is no longer running, pressing it starts a new round of threads rather than pausing; what that
   round does was not checked. Upstream and jc-16 to jc-19 alike; the fork never touched that code.
+- **A held brown button counts only for the FIRST trap it is wired to, at the end of a tick.**
+  `MSLevel.finaliseTraps` keeps a set of buttons already used (`pressedButtons`), so a button wired
+  to two traps holds only the first in its own list, which is record (file) order, not hash order.
+  That is the same first-wire rule as Tile World's `springtrap()`; Tile World's `istrapopen()`, used
+  when a creature enters a trap, reads every wire instead, and so does SuperCC's own entry check.
+  Both engines are split the same way, so this is worth knowing rather than a known divergence:
+  whether they ever disagree because of it is not established, and no stored route shows a
+  difference (desync count 0). SuperCC has done this since before upstream's trap rework, and
+  jc-25's Fix 2 keeps it. Recorded from the jc-25 review so it is not lost.
+- **Leaving a trap releases every unheld wire, which shuts the trap's ONE bit even while another
+  button holds it.** `MSCreature`'s release loops (a creature leaving a trap, and the two block-push
+  paths) call `release` on each wire whose button is up; since upstream's rework gave each trap a
+  single bit, that shuts the trap mid-tick although another wire's button is held. Entering re-checks
+  the buttons, and from jc-25 the end-of-tick update opens it again, so no stored route depends on
+  it. In upstream since its trap rework, and in every fork build since jc-15 merged it. Raised by
+  the jc-25 review; verified in the code, not measured in play.

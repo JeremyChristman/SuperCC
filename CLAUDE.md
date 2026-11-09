@@ -332,7 +332,7 @@ taken. JaCoCo is a test-time tool cached under `%LOCALAPPDATA%\jacoco\<version>\
 dependency**, never committed, never shipped. Output goes to `coverage-report\` (gitignored);
 `coverage.csv` is the evidence behind every percentage below.
 
-As of jc-24, with all 2,332 assertions passing (91 of them `upstreamBug` pins, §6) and 6 skipped —
+As of jc-25, with all 2,333 assertions passing (88 of them `upstreamBug` pins, §6) and 6 skipped —
 counts for a machine with 4 or more CPUs. `SeedSearchTest` §3 makes one pin per search thread, so a
 3-CPU run has one pass and pin fewer and a 2-CPU run two; at 1 CPU §3 and §2's pin are skipped
 (measured: 7 passes and 6 pins fewer, 2 skips more) — **measured on JDK 16.0.2** (16.0.2+7-67 on the desktop; Temurin 16.0.2+7, what CI pins, gives the
@@ -340,16 +340,16 @@ same figures):
 
 | scope | branch | line | branches |
 |---|---|---|---|
-| **`game\**` + `io\**` — THE TARGET** | **56.8%** | 71.2% | 1513/2664 |
-| &nbsp;&nbsp;`game\**` (the emulator) | 53.6% | 67.8% | 1202/2243 |
-| &nbsp;&nbsp;&nbsp;&nbsp;`game\MS\**` | 47.6% | 62.6% | 556/1168 |
+| **`game\**` + `io\**` — THE TARGET** | **56.9%** | 71.3% | 1517/2668 |
+| &nbsp;&nbsp;`game\**` (the emulator) | 53.7% | 67.8% | 1206/2247 |
+| &nbsp;&nbsp;&nbsp;&nbsp;`game\MS\**` | 47.8% | 62.7% | 560/1172 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\Lynx\**` | 62.8% | 70.6% | 460/732 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 54.2% | 73.0% | 186/343 |
 | &nbsp;&nbsp;`io\**` (file formats) | 73.9% | 81.3% | 311/421 |
 | `emulator\**` | 30.2% | 34.0% | 134/444 |
 | `tools\**` + `graphics\**` — *not a target* | 2.7% | 9.0% | 52/1919 |
 
-**Read this correctly.** Whole-project branch coverage is 30.2% (1811/5993), and that number is
+**Read this correctly.** Whole-project branch coverage is 30.3% (1815/5997), and that number is
 meaningless: 15 form-based classes can be rebuilt here only by copying IntelliJ's output (ADR 0010), `tools\**`
 is 35 files of upstream code this fork does not modify, `graphics\**` is Swing with no headless test
 story, and the rest is vendored `org.json` / `com.intellij`. What this fork can break is the engine
@@ -360,7 +360,7 @@ spliced class is compiled by your `javac`, and `build-config.ps1` already notes 
 not emit identical bytecode to javac 16. That was once only the five `io\**` classes (`ErrorLog`,
 `LevelFactory`, `SuccPaths`, `TWSReader`, `TWSWriter`, 382 branches at jc-15, 384 now). Since the upstream
 trap merge (2026-11-02) it is also `MSCreature`, `MSLevel` and `LynxLevel` (plus `Level` and
-`BrownButton`, which have none): another 1,158 branches — 1,542 of the target's 2,664 in all. Only the rest comes from the committed
+`BrownButton`, which have none): another 1,162 branches — 1,546 of the target's 2,668 in all. Only the rest comes from the committed
 baseline and is byte-identical on every machine. A figure that differs slightly on another JDK is not
 a bug, but it is not the baseline either: `docs/coverage-baseline.tsv` and the table above are
 measured on 16.0.2, what CI and the release workflow pin. A machine without it does not need an
@@ -368,16 +368,16 @@ install: jc-15's baseline was taken on the laptop (JDK 18) from Temurin 16.0.2+7
 uses, checked against Adoptium's published SHA-256 — unpacked to a scratch folder, with `JAVA_HOME`
 pointed at it for the one command. `build-config.ps1` lets `JAVA_HOME` win.
 
-**56.8% is a floor to build on, not a passing grade**, and the split says where the work is:
+**56.9% is a floor to build on, not a passing grade**, and the split says where the work is:
 
-- **Lynx is ahead now — MS 47.6%, Lynx 62.8% — and both took deliberate work.**
+- **Lynx is ahead now — MS 47.8%, Lynx 62.8% — and both took deliberate work.**
   Four Lynx files built that side (the move-preference table `LynxCreatureMoveTest`, the entry rules
   `LynxCanEnterTest`, the creature list `LynxCreatureListTest`, the movement engine `LynxTickTest`,
   all against `lxlogic.c`); three MS files closed the gap (`MsTryEnterTest`, `MsCreatureListTest`,
   `MsCloneTrapTest`). **`MSCreature` (44.8%, 355/793) is now the single largest pool of uncovered
   engine branches in the repo** — over a third of `game\**` lives in that one class — and MS is
   the ruleset the maintainer's own solutions replay against, so it is the obvious next target.
-  `game.MS.MSLevel` (49.4%, 122/247) is the next engine class down. (Both fell a little at jc-19 —
+  `game.MS.MSLevel` (50.2%, 126/251) is the next engine class down. (Both fell a little at jc-19 —
   upstream's trap code has fewer branches, and a trap that did not open at the start took the tests'
   Chip and blocks down fewer paths — and rose partway back at jc-24, when trap Fix 1 opened it again.)
   ⚠ Note that `lxlogic.c` carries **no** `MOD (Jeremy)` comments, unlike `mslogic.c`'s 79 — so it
@@ -751,8 +751,10 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
   occupied before its trap index existed (5 levels would not open, 6 solved routes lost the exit
   and 2 unsolved routes ended elsewhere);
   **jc-24's Fix 1 builds the maps first, and the corpus against jc-23 moved exactly those 13 routes
-  back.** Still upstream's on purpose: an empty trap's state follows hash order (UB-3), Lynx
-  `isTrapOpen` throws on an unwired position (UB-4), and trap bits are numbered in hash order (UB-5).
+  back.** jc-25's Fix 2 (UB-3) decides each trap once, after all its wires, so
+  an empty trap with a held button is open whatever the hash order. Still upstream's on purpose:
+  Lynx `isTrapOpen` throws on an unwired position (UB-4), and trap bits are numbered in hash order
+  (UB-5).
   Do not fix those in passing: each comes back as its own fix-layer step, and then this bullet,
   FORK.md's table, the coverage baseline (§4: `-UpdateBaseline`, the table, the pin count) are
   updated to match. The tests that pin the bug use `Harness.upstreamBug` — each passes only on

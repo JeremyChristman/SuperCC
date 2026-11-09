@@ -42,6 +42,7 @@ fork *does* change, by release:
 | jc-22 | **The upstream baseline, step 5 — custom tilesets are upstream's exactly.** jc-18's fixes to upstream's `d78f6f3` are reverted (`5d3f0a3`): custom is saved as tileset number 5 with full paths, canceling asks again and then complains, a picture is saved before it is known to load, and a saved tileset that cannot be drawn stops SuperCC from starting (no window) or fails at every Lynx set opened. UB-16 to UB-21. Nobody's tileset changes by itself, and every stored route replays exactly as on jc-21. See *The upstream baseline*. |
 | jc-23 | **The upstream baseline, step 6 — auto-diagonals are upstream's exactly.** jc-18's rewrite of the key handling is reverted (`d08e6ef`). With Tools › Controls › Auto diagonals on, every game key waits 50 ms and a background timer makes ONE move from the keys still held: taps are lost, a held key runs at about half speed, keys pressed together make one move, MS waits too and loses keys, other input jumps ahead, and a key let go elsewhere stays held; `AutoDiagonals = 1` is OFF. UB-22 to UB-28. The switch is off by default, nothing changes with it off, and every stored route replays exactly as on jc-22. That finishes the five merge deviations. See *The upstream baseline*. |
 | jc-24 | **The fix layer begins — trap Fix 1 is back.** On the baseline declared done after jc-23 (the fork is the latest official SuperCC, 2.0.3, plus its own pre-merge changes), fixes now go back one at a time. The first is jc-15's Fix 1 (`0cd4140`): `MSLevel` builds its trap maps before pressing the traps that start occupied. UB-1 and UB-2 are fixed: 5 MS levels open again (4 of their routes reach the exit), 6 solved routes reach the exit again, and 2 unsolved routes end as before — exactly the 13 the jc-19 revert broke, and no other stored route changes. See *The fix layer*. |
+| jc-25 | **The fix layer — trap Fix 2.** `MSLevel.finaliseTraps` decides each trap once, after all its wires (`be0d0fb`), so an empty trap with a held button is open whatever the hash order (and a trap wired twice from one held button, which upstream always shut, opens too). UB-3 is fixed. The defect was latent (a creature entering a trap re-checks its buttons), so every stored route replays exactly as on jc-24; only the trap bits kept in savestates, in memory and on disk, can differ. See *The fix layer*. |
 
 > **`settings.ini` is `succ_settings.ini` from jc-8 on.** Older sections below are left in their
 > original wording where they describe historical work; read "settings.ini" in those as the same
@@ -121,9 +122,10 @@ judged wrong; most were bug fixes, and the plan is to restore them deliberately 
 **After the baseline:** the trap fixes go back one at a time (*The fix layer*, below). **Fix 1 is
 back in jc-24**, so those 5 levels open again and the 6 routes solve again. A whole
 `git revert 79b0032` (all four fixes, proven before jc-19 to leave `java/` identical to jc-18) no
-longer applies cleanly, because jc-24 rewrote the same constructor lines; Fixes 2 to 4 are re-applied
-by hand from that commit's diff, each turning only its own pins (`MsCloneTrapTest` §7, §10,
-`ConnectionTest` §4) back into checks.
+longer applies cleanly, because jc-24 rewrote the same constructor lines. **Fix 2 is back too**
+(`be0d0fb`, jc-25). Fixes 3 and 4 are re-applied by hand from that
+commit's diff, each turning only its own pins (`MsCloneTrapTest` §10, `ConnectionTest` §4) back
+into checks.
 
 **Where the remaining fixes are, for the fix layer** (each goes back by hand, one fix at a time, by
 *The fix layer*'s procedure below, never as one whole `git revert` of a commit that bundled several):
@@ -179,19 +181,23 @@ each against the true latest upstream code**, so every difference from upstream 
   check run: on the previous release's jar exactly those checks fail and nothing else;
 - the corpus against the previous release moves exactly the routes the fix is for;
 - its `BASELINE-ISSUES.md` entries marked FIXED (never deleted).
+- released like any change: a fix changes the jar, so it gets a build tag of its own, even when no
+  stored route moves (RELEASING.md lets only work that does not ship in the jar -- tests, docs,
+  tooling -- ride along with the next release).
 
 **Done:**
 
 | Fix | Released | What it changes |
 |---|---|---|
 | Trap Fix 1 (closes UB-1, UB-2): `MSLevel`'s constructor builds `trapButtons` and `trapIndexMap` before pressing the traps that start occupied | `0cd4140`, jc-24 | Corpus vs jc-23: exactly the 13 the jc-19 revert broke, and nothing else. **5 levels open again** (EEfor5subs #16, IsaacD1-Old #116, JRB_CCLP1 #18, TCCLP #110, TomP3 #66; 4 of their routes reach the exit), **6 solved routes reach the exit again** (C1059-1 #47, EEfor5subs #26, geodave1 #52, geodave4 #7, IsaacD1-Old #121, TLFC3 #89), 2 unsolved routes end differently from jc-23, back where jc-18 had them (MO1 #61, TCCLPpgchip #2). Against jc-18 (all four trap fixes, replayed with the same harness): **24,212 of 24,212 identical**, so Fix 1 alone accounts for every stored route the trap fixes affected. Trap numbering is still upstream's hash order (Fix 4, UB-5), and Fixes 2 and 3 stay reverted (UB-3, UB-4). `MsCloneTrapTest` §6's 9 pins are checks again, plus new ice-block fixtures; on jc-23's jar exactly those 14 checks fail. |
+| Trap Fix 2 (closes UB-3): `MSLevel.finaliseTraps` decides each trap once, after all its wires, so an empty trap with a held button is open whatever the hash order (a button wired to several traps still counts for its first one only) | `be0d0fb`, jc-25 | **Latent: no stored route moves** — corpus vs jc-24 24,212 of 24,212 identical. The defect was real but unobservable: traced on jc-24, a creature entering a trap re-checks its buttons, the engine's other reads are of occupied traps, and the UI never shows the bit; only savestates carried the wrong value. The same update also shut, every time, a trap wired twice from one held button; that opens too (review, measured). Fix 2 does not touch the "shuts behind" release that Tile World's FIX_TRAP_SHUT_BEHIND matches (PB_Gourami #254): that trap is occupied, and no button is held. `MsCloneTrapTest` §7's 3 pins are checks again (all six arrangements open), plus a check for the trap wired twice; on jc-24's jar exactly those 4 fail. Fixes 3 and 4 stay reverted (UB-4, UB-5). |
 
 ### Step 1 — the trap rework (`858dbd0`), and four fixes to it
 
 > ⚠ **REVERTED for the upstream baseline (2026-11-08)** — the trap code is upstream v2.0.3's again,
 > bugs included; see *The upstream baseline* above for what that costs and how to re-apply. The
 > record below describes the fixes as they were in jc-15 to jc-18. **Fix 1 is back from jc-24**
-> (*The fix layer*), alone: Fixes 2 to 4 are still reverted.
+> (*The fix layer*), and Fix 2 from jc-25; Fixes 3 and 4 are still reverted.
 
 **What upstream changed.** Each `BrownButton` used to carry its record's index in the file, and
 `MSLevel.traps` held one bit per *wire*: a trap was open if any wire into it had its bit set.
