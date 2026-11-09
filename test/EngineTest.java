@@ -359,7 +359,8 @@ public class EngineTest {
          * (FORK.md, "The upstream baseline"; BASELINE-ISSUES.md UB-14). Upstream opens a set at level
          * 1 only, so where level 1 fails the PREVIOUS set's level stays under the new set's file, and
          * a fresh open is left with no level at all. Those checks are pinned at upstream's answers.
-         * To re-apply: `git revert` both of this step's commits, newest first -- "GuiWindowTest: do
+         * To re-apply all of them at once (the fix layer, FORK.md, takes them back one fix at a time
+         * instead): `git revert` both of this step's commits, newest first -- "GuiWindowTest: do
          * not click Paste solution on upstream's menus", then "Upstream baseline: revert the
          * no-level-loaded guards"; the second holds this change. If step 5 ("Upstream baseline:
          * revert the custom-tileset fixes") is still reverted, re-apply it first (both touched
@@ -464,7 +465,8 @@ public class EngineTest {
          * methods upstream does not have; what upstream does instead at startup and at a swap was
          * measured by launching the program (BASELINE-ISSUES.md UB-20, UB-21). The settings are
          * written as a FILE here, which both codes read, so this section runs on either. To
-         * re-apply: `git revert` the commit "Upstream baseline: revert the custom-tileset fixes"; it
+         * re-apply all of them at once (the fix layer, FORK.md, takes them back one fix at a time
+         * instead): `git revert` the commit "Upstream baseline: revert the custom-tileset fixes"; it
          * holds this change too. */
         Path d6f = tempDir("custom-tiles");
         File base = d6f.resolve("base.png").toFile(), overlay = d6f.resolve("overlay.png").toFile();

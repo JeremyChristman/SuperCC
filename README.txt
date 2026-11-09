@@ -1,5 +1,5 @@
 ==============================================================================
-  SuperCC  --  Jeremy Christman's fork                      build jc-23
+  SuperCC  --  Jeremy Christman's fork                      build jc-24
 ==============================================================================
 
   1. What this is
@@ -593,6 +593,32 @@ AlwaysOpenInMS  Whether every level set opens under the MS ruleset, no matter
 Releases from jc-2 on carry a jc-N tag in the repository. The title bar, when
 ShowBuildTag is on, shows the build tag compiled into the jar, which matches
 the tag for that release. Newest first.
+
+
+jc-24  --  Levels with a trap that starts occupied work again
+---------------------------------------------------------------
+
+  * THE FIRST FIX ON TOP OF UPSTREAM. jc-19 to jc-23 brought this fork
+    back to upstream SuperCC 2.0.3 exactly, the latest official release,
+    bugs and all. That baseline is done, and fixes now go back on top of
+    it one at a time, so every difference from upstream can be explained.
+
+  * MS LEVELS WITH A TRAP THAT STARTS WITH CHIP, A BLOCK OR AN ICE BLOCK ON
+    IT WORK AGAIN. Since jc-19, if such a trap had two or more brown
+    buttons wired to it the level would not open at all, and with one
+    button the trap started shut. (MSCC and Tile World start such a trap
+    open with Chip or a block on it; the MS game has no ice block, and
+    SuperCC treats one like a block.) In the maintainer's collection that
+    meant:
+      - 5 levels open again: EEfor5subs #16, IsaacD1-Old #116, JRB_CCLP1
+        #18, TCCLP #110 and TomP3 #66;
+      - 6 solved routes reach the exit again: C1059-1 #47, EEfor5subs #26,
+        geodave1 #52, geodave4 #7, IsaacD1-Old #121 and TLFC3 #89;
+      - 2 unsolved routes end where they did before jc-19 (MO1 #61,
+        TCCLPpgchip #2).
+    Every other one of the 24,212 stored solutions replays exactly as on
+    jc-23. The other three trap problems from jc-19 are still there, and
+    are listed in BASELINE-ISSUES.md in the repository (UB-3 to UB-5).
 
 
 jc-23  --  Auto-diagonals exactly as upstream wrote them, bugs and all

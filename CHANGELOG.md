@@ -12,6 +12,33 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## jc-24 — 2026-11-09 (the fix layer begins: trap Fix 1)
+
+The upstream baseline is done: the fork is the latest official SuperCC, 2.0.3, plus its own
+pre-merge changes, as checked against the official build itself. Fixes now go back on top of it one
+at a time (FORK.md, *The fix layer*). The first closes UB-1 and UB-2 in
+[`BASELINE-ISSUES.md`](BASELINE-ISSUES.md).
+
+### Fixed
+- **MS levels with a trap that starts with Chip, a block or an ice block on it work again
+  (`0cd4140`).** `MSLevel`'s constructor builds its trap maps before it presses those traps (jc-15's
+  Fix 1, re-applied alone). With two or more buttons wired to such a trap the level would not open
+  (UB-1); with one, the trap started shut (UB-2). Upstream's trap numbering is unchanged; Fixes 2 to 4
+  stay reverted (UB-3 to UB-5).
+
+  Corpus against jc-23: exactly 13 of 24,212 stored solutions change, the 13 the jc-19 revert broke:
+  5 levels open again (EEfor5subs #16, IsaacD1-Old #116, JRB_CCLP1 #18, TCCLP #110, TomP3 #66; 4 of
+  their routes reach the exit), 6 solved routes reach the exit again (C1059-1 #47, EEfor5subs #26,
+  geodave1 #52, geodave4 #7, IsaacD1-Old #121, TLFC3 #89), and 2 unsolved routes end differently from jc-23, back where jc-18
+  had them (MO1 #61, TCCLPpgchip #2). Against jc-18, which had all four trap fixes: 24,212 of 24,212 identical.
+
+### Changed (tests only)
+- `MsCloneTrapTest` §6's 9 `upstreamBug` pins are ordinary checks again, its position checks compare
+  Chip's whole position, and new fixtures cover an ice block on a trap (one and two wires — the part
+  of the press condition nothing had run; SuperCC's own design, since the MS game has no ice
+  block). On jc-23's jar exactly those 14 checks fail. Suite 2,332 assertions, 91 pins. Coverage
+  re-baselined: target 56.5% → 56.8% (1513/2664), `game\MS\**` 556/1168.
+
 ## jc-23 — 2026-11-09 (the upstream baseline, step 6: auto-diagonals)
 
 Upstream's auto-diagonals (`5f928e0`, `fb8fe25`, `da35e33`, `8c95b3e`) go back to upstream's code

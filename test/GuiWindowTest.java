@@ -482,8 +482,9 @@ public class GuiWindowTest {
              * upstream's: 72476bc guards six Level items and nothing else (FORK.md, "The upstream
              * baseline"; BASELINE-ISSUES.md UB-11). These are the controls that throw on upstream's
              * code with no level open, measured; each is pinned at exactly that, and every other
-             * control must still work. To re-apply: `git revert` both of this step's commits, newest
-             * first -- "GuiWindowTest: do not click Paste solution on upstream's menus", then
+             * control must still work. To re-apply all of them at once (the fix layer, FORK.md,
+             * takes them back one fix at a time instead): `git revert` both of this step's commits,
+             * newest first -- "GuiWindowTest: do not click Paste solution on upstream's menus", then
              * "Upstream baseline: revert the no-level-loaded guards"; they hold this change too.
              * If step 5 ("Upstream baseline: revert the custom-tileset fixes") is still reverted,
              * re-apply it FIRST: both steps rewrote View > Tileset's listener in MenuBar. */

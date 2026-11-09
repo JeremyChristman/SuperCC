@@ -329,8 +329,9 @@ public class SettingsTest {
          * key, and this fork's settings structure seeds every absent key with "", so on this code it
          * returns the pair, empty or not: those checks, and how the paths are stored, are pinned at
          * upstream's. The switches no longer exist, so their checks went with them (GuiWindowTest
-         * pins how choosing custom is saved). To re-apply: `git revert` the commit "Upstream
-         * baseline: revert the custom-tileset fixes"; it holds this change too. */
+         * pins how choosing custom is saved). To re-apply all of them at once (the fix layer, FORK.md,
+         * takes them back one fix at a time instead): `git revert` the commit "Upstream baseline:
+         * revert the custom-tileset fixes"; it holds this change too. */
         Path d13 = freshDir("customtiles");
         File f13 = d13.resolve(SuccPaths.SETTINGS_FILE_NAME).toFile();
         SuccPaths p13 = SuccPaths.load(f13);

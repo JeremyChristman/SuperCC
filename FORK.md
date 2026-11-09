@@ -16,7 +16,9 @@ was held to the measured version of the claim instead: every stored solution in 
 collection replayed under the previous release and the new build, byte-identical. **jc-19 breaks
 the claim on purpose:** it carries upstream's own trap code exactly, bugs included (*The upstream
 baseline*), and 13 of the 24,212 stored solutions end differently. The fork's own changes are still
-held to the claim; upstream's code is now held to upstream. What the fork *does* change, by release:
+held to the claim; upstream's code is now held to upstream. From jc-24 fixes go back on top (*The
+fix layer*), each moving exactly the routes it is for: jc-24's trap fix moves back those 13. What the
+fork *does* change, by release:
 
 | | Scope |
 |---|---|
@@ -39,6 +41,7 @@ held to the claim; upstream's code is now held to upstream. What the fork *does*
 | jc-21 | **The upstream baseline, step 4 — the no-level-loaded guards are upstream's exactly.** jc-17's extensions of upstream's `72476bc` are reverted (`c57f217`), and the two upstream lines it left out are in: with no level set open 29 menu controls fail again, canceling Go to..., Set RNG Seed or a file chooser fails again, a set whose level 1 will not load opens badly again (none in the collection does), and a level whose savestates fail is half-loaded again (none does). UB-11 to UB-15. Every stored route replays exactly as on jc-20. See *The upstream baseline*. |
 | jc-22 | **The upstream baseline, step 5 — custom tilesets are upstream's exactly.** jc-18's fixes to upstream's `d78f6f3` are reverted (`5d3f0a3`): custom is saved as tileset number 5 with full paths, canceling asks again and then complains, a picture is saved before it is known to load, and a saved tileset that cannot be drawn stops SuperCC from starting (no window) or fails at every Lynx set opened. UB-16 to UB-21. Nobody's tileset changes by itself, and every stored route replays exactly as on jc-21. See *The upstream baseline*. |
 | jc-23 | **The upstream baseline, step 6 — auto-diagonals are upstream's exactly.** jc-18's rewrite of the key handling is reverted (`d08e6ef`). With Tools › Controls › Auto diagonals on, every game key waits 50 ms and a background timer makes ONE move from the keys still held: taps are lost, a held key runs at about half speed, keys pressed together make one move, MS waits too and loses keys, other input jumps ahead, and a key let go elsewhere stays held; `AutoDiagonals = 1` is OFF. UB-22 to UB-28. The switch is off by default, nothing changes with it off, and every stored route replays exactly as on jc-22. That finishes the five merge deviations. See *The upstream baseline*. |
+| jc-24 | **The fix layer begins — trap Fix 1 is back.** On the baseline declared done after jc-23 (the fork is the latest official SuperCC, 2.0.3, plus its own pre-merge changes), fixes now go back one at a time. The first is jc-15's Fix 1 (`0cd4140`): `MSLevel` builds its trap maps before pressing the traps that start occupied. UB-1 and UB-2 are fixed: 5 MS levels open again (4 of their routes reach the exit), 6 solved routes reach the exit again, and 2 unsolved routes end as before — exactly the 13 the jc-19 revert broke, and no other stored route changes. See *The fix layer*. |
 
 > **`settings.ini` is `succ_settings.ini` from jc-8 on.** Older sections below are left in their
 > original wording where they describe historical work; read "settings.ini" in those as the same
@@ -85,7 +88,8 @@ judged wrong; most were bug fixes, and the plan is to restore them deliberately 
 
 **How a revert keeps its fix recoverable:**
 - each revert is ONE commit holding the code AND its test changes (the notes are committed
-  separately), so `git revert <that commit>` puts the fix back exactly, tests included. Then, by
+  separately), so `git revert <that commit>` puts ALL its fixes back exactly, tests included (from
+  jc-24 the fix layer takes them back one at a time instead, by hand: *The fix layer*). Then, by
   hand: the notes that list it as reverted (this section, CLAUDE.md §6, CHANGELOG), and the
   numbers the revert moves — `coverage.ps1 -UpdateBaseline` on JDK 16.0.2, the CLAUDE.md §4
   coverage table, and its count of `upstreamBug` pins — or the release's coverage gate fails;
@@ -114,29 +118,28 @@ judged wrong; most were bug fixes, and the plan is to restore them deliberately 
 | The custom-tileset fixes from jc-18 (step 5 below: relative paths, Cancel, load-before-save, the per-ruleset switches instead of `TilesheetNum = 5`, the fallback loaders at startup, the ruleset swap and the window resize, the size and format checks, the radio mark following what is drawn) | `5d3f0a3`, released as jc-22 | Six problems back, UB-16 to UB-21. **Custom is saved as tileset number 5**, which builds before jc-18 cannot start with (pinned in a real window by `GuiWindowTest` §5b, which answers custom's file choosers with real pictures). **Its pictures are saved as full paths**, missing on the other computer. **Canceling asks for the second picture anyway, then shows an error**, and leaves the mark on custom. **A picture is saved before it is known to load**, and bad ones fail with internal errors or unclear messages (six exact pins in `EngineTest` §6f, rewritten through upstream's API with the settings written as a file). **SuperCC does not start — no window — when the saved MS tileset cannot be drawn**: measured by launching, with `TilesheetNum = 99` and with custom's pictures missing. **A Lynx tileset that cannot be drawn fails at every Lynx set opened.** Nobody's tileset changes by itself; the maintainer's settings use no custom tileset. `TileSheet`, `SmallGamePanel` and `Gui` are upstream's byte for byte (`Gui` compiled with `formclass.ps1 -Compile`); `SuccPaths` keeps the fork's own settings structure. Corpus vs jc-21: 24,212 of 24,212 identical. |
 | The auto-diagonals rewrite from jc-18 (step 6 below: `DiagonalCombiner`, a Swing timer on the event thread, only arrows waiting, the flush before any other input, newest key per axis, repeats at full speed, no window under MS, releases seen program-wide, the switch through `optedIn()` and its cheap `getAutoDiagonals()`) | `d08e6ef`, released as jc-23 | Seven problems back, UB-22 to UB-28, all only with Tools › Controls › Auto diagonals on (off by default; off in the maintainer's settings). **Every game key waits 50 ms, and ONE move is made from the keys still held**, on a `java.util.Timer`'s own thread: a tap makes no move, four presses inside one window make one, a wait pressed with two arrows is lost, three arrows go by table order, and Up held with Right tapped makes Up. **MS waits too**, and Up held with Right pressed moves only Up. **Other input jumps ahead**: a state saved with Shift+1 misses the waiting move. **A key let go elsewhere stays held.** `AutoDiagonals = 1` reads OFF and is written back as `1`. Pinned in a real window by `GuiWindowTest` §6 (12 pins, every one also measured at 1 and at 2 CPUs) and by `SettingsTest` §14 (2). Against jc-22's jar exactly those 14 fail, as "the correct answer came back", and nothing else does. `EmulatorKeyListener` and `ControlGUI` are upstream's byte for byte (`ControlGUI` compiled with `formclass.ps1 -Compile`); `SuccPaths` keeps the fork's own settings structure. Corpus vs jc-22: 24,212 of 24,212 identical (replay never goes through the key listener). |
 
-**To do after the baseline (the plan):** re-apply the trap fixes off the baseline, starting with
-Fix 1, so those 5 levels open again and the 6 routes solve again. All four at once is
-`git revert 79b0032`, which also turns the `upstreamBug` pins in `MsCloneTrapTest` §6, §7, §10
-and `ConnectionTest` §4 back into checks. That was proven before release: in a scratch worktree
-the revert left `java/` identical to jc-18, and all 2,365 checks passed with no pins left. One fix
-at a time means re-applying it by hand from that commit's diff and turning only its own pins back
-into checks.
+**After the baseline:** the trap fixes go back one at a time (*The fix layer*, below). **Fix 1 is
+back in jc-24**, so those 5 levels open again and the 6 routes solve again. A whole
+`git revert 79b0032` (all four fixes, proven before jc-19 to leave `java/` identical to jc-18) no
+longer applies cleanly, because jc-24 rewrote the same constructor lines; Fixes 2 to 4 are re-applied
+by hand from that commit's diff, each turning only its own pins (`MsCloneTrapTest` §7, §10,
+`ConnectionTest` §4) back into checks.
 
-Re-applying the recorder fix is `git revert 923d07c`, which turns `InputDiscardTest` §5 back into
-a check (then the notes, coverage baseline, §4 table and pin count, as above). Re-applying the
-Seed Search fixes is `git revert 397c7bb`, which also restores the compiled form classes, the form
-baseline and the coverage baseline it changed (from this step on, a revert commit carries its own
-coverage baseline); then the notes, the §4 table and the pin count by hand. Re-applying the
-no-level guards is `git revert 7ba0d45 c57f217` (newest first; `7ba0d45` is a later test fix),
-which restores `ChooseTileSize`'s class and both baselines the same way, and turns the
-`EngineTest` and `GuiWindowTest` pins back into checks. Re-applying the custom-tileset fixes is
-`git revert 5d3f0a3`, which restores `Gui`'s compiled class and both baselines the same way. Steps 4
-and 5 both rewrote View › Tileset's listener in `MenuBar`, so re-apply them NEWEST FIRST — step 5,
-then step 4 — or resolve that hunk by hand. Re-applying the auto-diagonals rewrite is
-`git revert d08e6ef`, which restores `DiagonalCombiner`, `AutoDiagonalTest`, `ControlGUI`'s
-compiled classes, the splice list and both baselines, and turns the `GuiWindowTest` §6 and
-`SettingsTest` §14 pins back into checks. It is the newest revert, so it goes first of all; steps 5
-and 6 both edited `SuccPaths`.
+**Where the remaining fixes are, for the fix layer** (each goes back by hand, one fix at a time, by
+*The fix layer*'s procedure below, never as one whole `git revert` of a commit that bundled several):
+- the recorder fix — `923d07c`, one fix (`InputDiscardTest` §5);
+- the four Seed Search fixes — `397c7bb` (`SeedSearchTest`; it also changed the compiled form
+  classes and the form and coverage baselines, which a fix to `SeedSearch` must rebuild the same way);
+- the no-level guards — `c57f217`, several, plus `7ba0d45`, a later test fix (`EngineTest` and
+  `GuiWindowTest` pins; `ChooseTileSize`'s compiled class);
+- the custom-tileset fixes — `5d3f0a3`, several (`EngineTest` §6f, `SettingsTest` §13,
+  `GuiWindowTest` §2 and §5b; `Gui`'s compiled class);
+- the auto-diagonals rewrite — `d08e6ef`, one rewrite (`GuiWindowTest` §6, `SettingsTest` §14, and
+  `AutoDiagonalTest` and `DiagonalCombiner` themselves).
+
+Where two of these commits changed the same lines, a fix taken from the older one meets the newer
+one's code: steps 4 and 5 both rewrote View › Tileset's listener in `MenuBar`, and steps 5 and 6
+both edited `SuccPaths`. Resolve those hunks by hand against the code as it is.
 
 **The queue — every `MOD (Jeremy, upstream merge)` in `java/`, one at a time** (all five reverted as
 of jc-23):
@@ -156,13 +159,39 @@ of jc-23):
 
 Separate from these are the fork's own features and fixes from before the merge (jc-1–jc-14, and
 jc-17's untitled-level fix), which change upstream's behavior without having been part of a merged
-upstream commit. Whether the baseline reverts those too is its own question, and the next one.
+upstream commit. They stay: on 2026-11-09 Jeremy declared the baseline done without reverting them
+(next section).
+
+### The fix layer (from jc-24)
+
+**The decision (Jeremy, 2026-11-09):** *"We have a good baseline now."* The fork is, in essence,
+forked off the latest official SuperCC, 2.0.3, plus its own pre-merge changes. That was checked
+against the official build itself (installed outside this repo, replayed by the maintainer's
+`official_baseline.ps1`): on all 24,212 stored solutions the official jar and jc-23 differ on exactly
+3, jc-7's off-map monster-list levels. Fixes now go back on top of that baseline **one at a time,
+each against the true latest upstream code**, so every difference from upstream stays explainable.
+
+**How a fix goes back:**
+- one fix per commit, re-applied by hand from the baseline commit that removed it — never a whole
+  `git revert` of a baseline commit that bundled several fixes;
+- its code marked `MOD (Jeremy, fix layer, UB-n)`, so the fix layer is one search;
+- its own `upstreamBug` pins turned back into checks, every other pin left alone, and the flip
+  check run: on the previous release's jar exactly those checks fail and nothing else;
+- the corpus against the previous release moves exactly the routes the fix is for;
+- its `BASELINE-ISSUES.md` entries marked FIXED (never deleted).
+
+**Done:**
+
+| Fix | Released | What it changes |
+|---|---|---|
+| Trap Fix 1 (closes UB-1, UB-2): `MSLevel`'s constructor builds `trapButtons` and `trapIndexMap` before pressing the traps that start occupied | `0cd4140`, jc-24 | Corpus vs jc-23: exactly the 13 the jc-19 revert broke, and nothing else. **5 levels open again** (EEfor5subs #16, IsaacD1-Old #116, JRB_CCLP1 #18, TCCLP #110, TomP3 #66; 4 of their routes reach the exit), **6 solved routes reach the exit again** (C1059-1 #47, EEfor5subs #26, geodave1 #52, geodave4 #7, IsaacD1-Old #121, TLFC3 #89), 2 unsolved routes end differently from jc-23, back where jc-18 had them (MO1 #61, TCCLPpgchip #2). Against jc-18 (all four trap fixes, replayed with the same harness): **24,212 of 24,212 identical**, so Fix 1 alone accounts for every stored route the trap fixes affected. Trap numbering is still upstream's hash order (Fix 4, UB-5), and Fixes 2 and 3 stay reverted (UB-3, UB-4). `MsCloneTrapTest` §6's 9 pins are checks again, plus new ice-block fixtures; on jc-23's jar exactly those 14 checks fail. |
 
 ### Step 1 — the trap rework (`858dbd0`), and four fixes to it
 
 > ⚠ **REVERTED for the upstream baseline (2026-11-08)** — the trap code is upstream v2.0.3's again,
 > bugs included; see *The upstream baseline* above for what that costs and how to re-apply. The
-> record below describes the fixes as they were in jc-15 to jc-18.
+> record below describes the fixes as they were in jc-15 to jc-18. **Fix 1 is back from jc-24**
+> (*The fix layer*), alone: Fixes 2 to 4 are still reverted.
 
 **What upstream changed.** Each `BrownButton` used to carry its record's index in the file, and
 `MSLevel.traps` held one bit per *wire*: a trap was open if any wire into it had its bit set.

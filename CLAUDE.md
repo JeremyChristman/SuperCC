@@ -332,7 +332,7 @@ taken. JaCoCo is a test-time tool cached under `%LOCALAPPDATA%\jacoco\<version>\
 dependency**, never committed, never shipped. Output goes to `coverage-report\` (gitignored);
 `coverage.csv` is the evidence behind every percentage below.
 
-As of jc-23, with all 2,314 assertions passing (100 of them `upstreamBug` pins, §6) and 6 skipped —
+As of jc-24, with all 2,332 assertions passing (91 of them `upstreamBug` pins, §6) and 6 skipped —
 counts for a machine with 4 or more CPUs. `SeedSearchTest` §3 makes one pin per search thread, so a
 3-CPU run has one pass and pin fewer and a 2-CPU run two; at 1 CPU §3 and §2's pin are skipped
 (measured: 7 passes and 6 pins fewer, 2 skips more) — **measured on JDK 16.0.2** (16.0.2+7-67 on the desktop; Temurin 16.0.2+7, what CI pins, gives the
@@ -340,16 +340,16 @@ same figures):
 
 | scope | branch | line | branches |
 |---|---|---|---|
-| **`game\**` + `io\**` — THE TARGET** | **56.5%** | 71.0% | 1502/2660 |
-| &nbsp;&nbsp;`game\**` (the emulator) | 53.2% | 67.5% | 1191/2239 |
-| &nbsp;&nbsp;&nbsp;&nbsp;`game\MS\**` | 46.8% | 61.9% | 545/1164 |
+| **`game\**` + `io\**` — THE TARGET** | **56.8%** | 71.2% | 1513/2664 |
+| &nbsp;&nbsp;`game\**` (the emulator) | 53.6% | 67.8% | 1202/2243 |
+| &nbsp;&nbsp;&nbsp;&nbsp;`game\MS\**` | 47.6% | 62.6% | 556/1168 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\Lynx\**` | 62.8% | 70.6% | 460/732 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 54.2% | 73.0% | 186/343 |
 | &nbsp;&nbsp;`io\**` (file formats) | 73.9% | 81.3% | 311/421 |
 | `emulator\**` | 30.2% | 34.0% | 134/444 |
 | `tools\**` + `graphics\**` — *not a target* | 2.7% | 9.0% | 52/1919 |
 
-**Read this correctly.** Whole-project branch coverage is 30.1% (1800/5989), and that number is
+**Read this correctly.** Whole-project branch coverage is 30.2% (1811/5993), and that number is
 meaningless: 15 form-based classes can be rebuilt here only by copying IntelliJ's output (ADR 0010), `tools\**`
 is 35 files of upstream code this fork does not modify, `graphics\**` is Swing with no headless test
 story, and the rest is vendored `org.json` / `com.intellij`. What this fork can break is the engine
@@ -358,9 +358,9 @@ and the file formats, so that is what is scoped and measured.
 **The number is JDK-dependent, by construction — so measure the baseline on JDK 16.0.2.** Every
 spliced class is compiled by your `javac`, and `build-config.ps1` already notes that javac 17 does
 not emit identical bytecode to javac 16. That was once only the five `io\**` classes (`ErrorLog`,
-`LevelFactory`, `SuccPaths`, `TWSReader`, `TWSWriter`, 382 branches at jc-15). Since the upstream
+`LevelFactory`, `SuccPaths`, `TWSReader`, `TWSWriter`, 382 branches at jc-15, 384 now). Since the upstream
 trap merge (2026-11-02) it is also `MSCreature`, `MSLevel` and `LynxLevel` (plus `Level` and
-`BrownButton`, which have none): another 1,154 branches — 1,538 of the target's 2,660 in all. Only the rest comes from the committed
+`BrownButton`, which have none): another 1,158 branches — 1,542 of the target's 2,664 in all. Only the rest comes from the committed
 baseline and is byte-identical on every machine. A figure that differs slightly on another JDK is not
 a bug, but it is not the baseline either: `docs/coverage-baseline.tsv` and the table above are
 measured on 16.0.2, what CI and the release workflow pin. A machine without it does not need an
@@ -368,18 +368,18 @@ install: jc-15's baseline was taken on the laptop (JDK 18) from Temurin 16.0.2+7
 uses, checked against Adoptium's published SHA-256 — unpacked to a scratch folder, with `JAVA_HOME`
 pointed at it for the one command. `build-config.ps1` lets `JAVA_HOME` win.
 
-**56.5% is a floor to build on, not a passing grade**, and the split says where the work is:
+**56.8% is a floor to build on, not a passing grade**, and the split says where the work is:
 
-- **Lynx is ahead now — MS 46.8%, Lynx 62.8% — and both took deliberate work.**
+- **Lynx is ahead now — MS 47.6%, Lynx 62.8% — and both took deliberate work.**
   Four Lynx files built that side (the move-preference table `LynxCreatureMoveTest`, the entry rules
   `LynxCanEnterTest`, the creature list `LynxCreatureListTest`, the movement engine `LynxTickTest`,
   all against `lxlogic.c`); three MS files closed the gap (`MsTryEnterTest`, `MsCreatureListTest`,
-  `MsCloneTrapTest`). **`MSCreature` (43.9%, 348/793) is now the single largest pool of uncovered
+  `MsCloneTrapTest`). **`MSCreature` (44.8%, 355/793) is now the single largest pool of uncovered
   engine branches in the repo** — over a third of `game\**` lives in that one class — and MS is
   the ruleset the maintainer's own solutions replay against, so it is the obvious next target.
-  `game.MS.MSLevel` (48.6%, 118/243) is the next engine class down. (Both fell a little at jc-19:
-  upstream's trap code has fewer branches, and a trap that no longer opens at the start takes the
-  tests' Chip and blocks down fewer paths.)
+  `game.MS.MSLevel` (49.4%, 122/247) is the next engine class down. (Both fell a little at jc-19 —
+  upstream's trap code has fewer branches, and a trap that did not open at the start took the tests'
+  Chip and blocks down fewer paths — and rose partway back at jc-24, when trap Fix 1 opened it again.)
   ⚠ Note that `lxlogic.c` carries **no** `MOD (Jeremy)` comments, unlike `mslogic.c`'s 79 — so it
   is unmodified upstream, and a Lynx divergence would never have been looked for by the (MS-only)
   desync project. A failure in a Lynx test is a finding, not a bug in the test.
@@ -513,8 +513,9 @@ the same rework was byte-identical across the whole collection. That is the shap
 expect: the test suite sees the arrangements someone built; the corpus sees the ones level designers
 built. (The rework was merged on 2026-11-02 with that fix and three more; `MsCloneTrapTest` §6–§7 now
 carry the fixtures that were missing, and each fails on the build it guards against. On 2026-11-08
-the four fixes were reverted for the upstream baseline (§6), and those fixtures became
-`upstreamBug` pins; the corpus against jc-18 shows the same 13 differences again, on 24,212.)
+the four fixes were reverted for the upstream baseline (§6): those fixtures became `upstreamBug`
+pins and the corpus against jc-18 showed the same 13 differences again, on 24,212. jc-24 put Fix 1
+back alone: §6 is ordinary checks again, and the corpus against jc-18 is 24,212 of 24,212 identical.)
 
 The corpus compares FINAL STATES, so it is blind to a change in what gets *recorded*. Upstream's
 input discarding (step 2) is the worked example: identical on all 24,204 solutions, yet 40 Lynx move
@@ -730,7 +731,10 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
 - **The committed `.class` baseline.** It is not build output that escaped `.gitignore`. See §1.
 - **Upstream's code is kept exactly — bugs included — on purpose (2026-11-08 on).** Jeremy is
   returning the fork to upstream one deviation at a time before layering fixes back on top (FORK.md,
-  *The upstream baseline*, which lists every step). Reverted so far: the trap code (`79b0032`),
+  *The upstream baseline*, which lists every step). Reverted: the trap code (`79b0032`; its Fix 1
+  is back from jc-24 — **the baseline was declared done on 2026-11-09 and fixes now go back one at a
+  time, FORK.md *The fix layer*; follow that procedure: a baseline commit that bundled several
+  fixes comes back fix by fix, by hand, never as one whole `git revert`**),
   `SuperCC.tick`'s recorder (`923d07c`: upstream writes a wait on ANY discarded tick, even one that
   also ran automatic ticks; no real level returns both bits, and `InputDiscardTest` §5 pins it
   through a wrapped level), Seed Search (`397c7bb`), the no-level-loaded guards (`c57f217`; see
@@ -743,12 +747,15 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
   guarding it: `LynxLevel.tick` CAN return `MASK_TICK_MULTI | discard`, and only the reasoning in
   FORK.md step 2 keeps it from happening. **Any change to `LynxLevel.tick`, `selectChipMove` or
   `moveChip` must be checked for both bits** — if a real tick ever returns both, upstream's
-  recorder saves that route ticks short. For the traps: `MSLevel`'s constructor presses a trap that starts occupied before its
-  trap index exists, so 5 levels in his collection do not open, 6 solved routes no longer solve and
-  2 unsolved routes end differently; the corpus shows exactly those 13 differences against jc-18, and that is the expected result, not
-  a regression. Do not fix it in passing: the fixes come back as their own step, by `git revert`
-  of the revert commit, and then this bullet, FORK.md's table, the coverage baseline (§4:
-  `-UpdateBaseline`, the table, the pin count) are updated to match — FORK.md lists the steps. The tests that pin the bug use `Harness.upstreamBug` — each passes only on
+  recorder saves that route ticks short. For the traps: jc-19 to jc-23 pressed a trap that starts
+  occupied before its trap index existed (5 levels would not open, 6 solved routes lost the exit
+  and 2 unsolved routes ended elsewhere);
+  **jc-24's Fix 1 builds the maps first, and the corpus against jc-23 moved exactly those 13 routes
+  back.** Still upstream's on purpose: an empty trap's state follows hash order (UB-3), Lynx
+  `isTrapOpen` throws on an unwired position (UB-4), and trap bits are numbered in hash order (UB-5).
+  Do not fix those in passing: each comes back as its own fix-layer step, and then this bullet,
+  FORK.md's table, the coverage baseline (§4: `-UpdateBaseline`, the table, the pin count) are
+  updated to match. The tests that pin the bug use `Harness.upstreamBug` — each passes only on
   upstream's own measured answer, fails "the correct answer came back" on the correct one, and
   fails as a regression on anything else. "The correct answer came back" is the cue to turn the
   pin back into a `check()` (if a fix was re-applied) or to find what moved (if not, e.g. hash
@@ -758,9 +765,9 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
   `MenuBar.requireALevel()`, which wrapped every menu's listeners so a new item was covered
   automatically, is reverted. Do not add guards in passing — per-item `isLevelLoaded()` checks would
   be a new deviation, and the real fix (one guard over the whole bar, with `worksWithoutALevel(...)`
-  exemptions) comes back as its own step with `git revert 7ba0d45 c57f217` — after step 5's revert
-  is itself reverted, if it still stands (both rewrote View › Tileset's listener; newest first,
-  FORK.md). `GuiWindowTest` still clicks every button in the bar with no level open and pins 28 that
+  exemptions) comes back as its own fix-layer step, by hand from `c57f217` and `7ba0d45` (FORK.md,
+  *The fix layer*); `c57f217` bundled several guards, so not as one whole `git revert`, and step 5's
+  revert touched the same View › Tileset listener. `GuiWindowTest` still clicks every button in the bar with no level open and pins 28 that
   fail, plus custom with two pictures chosen; Paste solution is not clicked there, since with no
   level its outcome depends on the system clipboard.
 - **`formclass/FormTransplant.java` imports `jdk.internal.org.objectweb.asm`.** That is the JDK's own
@@ -824,10 +831,14 @@ Two language-level traps:
   `/* MOD (Jeremy, jc-N): ... */` with the reasoning and the trap that motivated them. Match that.
   A fork fix to code brought in from upstream is marked `MOD (Jeremy, upstream merge)` instead, so
   every departure from an upstream commit can be found with one search; FORK.md's merge section
-  says which release each step shipped in.
+  says which release each step shipped in. A fix put back on the upstream baseline (from jc-24) is
+  marked `MOD (Jeremy, fix layer, UB-n)`, naming the `BASELINE-ISSUES.md` entries it closes.
   When you change behavior that a comment explains, update the comment in the same edit.
 - **American English** in code, comments, identifiers, strings, and documentation: `color`,
-  `behavior`, `gray`, `analyze`, `center`, `-ize`.
+  `behavior`, `gray`, `analyze`, `center`, `-ize`. Upstream identifiers with British spellings stay
+  verbatim; where the American-English hook flags one, its line gets a same-line
+  `// aen-exempt: upstream method name` comment (no line moves, no bytecode change). The hook does not
+  flag every British spelling, so the marker is not a complete list of them.
 - **Line endings:** `.gitattributes` normalizes text to LF, except `README.txt`, which is CRLF
   because it is read in Notepad. `build.ps1` re-normalizes it at package time anyway, because
   `eol=crlf` only applies at checkout.

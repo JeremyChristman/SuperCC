@@ -287,7 +287,8 @@ public class SeedSearchTest {
          * BASELINE-ISSUES.md UB-7), so each thread's outcome is pinned at upstream's: every thread
          * but the last searched nothing, and the last searched from upstream's (very negative) start
          * of its range. Upstream's split is computed below with upstream's own int arithmetic. To
-         * re-apply: `git revert` the commit "Upstream baseline: revert the Seed Search fixes". */
+         * re-apply all four at once (the fix layer, FORK.md, takes them back one at a time instead):
+         * `git revert` the commit "Upstream baseline: revert the Seed Search fixes". */
         SeedSearch neg = open(emulator, win);
         if (neg != null) {
             long from = -5;

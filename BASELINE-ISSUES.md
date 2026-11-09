@@ -23,8 +23,8 @@ How to keep it:
 
 | ID | Problem | Who sees it | Introduced | Status |
 |---|---|---|---|---|
-| UB-1 | MS levels with a trap that starts with Chip or a block on it, wired to 2+ buttons, do not open | anyone opening such a level; 5 levels in the collection | `79b0032`, jc-19 | open |
-| UB-2 | ...and wired to 1 button, that trap starts SHUT (MSCC and Tile World start it open) | anyone playing such a level; 6 solved routes lost, 2 unsolved changed | `79b0032`, jc-19 | open |
+| UB-1 | MS levels with a trap that starts with Chip or a block on it, wired to 2+ buttons, do not open | anyone opening such a level; 5 levels in the collection | `79b0032`, jc-19 | **FIXED in `0cd4140` (jc-24)** |
+| UB-2 | ...and wired to 1 button, that trap starts SHUT (MSCC and Tile World start it open) | anyone playing such a level; 6 solved routes lost, 2 unsolved changed | `79b0032`, jc-19 | **FIXED in `0cd4140` (jc-24)** |
 | UB-3 | An empty trap with 2+ buttons, one held: open or shut depending on hash order | none seen in a real route | `79b0032`, jc-19 | open |
 | UB-4 | Lynx `isTrapOpen` throws on a position no button is wired to | code only; nothing in the game asks | `79b0032`, jc-19 | open |
 | UB-5 | Trap bits in a `.ser` savestate are numbered by hash order | anyone loading a `.ser` saved by another build | `79b0032`, jc-19 | open |
@@ -56,35 +56,45 @@ How to keep it:
 
 ## The trap code (`79b0032`, released in jc-19)
 
-The fork's four fixes to upstream's trap rework (`858dbd0`), merged in jc-15, were reverted. All four
-come back with `git revert 79b0032` (proven in a scratch worktree: `java/` identical to jc-18, all
-2,365 checks passing); one at a time, re-apply by hand from that commit's diff. FORK.md step 1 has the
-full engineering record.
+The fork's four fixes to upstream's trap rework (`858dbd0`), merged in jc-15, were reverted. Fix 1
+came back in jc-24 (`0cd4140`, the fix layer: UB-1 and UB-2 below). The other three are re-applied by
+hand, one at a time, from `79b0032`'s diff; a whole `git revert 79b0032` no longer applies cleanly,
+since jc-24 rewrote the same lines of `MSLevel`'s constructor. FORK.md step 1 has the full
+engineering record, and *The fix layer* how each fix goes back.
 
 ### UB-1 — a level with an occupied trap wired to two or more buttons does not open
 
-- **What a user sees:** under MS, opening such a level shows *"Could not load level: Cannot invoke
-  "java.util.Map.get(Object)" because "this.trapIndexMap" is null"* and does not open it. Next and
-  Previous cannot get past it; Level › Go to... skips it.
+**Status: FIXED in `0cd4140` (jc-24).** All 5 levels open again; 4 of their stored routes reach the
+exit (IsaacD1-Old #116's is an unfinished attempt). Measured on the whole collection.
+
+- **What a user saw (jc-19 to jc-23):** under MS, opening such a level showed *"Could not load level:
+  Cannot invoke "java.util.Map.get(Object)" because "this.trapIndexMap" is null"* and did not open it.
+  Next and Previous could not get past it; Level › Go to... skipped it.
 - **Measured:** 5 levels in the 24,212-solution collection — EEfor5subs #16, IsaacD1-Old #116,
-  JRB_CCLP1 #18, TCCLP #110, TomP3 #66 (four had solved routes). They cannot be re-solved until this
-  is fixed.
-- **Cause:** `MSLevel`'s constructor presses every trap that starts holding Chip, a block or an ice
-  block, *before* it builds its trap index; the second wire's press reads the null map.
+  JRB_CCLP1 #18, TCCLP #110, TomP3 #66 (four had solved routes). They could not be re-solved until
+  jc-24.
+- **Cause:** `MSLevel`'s constructor pressed every trap that starts holding Chip, a block or an ice
+  block *before* it built its trap index; the second wire's press read the null map.
 - **Fix:** build `trapButtons` and `trapIndexMap` before the start-of-level press (jc-15's Fix 1).
-- **Pinned by:** `MsCloneTrapTest` §6, the two-wire cases (`openOrUpstreamCrash`).
+  Re-applied alone in jc-24; upstream's hash-order trap numbering is untouched (UB-5 stays open).
+- **Checked by:** `MsCloneTrapTest` §6, the two-wire cases (pinned at upstream's crash from jc-19 to
+  jc-23; ordinary checks again from jc-24).
 
 ### UB-2 — an occupied trap wired to one button starts shut
 
-- **What a user sees:** under MS, a block or Chip that starts on a trap cannot leave it; MSCC and
-  Tile World let it. A route made against MSCC or Tile World stops working.
-- **Measured:** 6 solved routes no longer reach the exit — C1059-1 #47, EEfor5subs #26, geodave1 #52,
-  geodave4 #7, IsaacD1-Old #121, TLFC3 #89 — and 2 unsolved routes end elsewhere (MO1 #61,
-  TCCLPpgchip #2). A route re-solved under this behavior would not replay in Tile World, so do not
-  re-solve these until it is fixed.
+**Status: FIXED in `0cd4140` (jc-24)**, by the same change as UB-1. The 6 solved routes reach the exit
+again, and the 2 unsolved ones end where they did in jc-18 (jc-19 to jc-23 had them end elsewhere).
+Measured on the whole collection.
+
+- **What a user saw (jc-19 to jc-23):** under MS, a block or Chip that started on a trap could not
+  leave it; MSCC and Tile World let it. A route made against MSCC or Tile World stopped working.
+- **Measured:** 6 solved routes no longer reached the exit — C1059-1 #47, EEfor5subs #26, geodave1
+  #52, geodave4 #7, IsaacD1-Old #121, TLFC3 #89 — and 2 unsolved routes ended elsewhere (MO1 #61,
+  TCCLPpgchip #2). A route re-solved under that behavior would not have replayed in Tile World; from
+  jc-24 these routes work as they are, so none needs re-solving.
 - **Cause and fix:** the same as UB-1 (with one wire the early press finds no button and silently
   does nothing).
-- **Pinned by:** `MsCloneTrapTest` §6, the one-wire cases.
+- **Checked by:** `MsCloneTrapTest` §6, the one-wire cases (pinned from jc-19 to jc-23).
 
 ### UB-3 — an empty trap's state depends on hash order
 
@@ -134,8 +144,9 @@ full engineering record.
 
 ## Seed Search (`397c7bb`, ships in jc-20)
 
-The fork's four fixes from jc-16 were reverted. All four come back with `git revert 397c7bb`, which
-also restores the compiled form classes and both baselines it changed. FORK.md step 3 has the
+The fork's four fixes from jc-16 were reverted. All four come back at once with `git revert 397c7bb`,
+which also restores the compiled form classes and both baselines it changed; under the fix layer
+(FORK.md) they go back one at a time instead, by hand from its diff. FORK.md step 3 has the
 engineering record.
 
 ### UB-7 — a negative start does not share the work
@@ -201,8 +212,8 @@ engineering record.
 Upstream's `72476bc` guarded the state every launch starts in — no level set open — in three places:
 the key listener, the main window's play button and sliders, and six Level-menu items. jc-17 extended
 that to every menu and fixed what it found on the way; all of it was reverted, and the two upstream
-lines jc-17 had left out are in. Upstream's own guards stay. All of it comes back with
-`git revert 7ba0d45 c57f217` (newest first: `7ba0d45` is a test fix made after CI showed that
+lines jc-17 had left out are in. Upstream's own guards stay. All of it comes back at once
+with `git revert 7ba0d45 c57f217` (the fix layer takes it back one fix at a time instead; newest first: `7ba0d45` is a test fix made after CI showed that
 Paste solution depends on the clipboard), which also restores `ChooseTileSize`'s compiled class
 and both baselines. If step 5 (custom tilesets, below) is still reverted, re-apply it first: both
 steps rewrote View › Tileset's listener in `MenuBar`.
@@ -308,8 +319,8 @@ visible happens except that it is written to the error log (`succ_error-<MACHINE
 The fork's changes to upstream's custom tilesets (`d78f6f3`), merged in jc-18, were reverted:
 `TileSheet`, `SmallGamePanel` and `Gui` are upstream's byte for byte, `MenuBar`'s View › Tileset
 listener and `SuperCC.initialiseTilesheet` are upstream's, and `SuccPaths` stores the custom tileset <!-- aen-exempt: upstream method name -->
-as upstream does, inside the fork's own settings structure. All of it comes back with
-`git revert 5d3f0a3`, which also restores `Gui`'s compiled class and both baselines; re-apply it before
+as upstream does, inside the fork's own settings structure. All of it comes back at once with
+`git revert 5d3f0a3` (the fix layer takes it back one fix at a time instead), which also restores `Gui`'s compiled class and both baselines; re-apply it before
 step 4's (newest first), since both touched View › Tileset's listener. FORK.md step 5
 has the engineering record. Nobody's tileset changes by itself: these all start with choosing a
 custom tileset, or with a settings file that names one that cannot be drawn.
