@@ -501,26 +501,19 @@ public class SuperCC {
     private void initialiseTilesheet() {  // aen-exempt: upstream method name
         Gui window = this.getMainWindow();
         SuccPaths paths = this.getPaths();
+        TileSheet[] tileSheets = TileSheet.values();
+        TileSheet tileSheet = tileSheets[paths.getMSTilesetNum()];
         int[] tileSizes = paths.getTileSizes();
         int width = tileSizes[0];
         int height = tileSizes[1];
         SmallGamePanel gamePanel = (SmallGamePanel) window.getGamePanel();
-        /* MOD (Jeremy, upstream merge): through TileSheet.load, which falls back to the default
-         * tileset with a reason when the saved one cannot be drawn (custom images moved or deleted,
-         * or a number this version does not have). This used to index values() directly -- a number
-         * out of range stopped startup -- and to pass null images on to the panel when loading
-         * failed. */
-        TileSheet tileSheet = Gui.DEFAULT_TILESHEET;
+        this.getMainWindow().getGamePanel().setTileSheet(tileSheet);
         BufferedImage[] tilesetImages = null;
         try {
-            TileSheet.Choice choice = TileSheet.loadForRuleset(this, paths, false, Gui.DEFAULT_TILESHEET, width, height);
-            tileSheet = choice.sheet();
-            tilesetImages = choice.images();
-            if (choice.problem() != null) throwErrorOnce(choice.problem());
+            tilesetImages = tileSheet.getTileSheets(this, width, height);
         } catch (IOException e) {
-            e.printStackTrace();   // the built-in fallback itself failed: a broken jar
+            e.printStackTrace();
         }
-        this.getMainWindow().getGamePanel().setTileSheet(tileSheet);
         //see if all of this can't be refactored out of existence by pressing the buttons in MenuBar if their setting is changed
         window.getGamePanel().initialise(this, tilesetImages, tileSheet, tileSizes[0], tileSizes[1]);  // aen-exempt: upstream method name
         window.getInventoryPanel().initialise(this);  // aen-exempt: upstream method name
@@ -557,13 +550,6 @@ public class SuperCC {
         return (SeedSearch.isRunning() || TSPGUI.isRunning() || VariationTesting.isRunning());
     }
 
-    /* MOD (Jeremy, upstream merge): an error worth saying once per session, not every time its cause
-     * is met again -- a missing custom tileset image is met at startup and at every level set opened
-     * after it, and a dialog each time would teach people to click through them. */
-    private final java.util.Set<String> shownOnce = new java.util.HashSet<>();
-    public void throwErrorOnce(String s){
-        if (shownOnce.add(s)) throwError(s);
-    }
 
     public void throwError(String s){
         if (hasGui)

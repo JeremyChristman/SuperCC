@@ -246,6 +246,49 @@ public class GuiWindowTest {
             return t;
         }
 
+        /**
+         * Answers each file chooser that appears with the next of `files` -- selects it and approves,
+         * as a person picking the file would -- and closes any other dialog (an error) as its close
+         * box would. Records "chooser" or "dialog" in `log` for each. Stop it with stop().
+         */
+        static Thread answerChoosers(List<String> log, File... files) {
+            java.util.concurrent.atomic.AtomicInteger next = new java.util.concurrent.atomic.AtomicInteger();
+            Thread t = new Thread(() -> {
+                java.util.Set<java.awt.Window> seen =
+                        java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+                while (!Thread.currentThread().isInterrupted()) {
+                    for (java.awt.Window win : java.awt.Window.getWindows()) {
+                        if (!(win instanceof javax.swing.JDialog) || !win.isShowing() || !seen.add(win)) continue;
+                        javax.swing.JFileChooser fc = findChooser(win);
+                        int i = next.get();
+                        if (fc != null && i < files.length) {
+                            next.incrementAndGet();
+                            log.add("chooser");
+                            SwingUtilities.invokeLater(() -> { fc.setSelectedFile(files[i]); fc.approveSelection(); });
+                        } else {
+                            log.add(fc != null ? "chooser (closed)" : "dialog");
+                            SwingUtilities.invokeLater(win::dispose);
+                        }
+                    }
+                    try { Thread.sleep(50); } catch (InterruptedException e) { return; }
+                }
+            });
+            t.setDaemon(true);
+            t.start();
+            return t;
+        }
+
+        static javax.swing.JFileChooser findChooser(java.awt.Container c) {
+            for (Component k : c.getComponents()) {
+                if (k instanceof javax.swing.JFileChooser) return (javax.swing.JFileChooser) k;
+                if (k instanceof java.awt.Container) {
+                    javax.swing.JFileChooser f = findChooser((java.awt.Container) k);
+                    if (f != null) return f;
+                }
+            }
+            return null;
+        }
+
         /** Stops a closer and waits for it, so it cannot close a dialog meant for a later check. */
         static void stop(Thread closer) throws InterruptedException {
             closer.interrupt();
@@ -389,7 +432,9 @@ public class GuiWindowTest {
              * code with no level open, measured; each is pinned at exactly that, and every other
              * control must still work. To re-apply: `git revert` both of this step's commits, newest
              * first -- "GuiWindowTest: do not click Paste solution on upstream's menus", then
-             * "Upstream baseline: revert the no-level-loaded guards"; they hold this change too. */
+             * "Upstream baseline: revert the no-level-loaded guards"; they hold this change too.
+             * If step 5 ("Upstream baseline: revert the custom-tileset fixes") is still reverted,
+             * re-apply it FIRST: both steps rewrote View > Tileset's listener in MenuBar. */
             java.util.Set<String> upstreamThrows = new java.util.HashSet<>(java.util.Arrays.asList(
                     "Level > Go to...", "Level > Change stepping value",
                     "Solution > Save as", "Solution > Save", "Solution > Open", "Solution > Search for seeds",
@@ -433,6 +478,23 @@ public class GuiWindowTest {
                     closer.interrupt();
                     continue;
                 }
+                if (name.equals("View > Tileset > custom")) {
+                    /* ⚠ UPSTREAM BASELINE (from jc-22, UB-18): upstream asks for BOTH images even when
+                     * the first chooser is canceled, then reports "No tileset image provided" -- three
+                     * dialogs, which closeNextDialog (one) would leave hanging. jc-18 to jc-21 stopped
+                     * at the first Cancel. Counted with closeEveryDialog, and pinned. */
+                    stop(closer);
+                    int beforeCustom = dialogsClosed.get();
+                    Thread every = closeEveryDialog();
+                    String did = outcome(act);
+                    stop(every);
+                    int shown = dialogsClosed.get() - beforeCustom;
+                    pin(name + ", canceled, with no level open", did + ", " + (shown == 1 ? "one chooser"
+                            : shown == 3 ? "both choosers and an error" : shown + " dialogs"),
+                        "works, both choosers and an error", "works, one chooser");
+                    closeToolWindows(w);
+                    continue;
+                }
                 if (upstreamThrows.contains(name)) {
                     pinnedControls++;
                     pin(name + " with no level open", outcome(act), "throws NullPointerException", "works");
@@ -452,9 +514,9 @@ public class GuiWindowTest {
             //    (Black and White - Editor), whose overlay image could not be found in any jar before
             //    jc-17 -- is drawn; saving it as the MS tileset is pinned (UB-11), since upstream
             //    throws before it saves. The Lynx choice is untouched.
-            //    Then came "custom" (jc-18), whose first file chooser the closer canceled: canceling
-            //    is a no-op, so Black and White stays drawn and saved, the radio mark goes back to
-            //    it, and no image path is saved (upstream made the cancel an error dialog).
+            //    Then came "custom" (jc-18), whose choosers the closer canceled. jc-18 to jc-21 made
+            //    that a no-op that put the radio mark back on Black and White; upstream leaves the mark
+            //    on custom, which is not drawn (UB-18, pinned). Either way no image path is saved.
             graphics.TileSheet bw = graphics.TileSheet.CCEDIT_BLACK_AND_WHITE;
             fact("custom is the last tileset in the menu", graphics.TileSheet.values()[graphics.TileSheet.values().length - 1] == graphics.TileSheet.CUSTOM);
             fact("the last built-in tileset clicked is drawn (" + bw + ")", w.getGamePanel().getTileSheet() == bw);
@@ -463,10 +525,38 @@ public class GuiWindowTest {
             pin("and saved as the MS tileset", String.valueOf(emu.getPaths().getMSTilesetNum()), "0", String.valueOf(bw.ordinal()));
             fact("and the Lynx tileset is left alone", emu.getPaths().getLynxTilesetNum() == 0);
             Object[] tilesetMarks = (Object[]) field(w.getJMenuBar(), "tilesetButtons");
-            fact("canceling custom put the radio mark back on " + bw, ((AbstractButton) tilesetMarks[bw.ordinal()]).isSelected()
-                 && !((AbstractButton) tilesetMarks[graphics.TileSheet.CUSTOM.ordinal()]).isSelected());
-            fact("and saved no custom image, nor turned custom on", emu.getPaths().getCustomTilesetImages() == null
-                 && !emu.getPaths().getCustomTileset(false) && !emu.getPaths().getCustomTileset(true));
+            boolean markOnBw = ((AbstractButton) tilesetMarks[bw.ordinal()]).isSelected();
+            boolean markOnCustom = ((AbstractButton) tilesetMarks[graphics.TileSheet.CUSTOM.ordinal()]).isSelected();
+            pin("canceling custom put the radio mark back on " + bw,
+                markOnBw && !markOnCustom ? "on " + bw : markOnCustom ? "on custom" : "elsewhere", "on custom", "on " + bw);
+            String[] noImages = emu.getPaths().getCustomTilesetImages();
+            fact("and saved no custom image, nor chose custom",
+                 (noImages == null || (noImages[0].isEmpty() && noImages[1].isEmpty()))
+                 && emu.getPaths().getMSTilesetNum() != graphics.TileSheet.CUSTOM.ordinal());
+
+            //    And custom with two real pictures CHOSEN, still with no level open (answerChoosers
+            //    approves each chooser with a file, as a person would). jc-18 to jc-21 saved it as the
+            //    MS choice; ⚠ upstream saves the pictures, draws them, then throws reading the level's
+            //    ruleset, so the tileset choice itself is never saved (UB-11, pinned).
+            File cBase = new File("cbase.png").getAbsoluteFile(), cOver = new File("coverlay.png").getAbsoluteFile();
+            File cText = new File("cnotes.png").getAbsoluteFile();
+            javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(28, 64, java.awt.image.BufferedImage.TYPE_INT_ARGB), "png", cBase);
+            javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(28, 64, java.awt.image.BufferedImage.TYPE_INT_ARGB), "png", cOver);
+            Files.writeString(cText.toPath(), "this is text, not a picture");
+            AbstractButton customMark = (AbstractButton) tilesetMarks[graphics.TileSheet.CUSTOM.ordinal()];
+            AbstractButton bwMark = (AbstractButton) tilesetMarks[bw.ordinal()];
+            // Pictures of their own, so section 5b's check of what IT saves cannot be satisfied by
+            // this pick's lines (review).
+            File nBase = new File("nolevel-base.png").getAbsoluteFile(), nOver = new File("nolevel-overlay.png").getAbsoluteFile();
+            javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(28, 64, java.awt.image.BufferedImage.TYPE_INT_ARGB), "png", nBase);
+            javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(28, 64, java.awt.image.BufferedImage.TYPE_INT_ARGB), "png", nOver);
+            List<String> picked = java.util.Collections.synchronizedList(new ArrayList<>());
+            Thread pick = answerChoosers(picked, nBase, nOver);
+            pin("View > Tileset > custom, two pictures chosen, with no level open", outcome(customMark::doClick),
+                "throws NullPointerException", "works");
+            stop(pick);
+            fact("and both of its choosers were answered (" + picked + ")",
+                 picked.size() >= 2 && picked.get(0).equals("chooser") && picked.get(1).equals("chooser"));
             for (KeyListener k : w.getKeyListeners()) {
                 noThrow("a key press (" + k.getClass().getSimpleName() + ") with no level open", () -> {
                     k.keyPressed(new KeyEvent(w, KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, KeyEvent.VK_UP, KeyEvent.CHAR_UNDEFINED));
@@ -637,6 +727,47 @@ public class GuiWindowTest {
             fact("and it did load", emu.getLevel() != levelBefore && emu.getSavestates() != null
                                     && "Gui Probe".equals(emu.getLevel().getTitle()));
             noThrow("and the window repaints again with its play button back", () -> w.repaint(true));
+
+            // 5b. View > Tileset > custom, with a level open and real pictures CHOSEN in its two file
+            //     choosers (answerChoosers approves each with a file, as a person would). jc-18 to
+            //     jc-21 stored custom as a switch of its own beside a built-in TilesheetNum, stored
+            //     the paths relative to this folder (the Chip's Challenge folder), and loaded both
+            //     pictures before saving them. ⚠ UPSTREAM BASELINE (from jc-22): all reverted
+            //     (UB-16, UB-17, UB-19) -- upstream stores custom as tileset number 5, the paths
+            //     absolute, and saves a picture before it knows the picture loads. Each is pinned at
+            //     upstream's, read from the settings file this window writes.
+            List<String> answered = java.util.Collections.synchronizedList(new ArrayList<>());
+            Thread chooser = answerChoosers(answered, cBase, cOver);
+            noThrow("View > Tileset > custom, two pictures chosen, with a level open", customMark::doClick);
+            stop(chooser);
+            fact("both choosers were answered, and no error shown (" + answered + ")",
+                 answered.equals(java.util.Arrays.asList("chooser", "chooser")));
+            fact("the custom tileset is drawn", w.getGamePanel().getTileSheet() == graphics.TileSheet.CUSTOM);
+            Thread.sleep(200);
+            List<String> ini = java.util.Arrays.asList(Files.readString(Path.of(io.SuccPaths.SETTINGS_FILE_NAME)).split("\\R"));
+            pin("choosing custom keeps TilesheetNum a built-in number, with custom a switch of its own",
+                ini.contains("TilesheetNum = 5") ? "custom saved as tileset number 5"
+                    : ini.contains("CustomTileset = true") ? "custom saved as its own switch" : "neither",
+                "custom saved as tileset number 5", "custom saved as its own switch");
+            pin("and its pictures, inside the Chip's Challenge folder, are saved relative to it",
+                ini.contains("CustomBaseImage = cbase.png") ? "relative"
+                    : ini.contains("CustomBaseImage = " + cBase.getPath()) ? "absolute" : "neither",
+                "absolute", "relative");
+            answered.clear();
+            chooser = answerChoosers(answered, cText, cOver);
+            pin("choosing a file that is not a picture", outcome(customMark::doClick), "throws NullPointerException", "works");
+            stop(chooser);
+            // The harness, not the program: both choosers must really have been answered, or the
+            // pin above would be reading a canceled pick (review).
+            fact("and both of its choosers were answered (" + answered + ")",
+                 answered.size() >= 2 && answered.get(0).equals("chooser") && answered.get(1).equals("chooser"));
+            Thread.sleep(200);
+            String iniText = Files.readString(Path.of(io.SuccPaths.SETTINGS_FILE_NAME));
+            pin("and that file is not saved as a custom picture", iniText.contains("cnotes.png") ? "saved" : "not saved",
+                "saved", "not saved");
+            Thread restore = closeEveryDialog();
+            noThrow("and a built-in tileset can be chosen again", bwMark::doClick);
+            stop(restore);
 
             // 6. Auto-diagonals (jc-18; upstream 5f928e0/da35e33, rewritten): the key listener's
             //    WIRING, against the real window. Which move a burst makes is AutoDiagonalTest's.

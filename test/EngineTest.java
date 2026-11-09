@@ -44,6 +44,33 @@ public class EngineTest {
         return emu.getLevel() == null ? "(no level)" : emu.getLevel().getTitle();
     }
 
+    /** A headless emulator whose settings file names these two custom tileset images (null: none
+     *  chosen). Written as a FILE, which every build reads the same way (6f). */
+    private static SuperCC withCustom(File base, File overlay) throws Exception {
+        Path dir = Harness.tempDir("scc-engine-custom-");
+        File ini = dir.resolve(io.SuccPaths.SETTINGS_FILE_NAME).toFile();
+        Files.writeString(ini.toPath(), "[Graphics]\nCustomBaseImage = " + (base == null ? "" : base.getAbsolutePath())
+                + "\nCustomOverlayImage = " + (overlay == null ? "" : overlay.getAbsolutePath()) + "\n");
+        SuperCC emu = new SuperCC(false);
+        java.lang.reflect.Field pathsField = SuperCC.class.getDeclaredField("paths");
+        pathsField.setAccessible(true);
+        pathsField.set(emu, io.SuccPaths.load(ini));
+        return emu;
+    }
+
+    /** What loading the custom tileset did, comparably: "loads", "IOException: " and the FIRST line
+     *  of its message (the lines after it hold temp paths), or "throws " and the class (UB-18..19). */
+    private static String customOutcome(SuperCC emu) {
+        try {
+            graphics.TileSheet.CUSTOM.getTileSheets(emu, 10, 10);
+            return "loads";
+        } catch (IOException e) {
+            return "IOException: " + (e.getMessage() == null ? "(no message)" : e.getMessage().split("\n")[0]);
+        } catch (Throwable t) {
+            return "throws " + t.getClass().getSimpleName();
+        }
+    }
+
     /** A PNG that is well-formed in every byte but claims a width x height of its choosing. */
     private static byte[] pngClaiming(int width, int height) throws IOException {
         java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
@@ -73,16 +100,6 @@ public class EngineTest {
         crc.update(t);
         crc.update(data);
         d.writeInt((int) crc.getValue());
-    }
-
-    interface IoAction { Object run() throws IOException; }
-
-    /** The message of the IOException the action throws; "(no IOException: ...)" if it throws
-     *  nothing or something else, so a check on the message fails visibly rather than passing. */
-    private static String ioMessage(IoAction a) {
-        try { a.run(); return "(no IOException: nothing thrown)"; }
-        catch (IOException e) { return String.valueOf(e.getMessage()); }
-        catch (Throwable t) { return "(no IOException: " + t + ")"; }
     }
 
     /** Parses level 1 of a freshly written set, under the ruleset the file declares. */
@@ -344,7 +361,9 @@ public class EngineTest {
          * a fresh open is left with no level at all. Those checks are pinned at upstream's answers.
          * To re-apply: `git revert` both of this step's commits, newest first -- "GuiWindowTest: do
          * not click Paste solution on upstream's menus", then "Upstream baseline: revert the
-         * no-level-loaded guards"; the second holds this change. */
+         * no-level-loaded guards"; the second holds this change. If step 5 ("Upstream baseline:
+         * revert the custom-tileset fixes") is still reverted, re-apply it first (both touched
+         * MenuBar's View > Tileset listener). */
         emu3.openLevelset(setB);
         Harness.upstreamBug("opening set B, whose level 1 fails, opens it at level 2", titleOf(emu3), "Titled", "Second");
         Harness.eq("and it is set B's file now", emu3.getLevelsetPath(), setB.getAbsolutePath());
@@ -432,94 +451,65 @@ public class EngineTest {
             Harness.check("tileset " + sheet + " loads" + (problem == null ? "" : " (" + problem + ")"), problem == null);
         }
 
-        Harness.section("6f. the custom tileset (upstream d78f6f3) fails in words, and startup falls back");
-        /* Upstream threw an IOException with no message when no images were chosen (its callers
-         * show getMessage(), so the user read "null"), and a file that is not an image as a
-         * NullPointerException, which no caller catches. Each failure is now an IOException that
-         * says what is wrong. And a tileset number from the settings file that cannot be drawn --
-         * custom with its images gone, or a number this version does not have (which used to stop
-         * startup) -- draws the fallback and says why. */
+        Harness.section("6f. the custom tileset (upstream d78f6f3): what each failure says");
+        /* jc-18 to jc-21 made every failure an IOException that says what is wrong, refused an image
+         * whose header claims more pixels than a tileset may have before decoding it, and fell back
+         * to a tileset that can be drawn -- at startup, at a level set's ruleset swap and in the
+         * window -- naming the reason once a session.
+         *
+         * ⚠ UPSTREAM BASELINE (from jc-22): all of that was REVERTED (FORK.md, "The upstream
+         * baseline"; BASELINE-ISSUES.md UB-16 to UB-21). Upstream loads with ImageIO.read, so each
+         * failure below is pinned at what upstream's loader does, by the first line of its message
+         * (the lines after it hold temp paths) or the class it throws. The fallbacks lived in
+         * methods upstream does not have; what upstream does instead at startup and at a swap was
+         * measured by launching the program (BASELINE-ISSUES.md UB-20, UB-21). The settings are
+         * written as a FILE here, which both codes read, so this section runs on either. To
+         * re-apply: `git revert` the commit "Upstream baseline: revert the custom-tileset fixes"; it
+         * holds this change too. */
         Path d6f = tempDir("custom-tiles");
         File base = d6f.resolve("base.png").toFile(), overlay = d6f.resolve("overlay.png").toFile();
         javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(7 * 4, 16 * 4, java.awt.image.BufferedImage.TYPE_INT_ARGB), "png", base);
         javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(7 * 4, 16 * 4, java.awt.image.BufferedImage.TYPE_INT_ARGB), "png", overlay);
         File notImage = d6f.resolve("notes.png").toFile();
         Files.writeString(notImage.toPath(), "this is text, not a picture");
-        java.awt.image.BufferedImage[] custom = graphics.TileSheet.loadCustom(base, overlay, 10, 12);
+
+        java.awt.image.BufferedImage[] custom = graphics.TileSheet.CUSTOM.getTileSheets(withCustom(base, overlay), 10, 12);
         Harness.check("two real images load, scaled to 7 x 16 tiles of the asked size",
                 custom.length == 2 && custom[0].getWidth() == 70 && custom[0].getHeight() == 192
                 && custom[1].getWidth() == 70 && custom[1].getHeight() == 192);
-        Harness.check("a missing image is an IOException naming the file",
-                ioMessage(() -> graphics.TileSheet.loadCustom(base, d6f.resolve("gone.png").toFile(), 10, 10)).contains("gone.png"));
-        Harness.check("a file that is not an image is an IOException that says so",
-                ioMessage(() -> graphics.TileSheet.loadCustom(notImage, overlay, 10, 10)).startsWith("Not an image"));
-        Harness.check("custom with no settings loaded says that, not that no images were chosen",
-                ioMessage(() -> graphics.TileSheet.CUSTOM.getTileSheets(null, 10, 10)).contains("not loaded here"));
-        SuperCC withSettings = new SuperCC(false);
-        java.lang.reflect.Field pathsField = SuperCC.class.getDeclaredField("paths");
-        pathsField.setAccessible(true);
-        pathsField.set(withSettings, io.SuccPaths.load(d6f.resolve(io.SuccPaths.SETTINGS_FILE_NAME).toFile()));
-        Harness.check("custom with settings but no images chosen says so, rather than \"null\"",
-                ioMessage(() -> graphics.TileSheet.CUSTOM.getTileSheets(withSettings, 10, 10)).startsWith("No images have been chosen"));
-        /* loadForRuleset: what a ruleset's settings say to draw. Custom is a switch; the number beside
-         * it is always a built-in tileset, and it is what an older build shows from the same file. */
-        io.SuccPaths sp = withSettings.getPaths();
-        graphics.TileSheet dflt = graphics.TileSheet.CCEDIT_TW;
-        // A fallback DIFFERENT from tileset 0, so "drew the stored number" cannot pass as "fell back" (review).
-        graphics.TileSheet other = graphics.TileSheet.TW;
-        graphics.TileSheet.Choice fresh6 = graphics.TileSheet.loadForRuleset(withSettings, sp, false, other, 10, 10);
-        Harness.check("a fresh settings file draws built-in tileset 0 for MS, with no problem",
-                fresh6.sheet() == graphics.TileSheet.values()[0] && fresh6.problem() == null);
-        sp.setBuiltInTileset(false, graphics.TileSheet.MSCC.ordinal());
-        sp.setCustomTileset(false, base.getAbsolutePath(), overlay.getAbsolutePath());
-        graphics.TileSheet.Choice drawn = graphics.TileSheet.loadForRuleset(withSettings, sp, false, dflt, 10, 10);
-        Harness.check("with MS's custom switch on, MS draws the chosen images, with no problem", drawn.sheet() == graphics.TileSheet.CUSTOM && drawn.problem() == null);
-        graphics.TileSheet.Choice lynx6 = graphics.TileSheet.loadForRuleset(withSettings, sp, true, other, 10, 10);
-        Harness.check("and Lynx still draws its own built-in tileset, with no problem",
-                lynx6.sheet() == graphics.TileSheet.values()[0] && lynx6.problem() == null);
-        Files.move(base.toPath(), d6f.resolve("moved-away.png"));
-        graphics.TileSheet.Choice gone6 = graphics.TileSheet.loadForRuleset(withSettings, sp, false, dflt, 10, 10);
-        Harness.check("custom whose image is gone falls back to the ruleset's BUILT-IN choice, MSCC -- what an older build shows -- not the default ("
-                + gone6.sheet() + ")", gone6.sheet() == graphics.TileSheet.MSCC && gone6.problem() != null && gone6.problem().contains("MSCC"));
-        Files.move(d6f.resolve("moved-away.png"), base.toPath());
-        File five = Harness.tempDir("scc-engine-five-").resolve(io.SuccPaths.SETTINGS_FILE_NAME).toFile();
-        Files.writeString(five.toPath(), "[Graphics]\nTilesheetNum = 5\nCustomBaseImage = " + base.getAbsolutePath()
-                + "\nCustomOverlayImage = " + overlay.getAbsolutePath() + "\n");
-        graphics.TileSheet.Choice stored5 = graphics.TileSheet.loadForRuleset(withSettings, io.SuccPaths.load(five), false, dflt, 10, 10);
-        Harness.check("a stored TilesheetNum = 5 is NOT taken as custom (the switch is off): it is refused like any number out of range ("
-                + stored5.sheet() + ")", stored5.sheet() == dflt && stored5.problem() != null && stored5.problem().contains("not a built-in tileset"));
+        Harness.upstreamBug("a missing image is an IOException naming the file",
+                customOutcome(withCustom(base, d6f.resolve("gone.png").toFile())),
+                "IOException: Can't get input stream from URL!", "IOException: Custom tileset image not found:");
+        Harness.upstreamBug("a file that is not an image is an IOException that says so",
+                customOutcome(withCustom(notImage, overlay)),
+                "throws NullPointerException", "IOException: Not an image SuperCC can read:");
+        Harness.upstreamBug("custom with no settings loaded says that, not that no images were chosen",
+                customOutcome(null),
+                "throws NullPointerException", "IOException: The custom tileset's images are named in succ_settings.ini, which is not loaded here.");
+        // Upstream's getter returns the pair whenever both keys exist, and this fork's settings seed
+        // them "": the empty paths reach ImageIO as the working folder, which is no picture.
+        SuperCC noImages = withCustom(null, null);
+        Harness.upstreamBug("custom with settings but no images chosen says so, rather than \"null\"",
+                customOutcome(noImages),
+                "throws NullPointerException", "IOException: No images have been chosen for the custom tileset.");
 
-        java.io.File huge = d6f.resolve("huge.png").toFile();
-        // Well-formed PNGs (real CRCs, a deflated IDAT; the review's construction) whose headers claim
-        // more pixels than a tileset image may have. 50000 x 50000 made ImageIO throw
-        // IllegalArgumentException, past every fallback; 46000 x 46000 stays under ImageIO's own
-        // overflow check and asked for about 8 GB -- an OutOfMemoryError. Both are refused from the
-        // header now, before anything is decoded.
-        // A GIF that ends (trailer 0x3B) right after its screen descriptor, named .png (ImageIO sniffs content, not the name):
-        // its reader throws IndexOutOfBoundsException from getWidth(0) -- a RuntimeException that
-        // skipped every fallback until the loader turned any of them into an IOException (review).
+        // A GIF that ends (trailer 0x3B) right after its screen descriptor, named .png (ImageIO sniffs
+        // content, not the name): jc-18's review found its reader throwing IndexOutOfBoundsException.
         java.io.File gif = d6f.resolve("truncated.png").toFile();
         Files.write(gif.toPath(), new byte[] {'G', 'I', 'F', '8', '9', 'a', 10, 0, 10, 0, 0, 0, 0, 0x3B});
-        String gifMsg = ioMessage(() -> graphics.TileSheet.loadCustom(gif, overlay, 10, 10));
-        Harness.check("a GIF with no image in it is an IOException that says so (" + gifMsg + ")",
-                gifMsg.startsWith("Not an image") && gifMsg.contains("truncated.png"));
-        for (int side : new int[] {50000, 46000}) {
-            Files.write(huge.toPath(), pngClaiming(side, side));
-            String hugeMsg = ioMessage(() -> graphics.TileSheet.loadCustom(huge, overlay, 10, 10));
-            Harness.check("an image whose header claims " + side + " x " + side + " is refused, unread, in words (" + hugeMsg + ")",
-                    hugeMsg.startsWith("Too large") && hugeMsg.contains("huge.png") && hugeMsg.contains(side + " x " + side));
-        }
-        graphics.TileSheet fallback = graphics.TileSheet.CCEDIT_TW;
-        graphics.TileSheet.Choice ok = graphics.TileSheet.load(null, graphics.TileSheet.MSCC.ordinal(), fallback, 10, 10);
-        Harness.check("a good number loads that tileset, with no problem", ok.sheet() == graphics.TileSheet.MSCC && ok.problem() == null);
-        graphics.TileSheet.Choice gone = graphics.TileSheet.load(null, graphics.TileSheet.CUSTOM.ordinal(), fallback, 10, 10);
-        Harness.check("custom that cannot load falls back, and says why",
-                gone.sheet() == fallback && gone.images().length == 2 && gone.problem() != null && gone.problem().contains("custom"));
-        graphics.TileSheet.Choice range = graphics.TileSheet.load(null, 99, fallback, 10, 10);
-        Harness.check("a number this version does not have falls back, and names the number",
-                range.sheet() == fallback && range.problem() != null && range.problem().contains("99"));
-        graphics.TileSheet.Choice negative = graphics.TileSheet.load(null, -1, fallback, 10, 10);
-        Harness.check("so does a negative one", negative.sheet() == fallback && negative.problem() != null);
+        Harness.upstreamBug("a GIF with no image in it is an IOException that says so",
+                customOutcome(withCustom(gif, overlay)),
+                "throws IndexOutOfBoundsException", "IOException: Not an image SuperCC can read:");
+        // Well-formed PNGs (real CRCs, a deflated IDAT; the review's construction) whose headers claim
+        // more pixels than a tileset image may have. 50000 x 50000 makes ImageIO throw
+        // IllegalArgumentException; 46000 x 46000 stays under ImageIO's own overflow check and asks for
+        // about 8 GB, so on upstream's loader -- which decodes first -- it is NOT run (UB-19).
+        java.io.File huge = d6f.resolve("huge.png").toFile();
+        Files.write(huge.toPath(), pngClaiming(50000, 50000));
+        Harness.upstreamBug("an image whose header claims 50000 x 50000 is refused, unread, in words",
+                customOutcome(withCustom(huge, overlay)),
+                "throws IllegalArgumentException", "IOException: Too large for a tileset image:");
+        Harness.skip("an image whose header claims 46000 x 46000: upstream's loader would try to decode about 8 GB (UB-19), not run");
 
         Harness.section("7. the full collection fingerprint (local only)");
         /* Synthesized fixtures catch format and edge-case regressions. They cannot speak for the

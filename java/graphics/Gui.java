@@ -88,13 +88,13 @@ public class Gui extends JFrame{
         timeSlider.setBackground(DARK_GREY);
         timeSlider.setUI(new BasicSliderUI(timeSlider));
         try {
-            ((GamePanel) gamePanel).initialise(emulator, DEFAULT_TILESHEET.getTileSheets(emulator, DEFAULT_TILE_WIDTH, DEFAULT_TILE_HEIGHT), DEFAULT_TILESHEET, DEFAULT_TILE_WIDTH, DEFAULT_TILE_HEIGHT);  // aen-exempt: upstream method name
+            ((GamePanel) gamePanel).initialise(emulator, DEFAULT_TILESHEET.getTileSheets(emulator, DEFAULT_TILE_WIDTH, DEFAULT_TILE_HEIGHT), DEFAULT_TILESHEET, DEFAULT_TILE_WIDTH, DEFAULT_TILE_HEIGHT);
             changePlayButton(false);
         }
         catch (IOException e){
             emulator.throwError("Error loading tileset: "+e.getMessage());
             try {
-                ((GamePanel) gamePanel).initialise(emulator,  // aen-exempt: upstream method name
+                ((GamePanel) gamePanel).initialise(emulator,
                         new BufferedImage[] {ImageIO.read(Objects.requireNonNull(getClass().getResource("/resources/tw-edit-overlay.png"))), //complete backfall in case of emergencies
                                 ImageIO.read(Objects.requireNonNull(getClass().getResource("/resources/tw-edit-tiles.png")))},
                         TileSheet.CCEDIT_TW, DEFAULT_TILE_WIDTH, DEFAULT_TILE_HEIGHT);
@@ -143,22 +143,19 @@ public class Gui extends JFrame{
         if (ruleset == Ruleset.CURRENT || ruleset == null)
             return;
         try {
+            TileSheet tileSheet;
             SuccPaths paths = emulator.getPaths();
-            /* MOD (Jeremy, upstream merge): through TileSheet.loadForRuleset, as at startup. A custom
-             * tileset whose images are gone draws the ruleset's built-in choice instead, and a number
-             * this version does not have draws the default -- with the reason said once a session,
-             * not at every set opened -- where this used to index values() directly and, when the
-             * images failed, keep the previous ruleset's tileset under a message that named no
-             * reason. The radio mark follows what is drawn. */
-            TileSheet.Choice choice = TileSheet.loadForRuleset(emulator, paths, ruleset != Ruleset.MS, DEFAULT_TILESHEET,
-                    paths.getTileSizes()[0], paths.getTileSizes()[1]);
-            TileSheet tileSheet = choice.sheet();
-            BufferedImage[] tilesetImages = choice.images();
-            if (choice.problem() != null) emulator.throwErrorOnce(choice.problem());
-            menuBar.tilesetButtons[tileSheet.ordinal()].setSelected(true);
+            int tilesheetNum;
+            if (ruleset == Ruleset.MS)
+                tilesheetNum = paths.getMSTilesetNum();
+            else
+                tilesheetNum = paths.getLynxTilesetNum();
+            tileSheet = TileSheet.values()[tilesheetNum];
+            BufferedImage[] tilesetImages = tileSheet.getTileSheets(emulator, paths.getTileSizes()[0], paths.getTileSizes()[1]);
+            menuBar.tilesetButtons[tilesheetNum].setSelected(true);
 
-            getGamePanel().initialise(emulator, tilesetImages, tileSheet, getGamePanel().getTileWidth(), getGamePanel().getTileHeight());  // aen-exempt: upstream method name
-            getInventoryPanel().initialise(emulator);  // aen-exempt: upstream method name
+            getGamePanel().initialise(emulator, tilesetImages, tileSheet, getGamePanel().getTileWidth(), getGamePanel().getTileHeight());
+            getInventoryPanel().initialise(emulator);
             repaint(true);
         }
         catch (IOException e1) {
@@ -215,7 +212,7 @@ public class Gui extends JFrame{
         sliderPanel.setBackground(DARK_GREY);
         getMovePanel().setEmulator(emulator);
         getLevelPanel().setEmulator(emulator);
-        getInventoryPanel().initialise(emulator);  // aen-exempt: upstream method name
+        getInventoryPanel().initialise(emulator);
         getInventoryPanel().setOpaque(true);
         getGamePanel().setEmulator(emulator);
         setContentPane(mainPanel);

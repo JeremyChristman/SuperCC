@@ -38,6 +38,15 @@ public class SettingsTest {
         return Harness.tempDir("jc8-" + name + "-");
     }
 
+    /** getCustomTilesetImages()'s answer in words a pin can compare (section 13). */
+    private static String chosen(String[] images) {
+        if (images == null) return "null";
+        boolean emptyBase = images[0].isEmpty(), emptyOverlay = images[1].isEmpty();
+        if (emptyBase && emptyOverlay) return "a pair of empty paths";
+        if (emptyBase || emptyOverlay) return "a pair, one of them empty";
+        return "a pair of paths";
+    }
+
     /** Writes a settings file containing exactly the given lines. */
     private static File settingsWith(Path dir, String... lines) throws IOException {
         File f = dir.resolve(SuccPaths.SETTINGS_FILE_NAME).toFile();
@@ -308,10 +317,20 @@ public class SettingsTest {
             eq("DatParser reports LYNX for it", parser.getRuleset(), game.Ruleset.LYNX);
         }
 
-        Harness.section("13. the custom tileset's images (upstream d78f6f3), stored portably");
-        /* Upstream stored the two image paths ABSOLUTE. This file is Dropbox-synced between two
+        Harness.section("13. the custom tileset's images (upstream d78f6f3)");
+        /* Upstream stores the two image paths ABSOLUTE. This file is Dropbox-synced between two
          * machines whose user folders differ, which is why Levelset and TWS are stored relative to
-         * the CC folder (jc-5); the custom images now go through the same pair of functions. */
+         * the CC folder (jc-5), and jc-18 to jc-21 stored the custom images the same way. They also
+         * read an empty path as "none chosen", and kept "custom" as a switch of its own beside a
+         * built-in TilesheetNum, where upstream stores it as tileset number 5.
+         *
+         * ⚠ UPSTREAM BASELINE (from jc-22): all REVERTED (FORK.md, "The upstream baseline";
+         * BASELINE-ISSUES.md UB-16, UB-17, UB-19). Upstream's getter returns null only for an ABSENT
+         * key, and this fork's settings structure seeds every absent key with "", so on this code it
+         * returns the pair, empty or not: those checks, and how the paths are stored, are pinned at
+         * upstream's. The switches no longer exist, so their checks went with them (GuiWindowTest
+         * pins how choosing custom is saved). To re-apply: `git revert` the commit "Upstream
+         * baseline: revert the custom-tileset fixes"; it holds this change too. */
         Path d13 = freshDir("customtiles");
         File f13 = d13.resolve(SuccPaths.SETTINGS_FILE_NAME).toFile();
         SuccPaths p13 = SuccPaths.load(f13);
@@ -321,52 +340,26 @@ public class SettingsTest {
         check("and under [Graphics], where the getter looks",
               stock13.indexOf("CustomBaseImage") > stock13.indexOf("[Graphics]")
               && stock13.indexOf("CustomBaseImage") < stock13.indexOf("[Emulation]"));
-        check("none chosen reads as null", p13.getCustomTilesetImages() == null);
+        Harness.upstreamBug("none chosen reads as null", chosen(p13.getCustomTilesetImages()), "a pair of empty paths", "null");
         Path inBase = d13.resolve("tilesets").resolve("base.png"), inOverlay = d13.resolve("tilesets").resolve("overlay.png");
-        p13.setCustomTileset(false, inBase.toString(), inOverlay.toString());
-        String[] got13 = p13.getCustomTilesetImages();
-        check("images inside the CC folder read back as the same absolute paths",
-              got13 != null && got13[0].equals(inBase.toString()) && got13[1].equals(inOverlay.toString()));
+        p13.setCustomTilesetImages(inBase.toString(), inOverlay.toString());
         String file13 = Files.readString(f13.toPath(), StandardCharsets.UTF_8);
-        check("and are stored RELATIVE to it, so the file works on both machines",
-              file13.contains("CustomBaseImage = tilesets\\base.png\n") && file13.contains("CustomOverlayImage = tilesets\\overlay.png\n"));
+        Harness.upstreamBug("images inside the CC folder are stored RELATIVE to it, so the file works on both machines",
+              file13.contains("CustomBaseImage = tilesets\\base.png\n") && file13.contains("CustomOverlayImage = tilesets\\overlay.png\n") ? "relative"
+              : file13.contains("CustomBaseImage = " + inBase + "\n") && file13.contains("CustomOverlayImage = " + inOverlay + "\n") ? "absolute"
+              : "neither", "absolute", "relative");
         String[] reread13 = SuccPaths.load(f13).getCustomTilesetImages();
-        check("and survive a reload", reread13 != null && reread13[0].equals(inBase.toString()));
-        eq("the MS custom switch is turned on in the same write", SuccPaths.load(f13).getCustomTileset(false), true);
-        eq("and the Lynx one is left alone", SuccPaths.load(f13).getCustomTileset(true), false);
-        Path outside13 = freshDir("customtiles-out").resolve("art.png");
-        p13.setCustomTileset(true, outside13.toString(), inOverlay.toString());
-        check("an image outside the CC folder is stored absolute",
-              Files.readString(f13.toPath(), StandardCharsets.UTF_8).contains("CustomBaseImage = " + outside13 + "\n"));
-        eq("choosing custom under Lynx turns on the Lynx switch", SuccPaths.load(f13).getCustomTileset(true), true);
-        /* The downgrade guarantee (two reviews; measured by running jc-17 on a jc-18 file): custom is
-         * NEVER stored as tileset number 5, which a build before jc-18 indexes out of bounds at
-         * startup. TilesheetNum keeps the last built-in choice, which every build can read. */
-        String both13 = Files.readString(f13.toPath(), StandardCharsets.UTF_8);
-        // WHOLE lines, not substrings: "TilesheetNum = 0" is inside "LynxTilesheetNum = 0", and a
-        // contains() check passed with MS's line reading 5 (review).
-        java.util.List<String> lines13 = java.util.Arrays.asList(both13.split("\\R"));
-        SuccPaths parsed13 = SuccPaths.load(f13);
-        check("with custom on for both, TilesheetNum and LynxTilesheetNum are still built-in numbers",
-              lines13.contains("TilesheetNum = 0") && lines13.contains("LynxTilesheetNum = 0")
-              && parsed13.getMSTilesetNum() == 0 && parsed13.getLynxTilesetNum() == 0);
-        check("and the switches are their own lines, through optedIn",
-              lines13.contains("CustomTileset = true") && lines13.contains("LynxCustomTileset = true"));
-        p13.setBuiltInTileset(false, 3);
-        SuccPaths r13 = SuccPaths.load(f13);
-        check("choosing a built-in tileset for MS turns MS custom off and saves its number, in one write",
-              !r13.getCustomTileset(false) && r13.getMSTilesetNum() == 3 && r13.getCustomTileset(true));
-        eq("an unrecognized switch value reads OFF",
-           SuccPaths.load(settingsWith(freshDir("ct-yes"), "[Graphics]", "CustomTileset = yes")).getCustomTileset(false), false);
-        eq("and a switch under the wrong section is another key",
-           SuccPaths.load(settingsWith(freshDir("ct-wrong"), "[Paths]", "CustomTileset = true")).getCustomTileset(false), false);
+        check("and read back, after a reload, as the paths chosen",
+              reread13 != null && reread13[0].equals(inBase.toString()) && reread13[1].equals(inOverlay.toString()));
         Path d13b = freshDir("customtiles-half");
-        check("only one of the two given reads as null (both are needed)",
-              SuccPaths.load(settingsWith(d13b, "[Graphics]", "CustomBaseImage = a.png", "CustomOverlayImage = ")).getCustomTilesetImages() == null);
+        Harness.upstreamBug("only one of the two given reads as null (both are needed)",
+              chosen(SuccPaths.load(settingsWith(d13b, "[Graphics]", "CustomBaseImage = a.png", "CustomOverlayImage = ")).getCustomTilesetImages()),
+              "a pair, one of them empty", "null");
         Path d13c = freshDir("customtiles-old");
         File f13c = settingsWith(d13c, "[Graphics]", "TilesheetNum = 2");
         SuccPaths p13c = SuccPaths.load(f13c);
-        check("a file from before jc-18 (no keys) reads as none chosen", p13c.getCustomTilesetImages() == null);
+        Harness.upstreamBug("a file from before jc-18 (no keys) reads as none chosen", chosen(p13c.getCustomTilesetImages()),
+              "a pair of empty paths", "null");
         p13c.setMSTilesetNum(3);
         String up13 = Files.readString(f13c.toPath(), StandardCharsets.UTF_8);
         check("and gains both keys, empty, on its next write",

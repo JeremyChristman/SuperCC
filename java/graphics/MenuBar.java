@@ -515,50 +515,37 @@ class MenuBar extends JMenuBar{
                         tileHeight = Gui.DEFAULT_TILE_HEIGHT;
                     }
                     try {
-                        BufferedImage[] tilesetImages;
-                        File baseImage = null, overlayImage = null;
                         if (tileSheet == TileSheet.CUSTOM) {
-                            /* Upstream d78f6f3: custom asks for its two images every time it is
-                             * picked, starting where the current ones are.
-                             * MOD (Jeremy, upstream merge), three changes:
-                             * - Cancel at either chooser is a no-op, as every other chooser has been
-                             *   since jc-12; upstream turned it into an error dialog. The radio mark
-                             *   goes back to the tileset still on screen.
-                             * - Both images are LOADED before their paths are saved. Upstream saved
-                             *   first, so a file that is not an image was saved too, and the
-                             *   tileset failed again at every launch.
-                             * - Saved relative to the Chip's Challenge folder where possible, and in
-                             *   ONE write with the ruleset's tileset number
-                             *   (SuccPaths.setCustomTileset). */
                             SuccPaths paths = emulator.getPaths();
-                            String[] current = paths.getCustomTilesetImages();
-                            String start = new File("").getAbsolutePath();
-                            baseImage = openFile(current != null ? current[0] : start, "Tileset base image", "png");
-                            overlayImage = baseImage == null ? null
-                                    : openFile(current != null ? current[1] : baseImage.getParent(), "Tileset overlay image", "png");
-                            if (baseImage == null || overlayImage == null) {
-                                markActiveTileset();
-                                return;
+                            String basePath;
+                            String overlayPath;
+                            String[] customImages = paths.getCustomTilesetImages();
+                            if (customImages != null) {
+                                basePath = customImages[0];
+                                overlayPath = customImages[1];
+                            } else {
+                                basePath = "";
+                                overlayPath = "";
                             }
-                            tilesetImages = TileSheet.loadCustom(baseImage, overlayImage, tileWidth, tileHeight);
-                        } else {
-                            tilesetImages = tileSheet.getTileSheets(emulator, tileWidth, tileHeight);
+                            File baseImage = openFile(basePath, "Tileset base image", "png");
+                            File overlayImage = openFile(overlayPath, "Tileset overlay image", "png");
+                            if (baseImage == null || overlayImage == null) throw new IOException("No tileset image provided");
+                            basePath = baseImage.getAbsolutePath();
+                            overlayPath = overlayImage.getAbsolutePath();
+                            paths.setCustomTilesetImages(basePath, overlayPath);
                         }
+                        BufferedImage[] tilesetImages = tileSheet.getTileSheets(emulator,tileWidth, tileHeight);
                         window.getGamePanel().initialise(emulator, tilesetImages, tileSheet,  // aen-exempt: upstream method name
                                 window.getGamePanel().getTileWidth(), window.getGamePanel().getTileHeight());
                         window.getInventoryPanel().initialise(emulator);  // aen-exempt: upstream method name
                         window.repaint(true);
 
-                        boolean lynx = emulator.getLevel().getRuleset() != Ruleset.MS;
-                        // Custom is a switch beside the ruleset's built-in number, never the number
-                        // itself, so a build before jc-18 can still read the file (SuccPaths.getCustomTileset).
-                        if (tileSheet == TileSheet.CUSTOM)
-                            emulator.getPaths().setCustomTileset(lynx, baseImage.getAbsolutePath(), overlayImage.getAbsolutePath());
+                        if (emulator.getLevel().getRuleset() == Ruleset.MS)
+                            emulator.getPaths().setMSTilesetNum(tileSheet.ordinal());
                         else
-                            emulator.getPaths().setBuiltInTileset(lynx, tileSheet.ordinal());
+                            emulator.getPaths().setLynxTilesetNum(tileSheet.ordinal());
                     } catch (IOException exc) {
                         emulator.throwError(exc.getMessage());
-                        markActiveTileset();  // MOD (Jeremy, upstream merge): the mark follows what is drawn
                     }
                 });
                 tilesetButtonGroup.add(tilesheetButton);
@@ -851,15 +838,6 @@ class MenuBar extends JMenuBar{
             emulator.throwError("Could not load file:\n" + e.getMessage());
         }
         return null;
-    }
-
-    /** MOD (Jeremy, upstream merge): puts View > Tileset's radio mark back on the tileset that is
-     *  actually drawn, after a choice that did not take effect (canceled, or an image that would
-     *  not load). A JRadioButton has already moved its mark by the time its listener runs. */
-    void markActiveTileset() {
-        TileSheet active = window.getGamePanel() == null ? null : window.getGamePanel().getTileSheet();
-        if (active != null && tilesetButtons != null && active.ordinal() < tilesetButtons.length)
-            tilesetButtons[active.ordinal()].setSelected(true);
     }
 
     private File openFile(String path, String description, String... extensions) {

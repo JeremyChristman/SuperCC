@@ -40,30 +40,10 @@ public class SmallGamePanel extends GamePanel {
     public void setWindowSize(int windowSizeX, int windowSizeY) {
         this.windowSizeX = windowSizeX;
         this.windowSizeY = windowSizeY;
-        /* MOD (Jeremy, upstream merge): through TileSheet's loaders, like startup and the ruleset swap.
-         * This caught the IOException and did nothing, which left the panel's buffers at the OLD window
-         * size while the window took the new one. No built-in sheet throws here, but since custom
-         * tilesets one can: its images moved, deleted, or missing on the other machine (review). A
-         * custom tileset that fails now falls back to the ruleset's built-in choice, as at startup,
-         * the reason is said once a session, and the View > Tileset mark follows what is drawn --
-         * here, so EVERY caller gets it, View > Game window size > custom too (review). */
         try {
-            TileSheet current = getTileSheet() != null ? getTileSheet() : Gui.DEFAULT_TILESHEET;
-            TileSheet.Choice choice;
-            if (current == TileSheet.CUSTOM && emulator != null && emulator.getPaths() != null) {
-                boolean lynx = emulator.isLevelLoaded() && emulator.getLevel().getRuleset() != Ruleset.MS;
-                choice = TileSheet.loadForRuleset(emulator, emulator.getPaths(), lynx, Gui.DEFAULT_TILESHEET, tileWidth, tileHeight);
-            } else {
-                choice = TileSheet.load(emulator, current.ordinal(), Gui.DEFAULT_TILESHEET, tileWidth, tileHeight);
-            }
-            super.initialise(emulator, choice.images(), choice.sheet(), tileWidth, tileHeight);  // aen-exempt: upstream method name
-            if (choice.problem() != null && emulator != null) emulator.throwErrorOnce(choice.problem());
-            if (emulator != null && emulator.getMainWindow() != null && emulator.getMainWindow().getJMenuBar() instanceof MenuBar)
-                ((MenuBar) emulator.getMainWindow().getJMenuBar()).markActiveTileset();
+            super.initialise(emulator, getTileSheet().getTileSheets(emulator, tileWidth, tileHeight), getTileSheet(), tileWidth, tileHeight);
         }
-        catch (IOException e) {
-            e.printStackTrace();   // the built-in default itself failed: a broken jar
-        }
+        catch (IOException e) {}
     }
     
     public int getWindowSizeX() {
@@ -293,7 +273,7 @@ public class SmallGamePanel extends GamePanel {
     }
     
     @Override
-    protected void initialiseTileGraphics(BufferedImage allTiles) {  // aen-exempt: upstream method name
+    protected void initialiseTileGraphics(BufferedImage allTiles) {
         tileImage = new int[7*16][tileWidth*tileHeight*CHANNELS];
         for (int i = 0; i < 16 * 7; i++) {
             int x = i / 16;
@@ -303,7 +283,7 @@ public class SmallGamePanel extends GamePanel {
     }
     
     @Override
-    protected void initialiseOverlayGraphics(BufferedImage allTiles) {  // aen-exempt: upstream method name
+    protected void initialiseOverlayGraphics(BufferedImage allTiles) {
         overlayTileImage = new int[7*16][tileWidth*tileHeight*CHANNELS];
         for (int i = 0; i < 16 * 7; i++) {
             int x = i / 16;
@@ -313,7 +293,7 @@ public class SmallGamePanel extends GamePanel {
     }
 
     @Override
-    protected void initialiseCreatureGraphics(BufferedImage overlayImage, BufferedImage tilesImage) {  // aen-exempt: upstream method name
+    protected void initialiseCreatureGraphics(BufferedImage overlayImage, BufferedImage tilesImage) {
         creatureImages = new Image[13][4]; //11 creatures (plus blocks and death effect), each has 4 direction images
         for (int i = 0; i < 10; i++) {
             int offset = 60 + i*4; //60 is Swimming Chip N's tile
@@ -350,7 +330,7 @@ public class SmallGamePanel extends GamePanel {
     }
     
     @Override
-    protected void initialiseLayers() {  // aen-exempt: upstream method name
+    protected void initialiseLayers() {
         lowerImage = new BufferedImage(windowSizeX * tileWidth, windowSizeY * tileHeight, BufferedImage.TYPE_4BYTE_ABGR);
         upperImage = new BufferedImage(windowSizeX * tileWidth, windowSizeY * tileHeight, BufferedImage.TYPE_4BYTE_ABGR);
         backingImage = new BufferedImage(windowSizeX * tileWidth, windowSizeY * tileHeight, BufferedImage.TYPE_4BYTE_ABGR);
