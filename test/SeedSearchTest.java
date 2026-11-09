@@ -34,7 +34,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  * `currentSeed <= endSeed` stayed true, and the search went on through every negative seed (which the
  * RNG masks back onto the positive ones) for as long as the window stayed open. Measured on jc-15:
  * asked for the last 3,000 seeds, it had made 12.3 million attempts eight seconds later. The fix is
- * longs throughout; the fork adds one more (long), for a negative start (section 3).
+ * longs throughout. jc-16 to jc-19 added one more (long), for a negative start; the upstream baseline
+ * reverted it (section 3, BASELINE-ISSUES.md UB-7).
  *
  * SeedSearch is FORM-BASED, so its .class is committed bytecode rebuilt by formclass.ps1, not by the
  * splice build (docs\adr\0010). Section 1 is the guard on that: a class rebuilt without IntelliJ's
@@ -158,7 +159,28 @@ public class SeedSearchTest {
         Field kill = SeedSearch.class.getDeclaredField("killFlag");
         kill.setAccessible(true);
         for (int i = 0; i < 250 && numAlive() > 0; i++) { kill.set(null, true); Thread.sleep(20); }
+        if (numAlive() == 0) kill.set(null, false);  // as stopAll: do not leave the static flag set
         return false;
+    }
+
+    /**
+     * Stops every search thread through killFlag, setting it again until all have ended: on upstream's
+     * code a late "last one cleans up" can clear it (UB-8). True if they all ended in time.
+     */
+    private static boolean stopAll(long millis) throws Exception {
+        Field kill = SeedSearch.class.getDeclaredField("killFlag");
+        kill.setAccessible(true);
+        long end = System.currentTimeMillis() + millis;
+        while (numAlive() > 0 && System.currentTimeMillis() < end) {
+            kill.set(null, true);
+            Thread.sleep(20);
+        }
+        // As awaitIdle: the last thread's cleanup publishes running=false just AFTER numAlive hits 0.
+        while (numAlive() == 0 && SeedSearch.isRunning() && System.currentTimeMillis() < end) Thread.sleep(20);
+        boolean stopped = numAlive() == 0 && !SeedSearch.isRunning();
+        // Set after the last thread's own cleanup may have cleared it: leave the static flag clean.
+        if (stopped) kill.set(null, false);
+        return stopped;
     }
 
     private static long count(SeedSearch ss, String name) throws Exception {
@@ -201,34 +223,52 @@ public class SeedSearchTest {
             RunningWatcher watch = new RunningWatcher();
             start(a, (long) Integer.MAX_VALUE - 2999, 4);
             Harness.check("the last 3,000 seeds: every thread ends", awaitIdle(20_000));
-            /* The fork's thread-start MOD. Upstream started each thread as soon as it was built, and
-             * a 750-seed range finishes faster than the next thread is built, so an early thread ran
-             * the "last one cleans up" block mid-search: measured, `running` went false four times
-             * in three of five such searches. A regression shows up here most runs, not every run --
-             * it is a race -- but the fixed code can only ever go false once. */
-            Harness.check("`running` went false once, at the end -- not as each early thread finished",
-                          watch.finish() <= 1);
+            /* jc-16 to jc-19 carried a thread-start fix (UB-8). Upstream starts each thread as soon
+             * as it is built, and a 750-seed range finishes faster than the next thread is built, so
+             * an early thread runs the "last one cleans up" block mid-search: measured on the laptop,
+             * `running` went false four times in three of five such searches. It is a race; the
+             * fixed code can only ever go false once. */
+            /* ⚠ UPSTREAM BASELINE (from jc-20): the fork's fix was REVERTED (FORK.md, "The upstream
+             * baseline"; BASELINE-ISSUES.md UB-8). On upstream's code this is a RACE -- it passed five
+             * runs of five on a 28-CPU desktop and fails on slower machines -- so it can be neither a
+             * check nor a pin; the 8-seed search below pins the same bug deterministically. */
+            int falls = watch.finish();
+            Harness.skip("`running` went false once, at the end -- not as each early thread finished: "
+                         + "a race on upstream's code (UB-8), not asserted; this run saw " + falls);
             Harness.eq("exactly 3,000 attempts", count(a, "globalAttempts"), 3000L);
             Harness.eq("exactly 3,000 successes (the fixture wins on every seed)", count(a, "globalSuccesses"), 3000L);
             Harness.eq("and the window says so", label(a), "Successes: 3000/3000 (100%)");
             Thread.sleep(300);
             Harness.eq("still 3,000 a moment later (nothing kept searching)", count(a, "globalAttempts"), 3000L);
         }
-        SeedSearch tiny = open(emulator, win);
-        if (tiny != null) {
-            /* The flicker made certain rather than likely: two seeds a thread is microseconds of work,
-             * and building the next thread (an emulator, the level set, the level) is milliseconds,
-             * so with upstream's start-as-you-build every thread finished before the next began and
-             * `running` went false once per thread. The 3,000-seed search above runs first, on a
-             * cold JIT, and its threads usually overlap -- that check alone let the regression
-             * through three times out of three. */
+        /* The flicker made nearly certain rather than likely: two seeds a thread is microseconds of
+         * work, and building the next thread (an emulator, the level set, the level) is
+         * milliseconds, so with upstream's start-as-you-build every thread finishes before the next
+         * begins and `running` goes false once per thread. The 3,000-seed search above runs first,
+         * on a cold JIT, and its threads usually overlap -- that check alone let the regression
+         * through three times out of three.
+         *
+         * ⚠ UPSTREAM BASELINE (from jc-20): pinned (UB-8). One search is not enough to pin it: the
+         * watcher is itself a thread, and on 2 CPUs it missed the flicker in 1 search of 4
+         * (measured), which would read as "the correct answer came back". So the search runs FIVE
+         * times and the pin is whether `running` ever went false more than once. With the fix that
+         * can never happen in any search, so that side stays deterministic; on upstream's code all
+         * five would have to be missed. One thread cannot show it at all. */
+        int maxFalls = 0, n = 0;
+        boolean allOk = true;
+        for (int round = 0; round < 5; round++) {
+            SeedSearch tiny = open(emulator, win);
+            if (tiny == null) { allOk = false; break; }
             RunningWatcher watch = new RunningWatcher();
-            int n = start(tiny, (long) Integer.MAX_VALUE - 7, 4);
-            Harness.check("the last 8 seeds, 2 a thread: every thread ends", awaitIdle(20_000));
-            Harness.check("`running` went false once (" + n + " threads; upstream's order flips it once per thread)",
-                          watch.finish() <= 1);
-            Harness.eq("exactly 8 attempts", count(tiny, "globalAttempts"), 8L);
+            n = start(tiny, (long) Integer.MAX_VALUE - 7, 4);
+            allOk &= awaitIdle(20_000);
+            maxFalls = Math.max(maxFalls, watch.finish());
+            allOk &= count(tiny, "globalAttempts") == 8L;
         }
+        Harness.check("the last 8 seeds, 2 a thread, five times: every thread ends, exactly 8 attempts each", allOk);
+        if (n < 2) Harness.skip("one CPU: the slider allows one thread, so there is no early thread to see");
+        else Harness.upstreamBug("`running` went false once per search (" + n + " threads; upstream's order flips it once per thread)",
+                                 maxFalls <= 1);
         SeedSearch one = open(emulator, win);
         if (one != null) {
             /* Integer.MAX_VALUE itself, with four threads: three get an empty range, one gets one seed. */
@@ -239,27 +279,53 @@ public class SeedSearchTest {
         }
 
         Harness.section("3. a negative start shares the work");
-        /* The fork's (long): upstream left Integer.MAX_VALUE - start in int, so -5 wrapped to a
-         * negative pool, three threads got empty ranges, and one searched ~3.8 billion seeds alone. */
+        /* jc-16 to jc-19 carried a (long) cast (UB-7): upstream leaves Integer.MAX_VALUE - start in
+         * int, so -5 wraps to a negative pool, every thread but the last gets an empty range, and the
+         * last searches billions alone (3.76 billion at four threads).
+         *
+         * ⚠ UPSTREAM BASELINE (from jc-20): that fix was REVERTED (FORK.md, "The upstream baseline";
+         * BASELINE-ISSUES.md UB-7), so each thread's outcome is pinned at upstream's: every thread
+         * but the last searched nothing, and the last searched from upstream's (very negative) start
+         * of its range. Upstream's split is computed below with upstream's own int arithmetic. To
+         * re-apply: `git revert` the commit "Upstream baseline: revert the Seed Search fixes". */
         SeedSearch neg = open(emulator, win);
         if (neg != null) {
             long from = -5;
             int threads = start(neg, from, 4);
             long pool = ((long) Integer.MAX_VALUE - from + 1) / threads;
-            if (threads < 2) Harness.skip("one CPU: the slider allows one thread, so there is no split to see");
-            Thread.sleep(400);
-            Harness.check("it is running while it searches", SeedSearch.isRunning());
-            press(neg);  // Pause
-            Harness.check("paused: every thread ends", awaitIdle(20_000));
-            long[] at = (long[]) field(neg, "threadCurrentSeed");
-            long sum = 0;
-            for (int i = 0; i < threads; i++) {
-                long own = from + pool * i;
-                Harness.check("thread " + i + " started at " + own + " and searched part of its own range",
-                              at[i] > own && at[i] < own + pool);
-                sum += at[i] - own;
+            if (threads < 2) {
+                Harness.skip("one CPU: the slider allows one thread, so there is no split to see");
+                Harness.check("one thread: stopped", stopAll(20_000));
+            } else {
+                Thread.sleep(400);
+                /* Not `running` and not the Pause button: on upstream's code both are unreliable (UB-8).
+                 * An empty-range thread's late cleanup can write running=false after the searching thread
+                 * set it true, and the button would then START a second batch instead of pausing. This
+                 * section is about the split, so it watches the threads themselves and stops them through
+                 * killFlag directly (section 2 covers `running`). */
+                Harness.check("threads are still searching after 400 ms", numAlive() > 0);
+                Harness.check("stopped: every thread ends", stopAll(20_000));
+                long[] at = (long[]) field(neg, "threadCurrentSeed");
+                // Upstream's split: Integer.MAX_VALUE - start in INT arithmetic, as SeedSearch writes it.
+                long upPool = ((long) (Integer.MAX_VALUE - (int) from) + 1) / threads;
+                long sum = 0, upSum = 0;
+                for (int i = 0; i < threads; i++) {
+                    long own = from + pool * i, upOwn = from + upPool * i;
+                    String outcome = at[i] > own && at[i] < own + pool ? "searched part of its own range"
+                                   : at[i] == upOwn ? "searched nothing"
+                                   : at[i] > upOwn ? "searched from " + upOwn
+                                   : "stopped at " + at[i];
+                    String upstream = i < threads - 1 ? "searched nothing" : "searched from " + upOwn;
+                    Harness.upstreamBug("thread " + i + " started at " + own + " and searched part of its own range",
+                                        outcome, upstream, "searched part of its own range");
+                    sum += at[i] - own;
+                    upSum += at[i] - upOwn;
+                }
+                long attempts = count(neg, "globalAttempts");
+                Harness.upstreamBug("the attempts are exactly what the threads covered",
+                                    attempts == sum ? "the correct split" : attempts == upSum ? "upstream's split" : "neither: " + attempts,
+                                    "upstream's split", "the correct split");
             }
-            Harness.eq("the attempts are exactly what the threads covered", count(neg, "globalAttempts"), sum);
         }
 
         Harness.section("4. the counters count past 2^31");
@@ -274,17 +340,37 @@ public class SeedSearchTest {
             JLabel example = (JLabel) field(big, "exampleSeedLabel");
             String untouched = example.getText();  // the .form's own text
             try {
-                // Long.MIN_VALUE = no example to report; currentSeed 0 is a multiple of the GUI rate: repaints
+                // Long.MIN_VALUE = no example to report, under upstream's `>= 0` test and jc-16's sentinel
+                // alike; currentSeed 0 is a multiple of the GUI rate: repaints
                 upd.invoke(big, 1, 1, Long.MIN_VALUE, 0L);
                 Harness.eq("one more attempt past Integer.MAX_VALUE", label(big), "Successes: 2147483648/2147483648 (100%)");
                 Harness.eq("and no example seed is shown before one is reported", example.getText(), untouched);
-                /* The fork's sentinel MOD: "no success yet" was -1, tested as >= 0, so a success at a
-                 * negative seed -- reachable from a negative start -- was counted but never shown. */
+                /* jc-16 to jc-19 carried a sentinel fix (UB-9): upstream's "no success yet" is -1,
+                 * tested as >= 0, so a success at a negative seed -- reachable from a negative
+                 * start -- is counted but never shown. */
                 upd.invoke(big, 0, 0, -3L, 0L);
             } catch (InvocationTargetException e) {
                 throw new Exception(e.getCause());
             }
-            Harness.eq("a success at a negative seed is shown", example.getText(), "Example seed: -3");
+            /* ⚠ UPSTREAM BASELINE (from jc-20): the sentinel fix was REVERTED (UB-9); upstream tests
+             * `>= 0`, so the label keeps its untouched text. */
+            Harness.upstreamBug("a success at a negative seed is shown", example.getText(), untouched, "Example seed: -3");
+        }
+
+        Harness.section("5. Pause stops a search");
+        /* The button's Pause, which section 3 no longer presses (UB-8 makes `running` unreliable
+         * there). Here it is race-free on upstream's code too: from seed 0 every thread's range is
+         * hundreds of millions of seeds, so no thread can finish and run an early "last one cleans
+         * up" in the first moments, and by the time Pause is pressed every thread has long begun --
+         * a thread that had not would clear the flag as it started (UB-8). */
+        SeedSearch paused = open(emulator, win);
+        if (paused != null) {
+            start(paused, 0, 4);
+            Thread.sleep(500);
+            Harness.check("a long search is running", SeedSearch.isRunning() && numAlive() > 0);
+            press(paused);  // Pause
+            Harness.check("Pause: every thread ends", awaitIdle(20_000));
+            Harness.eq("and the button offers Resume", ((JButton) field(paused, "startStopButton")).getText(), "Resume");
         }
     }
 }
