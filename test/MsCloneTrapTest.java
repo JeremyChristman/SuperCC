@@ -316,8 +316,8 @@ public class MsCloneTrapTest {
          * v2.0.3's answers -- one wire, the trap stayed shut; two, the level threw on `trapIndexMap`
          * and never opened (BASELINE-ISSUES.md, UB-2 and UB-1). jc-24 re-applies jc-15's Fix 1 alone on
          * that baseline (MSLevel's constructor builds both trap maps before the press), so these are
-         * ordinary checks again. Fixes 2 and 4 are back too (sections 7 and 10, jc-25 and jc-26); Fix 3
-         * stays reverted, and ConnectionTest section 4 (Lynx) still pins it. */
+         * ordinary checks again. Fixes 2, 4 and 3 followed, one per release (sections 7 and 10,
+         * jc-25 and jc-26; ConnectionTest section 4, Lynx, jc-27), so all four are back. */
         for (int wires = 1; wires <= 2; wires++) {
             final int w = wires;
             String n = w == 1 ? "one wire" : "two wires";

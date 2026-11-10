@@ -55,9 +55,6 @@ public class ConnectionTest {
 
     private static int idx(int x, int y) { return 32 * y + x; }
 
-    /** Upstream v2.0.3's Lynx isTrapOpen on a position no button is wired to (section 4). */
-    private static final String UPSTREAM_LYNX_NPE = "throws NullPointerException (getList found no buttons)";
-
     /**
      * The target index of the button at (x,y), or -1 when there is no button there.
      *
@@ -82,6 +79,12 @@ public class ConnectionTest {
         List<BrownButton> at = level.getTrapButtons().getList(new Position(x, y));
         if (at != null) for (BrownButton b : at) out.add(b.getButtonPosition().getIndex());
         return out;
+    }
+
+    /** What isTrapOpen answers at (x,y): "open", "shut", or "throws " and what it threw. */
+    private static String trapAnswer(Level level, int x, int y) {
+        try { return level.isTrapOpen(new Position(x, y)) ? "open" : "shut"; }
+        catch (Throwable t) { return "throws " + t; }
     }
 
     /** The single brown button at (x,y), or null. Fails loudly rather than throwing on absence. */
@@ -178,6 +181,9 @@ public class ConnectionTest {
             Path d4 = dir("trapmap-" + rs);
             DatBuilder b4 = new DatBuilder().signature(rs == Ruleset.MS ? DatBuilder.SIG_MS : DatBuilder.SIG_LYNX);
             b4.level().title("Index")
+              .tile(21, 21, Tile.TRAP).tile(2, 2, Tile.TRAP)    // real tiles at both ends of
+              .tile(20, 20, Tile.BUTTON_BROWN).tile(1, 1, Tile.BUTTON_BROWN)   // every wire,
+              .tile(5, 9, Tile.BUTTON_BROWN)                    // nothing standing on any of them
               .trap(20, 20, 21, 21)     // two buttons, one trap
               .trap(1, 1, 21, 21)
               .trap(5, 9, 2, 2)         // and a trap of its own
@@ -194,21 +200,48 @@ public class ConnectionTest {
             /* A position no button is wired to is simply shut. MS always answered that; Lynx threw
              * a NullPointerException after 858dbd0, and jc-15 to jc-18 guarded it.
              *
-             * ⚠ UPSTREAM BASELINE (jc-19): Lynx's guard for this was REVERTED to match upstream v2.0.3,
-             * which throws NullPointerException here (FORK.md, "The upstream baseline"), so the Lynx
-             * case is pinned at exactly that NPE -- the button list getList() finds for the position
-             * is null -- and any other throw is a regression; MS's version answers shut either way. */
-            String answer;
-            try { answer = l4.isTrapOpen(new Position(7, 7)) ? "open" : "shut"; }
-            catch (NullPointerException e) {
-                answer = String.valueOf(e.getMessage()).contains("getList") ? UPSTREAM_LYNX_NPE : "throws " + e;
+             * FIX LAYER (jc-27): the upstream baseline (jc-19 to jc-26) pinned the Lynx case at that
+             * NullPointerException (BASELINE-ISSUES.md, UB-4). jc-15's Fix 3 is re-applied alone, so
+             * both rulesets are an ordinary check again. Whatever is thrown is in the detail. */
+            Harness.eq(rs + ": isTrapOpen on an unwired position answers shut rather than throwing",
+                       trapAnswer(l4, 7, 7), "shut");
+            /* And a wired trap with nothing on either of its buttons is shut: nothing presses them.
+             * Under Lynx this is the path past that guard, which no test outside this section reaches. */
+            Harness.eq(rs + ": isTrapOpen on a wired trap with no button held answers shut",
+                       trapAnswer(l4, 21, 21), "shut");
+            if (rs == Ruleset.LYNX) {
+                /* ...and open while something rests on either of its buttons. REFERENCE: Tile World's
+                 * lxlogic.c keeps no open/shut bit for a Lynx trap; at the end of every tick it springs
+                 * the trap wired to any brown button a creature is at rest on (`floorat(cr->pos) ==
+                 * Button_Brown && cr->moving <= 0` -> springtrap(); a creature with no move still gets
+                 * there, advancecreature() returning +1), Chip included, and a block is a creature in
+                 * Lynx. So a resting block or Chip on a wired button holds its trap open, and that is
+                 * what this checks. (Upstream 858dbd0's method asks something broader -- any creature
+                 * whose POSITION is a wired button, so also one still moving onto it, and every trap a
+                 * button is wired to, where the engine springs only its first; BASELINE-ISSUES.md,
+                 * "NOT introduced". Nothing in the program reads the answer, and these fixtures stay
+                 * where the two agree.) Each occupant goes on EACH button in turn, because the order a
+                 * trap's buttons are listed in comes from a HashMap: a loop that stops at the first
+                 * button fails one of the two whatever that order is, as does one asking about the
+                 * trap end of the wire, one that never answers open, or one that leaves Chip out. */
+                int[][] buttonsAt = { {20, 20}, {1, 1} };
+                for (Tile occupant : new Tile[]{ Tile.BLOCK, Tile.CHIP_DOWN }) {
+                    for (int[] at : buttonsAt) {
+                        Path d4h = dir("trapheld-" + occupant.name() + "-" + at[0] + "-" + at[1]);
+                        DatBuilder b4h = new DatBuilder().signature(DatBuilder.SIG_LYNX);
+                        DatBuilder.Level lv = b4h.level().title("Held").tile(21, 21, Tile.TRAP);
+                        for (int[] b : buttonsAt) {
+                            if (b == at) lv.tile(b[0], b[1], occupant).under(b[0], b[1], Tile.BUTTON_BROWN);
+                            else         lv.tile(b[0], b[1], Tile.BUTTON_BROWN);
+                        }
+                        lv.trap(20, 20, 21, 21).trap(1, 1, 21, 21).end();
+                        Level held = new DatParser(b4h.writeTo(d4h, "held.dat").toFile())
+                                .parseLevel(1, 0, Step.EVEN, rs, Direction.UP);
+                        Harness.eq(rs + ": isTrapOpen with " + occupant.name() + " resting on its button at ("
+                                   + at[0] + "," + at[1] + ") answers open", trapAnswer(held, 21, 21), "open");
+                    }
+                }
             }
-            catch (Throwable t) { answer = "throws " + t; }
-            String what = rs + ": isTrapOpen on an unwired position answers shut rather than throwing";
-            if (rs == game.Ruleset.LYNX)
-                Harness.upstreamBug(what, answer, UPSTREAM_LYNX_NPE, "shut");
-            else
-                Harness.eq(what, answer, "shut");
         }
 
         Harness.section("5. one button may control several targets");

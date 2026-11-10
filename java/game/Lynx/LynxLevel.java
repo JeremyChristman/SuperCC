@@ -300,7 +300,18 @@ public class LynxLevel extends LynxSavestate implements Level {
 
     @Override
     public boolean isTrapOpen(Position position) {
-        for (BrownButton b : trapButtons.getList(position)) {
+        /* MOD (Jeremy, fix layer, UB-4): a position no brown button is wired to has no list, and
+         * iterating null threw a NullPointerException (since upstream's trap rework, 858dbd0).
+         * MSLevel's version already answers shut there, and so does this. Unreachable in play: Lynx
+         * springs traps through LynxCreatureList.springTrappedCreature, and the one caller of this,
+         * BrownButton.isOpen, is called by nothing in the jar (only by the tests). (858dbd0 also
+         * changed what this asks -- a creature on a wired BUTTON, where it used to be a creature IN
+         * the trap -- which, for the same reason, nothing in play sees.) jc-15's Fix 3, re-applied
+         * alone on the upstream baseline. */
+        List<BrownButton> buttons = trapButtons.getList(position);
+        if (buttons == null)
+            return false;
+        for (BrownButton b : buttons) {
             if (monsterList.creatureAt(b.getButtonPosition(), true) != null)
                 return true;
         }
@@ -350,7 +361,7 @@ public class LynxLevel extends LynxSavestate implements Level {
         setLevelWon(false); //Each tick sets the level won state to false so that even when rewinding unless you stepped into the exit the level is not won
         turnTanks = false;
 
-        monsterList.initialise();
+        monsterList.initialise();  // aen-exempt: upstream method name
         monsterList.tick(); //select monster moves
         Tile chipTileOld = layerFG.get(chip.getPosition());
         int discard = 0;
