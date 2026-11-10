@@ -316,8 +316,8 @@ public class MsCloneTrapTest {
          * v2.0.3's answers -- one wire, the trap stayed shut; two, the level threw on `trapIndexMap`
          * and never opened (BASELINE-ISSUES.md, UB-2 and UB-1). jc-24 re-applies jc-15's Fix 1 alone on
          * that baseline (MSLevel's constructor builds both trap maps before the press), so these are
-         * ordinary checks again. Fix 2 is back too (section 7, jc-25); Fixes 3 and 4 stay reverted:
-         * section 10 here, and ConnectionTest section 4 (Fix 3, Lynx), still pin them. */
+         * ordinary checks again. Fixes 2 and 4 are back too (sections 7 and 10, jc-25 and jc-26); Fix 3
+         * stays reverted, and ConnectionTest section 4 (Lynx) still pins it. */
         for (int wires = 1; wires <= 2; wires++) {
             final int w = wires;
             String n = w == 1 ? "one wire" : "two wires";
@@ -550,17 +550,18 @@ public class MsCloneTrapTest {
          * "Save all states to disk" writes savestates into a .ser file, trap bits included, so the
          * NUMBER a trap is stored under is a file format. Before 858dbd0 each wire had a bit,
          * numbered by its record in the .dat. Upstream's rework numbered traps by HashMap order;
-         * jc-15 to jc-18 numbered each trap by its first wire's record instead (a map built in
-         * LevelFactory, removed for the baseline), so a .ser from jc-14 or earlier loaded right
-         * wherever a trap has one wire, and what they saved loads right in jc-14.
+         * jc-15 to jc-18, and jc-26 on, number each trap by its first wire's record instead
+         * (LevelFactory.getTrapIndexMap; removed for the baseline, jc-19 to jc-25), so a .ser from
+         * jc-14 or earlier loads right wherever a trap has one wire, and what they save loads right
+         * in jc-14.
          *
          * Read straight out of the savestate bytes, at the offset MSSavestate.save() documents --
          * if that layout ever moves, this fails loudly, which is wanted: so would every .ser.
          *
-         * ⚠ UPSTREAM BASELINE (jc-19): this fix was REVERTED to match upstream v2.0.3, which numbers
-         * traps by HashMap order (FORK.md, "The upstream baseline"). The assertions upstream's
-         * numbering fails are pinned with upstreamBug, at upstream's measured answer (the one-wire
-         * trap is bit 1, and jc-14's bits 0 and 1 open BOTH traps); the others happen to agree. */
+         * FIX LAYER (jc-26): the upstream baseline (jc-19 to jc-25) numbered traps in HashMap order
+         * and pinned the three assertions that numbering fails (the one-wire trap was bit 1, and
+         * jc-14's bits 0 and 1 opened BOTH traps; BASELINE-ISSUES.md, UB-5). jc-15's Fix 4 is
+         * re-applied alone (LevelFactory.getTrapIndexMap), so all of them are ordinary checks again. */
         Level saved = msLevel("Saved", b -> b
                 .tile(15, 15, Tile.CHIP_DOWN)
                 .tile(21, 21, Tile.TRAP).tile(2, 2, Tile.TRAP)
@@ -574,21 +575,28 @@ public class MsCloneTrapTest {
         Harness.eq("nothing is open at the start", trapBits(blank), "{}");
 
         brown(saved, 5, 9).press(saved);
-        Harness.upstreamBug("a trap with one wire, at record 2, is saved as bit 2", trapBits(saved.save()), "{1}", "{2}");
+        Harness.eq("a trap with one wire, at record 2, is saved as bit 2", trapBits(saved.save()), "{2}");
         brown(saved, 5, 9).release(saved);
         brown(saved, 20, 20).press(saved);
         Harness.eq("a trap with two wires is saved under its FIRST wire's record, bit 0",
                    trapBits(saved.save()), "{0}");
 
-        /* And the other direction: what jc-14 wrote. For an open trap with two wires it set BOTH
-         * wires' bits; for the one-wire trap, its record's bit. */
+        /* And the other direction: what jc-14 wrote. jc-14 had a bit per wire, and its end-of-tick
+         * update set the bit of each wire whose button was held and cleared the others while the trap
+         * was empty -- so an open two-wire trap could be saved with either wire's bit, or both. */
         saved.load(withTrapBits(blank, 0, 1));
         Harness.check("a jc-14 state with the shared trap open loads it open",
                       saved.isTrapOpen(new Position(21, 21)));
-        Harness.upstreamBug("and leaves the other trap shut", !saved.isTrapOpen(new Position(2, 2)));
+        Harness.check("and leaves the other trap shut", !saved.isTrapOpen(new Position(2, 2)));
         saved.load(withTrapBits(blank, 2));
-        Harness.upstreamBug("a jc-14 state with the one-wire trap open loads THAT one open",
+        Harness.check("a jc-14 state with the one-wire trap open loads THAT one open",
                       saved.isTrapOpen(new Position(2, 2)) && !saved.isTrapOpen(new Position(21, 21)));
+        /* The documented cost (FORK.md step 1, since jc-15): only the FIRST wire's bit is read now, so a
+         * jc-14 state saved while only a LATER wire's button held the trap open restores it SHUT. Pinned
+         * as a plain check so that a change to it is seen; it is not a defect to fix in passing. */
+        saved.load(withTrapBits(blank, 1));
+        Harness.check("a jc-14 state with only the SECOND wire's bit set loads that trap shut (the cost)",
+                      !saved.isTrapOpen(new Position(21, 21)) && !saved.isTrapOpen(new Position(2, 2)));
     }
 
     /** Offset of the trap-bit length in an MS savestate, per MSSavestate.save()'s layout: version,
