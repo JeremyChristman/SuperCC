@@ -26,7 +26,7 @@ How to keep it:
 | UB-1 | MS levels with a trap that starts with Chip or a block on it, wired to 2+ buttons, do not open | anyone opening such a level; 5 levels in the collection | `79b0032`, jc-19 | **FIXED in `0cd4140` (jc-24)** |
 | UB-2 | ...and wired to 1 button, that trap starts SHUT (MSCC and Tile World start it open) | anyone playing such a level; 6 solved routes lost, 2 unsolved changed | `79b0032`, jc-19 | **FIXED in `0cd4140` (jc-24)** |
 | UB-3 | An empty trap with 2+ buttons, one held: open or shut depending on hash order | none seen in a real route | `79b0032`, jc-19 | **FIXED in `be0d0fb` (jc-25)** |
-| UB-4 | Lynx `isTrapOpen` throws on a position no button is wired to | code only; nothing in the game asks | `79b0032`, jc-19 | open |
+| UB-4 | Lynx `isTrapOpen` throws on a position no button is wired to | code only; nothing in the game asks | `79b0032`, jc-19 | **FIXED in `dc3bb11` (jc-27)** |
 | UB-5 | Trap bits in a `.ser` savestate are numbered by hash order | anyone loading a `.ser` saved by another build | `79b0032`, jc-19 | **FIXED in `d974875` (jc-26)** |
 | UB-6 | A tick that reports both "discard" and "automatic ticks" is recorded as a wait, so the route saves short | nobody today: no real tick does that | `923d07c`, ships in jc-20 | open (latent) |
 | UB-7 | Seed Search with a negative start: one thread does all the work | anyone typing a negative start | `397c7bb`, ships in jc-20 | open |
@@ -57,12 +57,11 @@ How to keep it:
 
 ## The trap code (`79b0032`, released in jc-19)
 
-The fork's four fixes to upstream's trap rework (`858dbd0`), merged in jc-15, were reverted. Three
-are back, one per release (the fix layer): Fix 1 in jc-24 (`0cd4140`, UB-1 and UB-2 below), Fix 2 in
-jc-25 (`be0d0fb`, UB-3) and Fix 4 in jc-26 (`d974875`, UB-5). Fix 3, still reverted, goes back by
-hand from `79b0032`'s diff when its turn comes; a whole `git revert 79b0032` no longer applies cleanly, since jc-24 rewrote the same
-lines of `MSLevel`'s constructor. FORK.md step 1 has the full engineering record, and *The fix layer*
-how each fix goes back.
+The fork's four fixes to upstream's trap rework (`858dbd0`), merged in jc-15, were reverted. **All
+four are back**, one per release (the fix layer), each by hand from `79b0032`'s diff: Fix 1 in jc-24
+(`0cd4140`, UB-1 and UB-2 below), Fix 2 in jc-25 (`be0d0fb`, UB-3), Fix 4 in jc-26 (`d974875`,
+UB-5) and Fix 3 in jc-27 (`dc3bb11`, UB-4). No trap issue is open; UB-29, the cost of Fix 4, is
+accepted. FORK.md step 1 has the full engineering record, and *The fix layer* how each fix went back.
 
 ### UB-1 — a level with an occupied trap wired to two or more buttons does not open
 
@@ -121,10 +120,22 @@ jc-24 is unchanged, as expected for a latent defect.
 
 ### UB-4 — Lynx `isTrapOpen` throws on an unwired position
 
-- **What a user sees:** nothing. Inside the game the question is only ever asked about a wired
-  position (through `BrownButton`), and every Lynx route replays unchanged.
-- **Fix:** answer "shut" when no button is wired there (jc-15's Fix 3), as MS does.
-- **Pinned by:** `ConnectionTest` §4 (the exact `NullPointerException`).
+**Status: FIXED in `dc3bb11` (jc-27).** It answers shut there now, as MS always did; the corpus
+against jc-26 is unchanged, as expected for code nothing in play reaches.
+
+- **What a user saw:** nothing. Nothing in the program asks a Lynx level this question: Lynx springs
+  traps through `LynxCreatureList.springTrappedCreature`, and the method's one caller,
+  `BrownButton.isOpen`, is called by nothing in the jar (checked in jc-26's and jc-27's built jars;
+  only the tests call it). Every Lynx route replayed unchanged throughout.
+- **Fix:** answer "shut" when no button is wired there (jc-15's Fix 3), as MS does. Re-applied alone
+  in jc-27.
+- **Checked by:** `ConnectionTest` §4 (pinned at the exact `NullPointerException` from jc-19 to jc-26;
+  an ordinary check from jc-27, failing on jc-26's jar and nowhere else), plus checks that a wired
+  trap with nothing on its buttons is shut and, under Lynx, open with a block or Chip resting on
+  either of its buttons (Tile World's `lxlogic.c` springs a Lynx trap every tick something rests on
+  a wired button): the path past the guard, which no test reached under Lynx before. (What the
+  method answers for a creature still moving, or a button wired to two traps, is upstream's and
+  differs from what the engine does; see the last section.)
 
 ### UB-5 — `.ser` trap bits are numbered by hash order
 
@@ -621,3 +632,13 @@ are not lost.
   "what a build saves loads right in the others" holds for states played in that build. In upstream
   and in every fork build (jc-15 to jc-18 kept the bits the same way); raised by the jc-26 review,
   verified in the code, not measured. The maintainer has no `.ser` files.
+- **Lynx `isTrapOpen` answers a broader question than the one the Lynx engine acts on.** Since
+  upstream's trap rework (`858dbd0`, kept from jc-15) it asks whether any creature's POSITION is a
+  button wired to the trap. The engine springs a trap only once a creature has ARRIVED on a button
+  (`getTimeTraveled() == 0`, in `LynxCreatureList.tick` and `LynxLevel.moveChip`, as Tile World's
+  `lxlogic.c` waits for `cr->moving <= 0`), and only the trap on that button's FIRST wire
+  (`getBrownButtons().get`). So it answers open for a creature still moving onto a button, and for
+  every trap a held button is wired to. Nothing in the program reads the answer -- its one caller,
+  `BrownButton.isOpen`, is called by nothing in the jar -- so no route is affected; jc-27's Fix 3
+  changed only the unwired case, and its tests pin only a creature at rest on a single-wired
+  button, where the two agree. Raised by the jc-27 review; verified in the code, not measured.

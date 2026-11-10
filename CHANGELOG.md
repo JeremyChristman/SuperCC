@@ -12,6 +12,28 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## jc-27 — 2026-11-09 (the fix layer: trap Fix 3; all four trap fixes back)
+
+The fourth and last trap fix goes back on the upstream baseline. It closes UB-4 in
+[`BASELINE-ISSUES.md`](BASELINE-ISSUES.md); every trap issue the baseline brought back (UB-1 to
+UB-5) is now fixed. No stored solution changes.
+
+### Fixed
+- **Lynx `isTrapOpen` answers shut on a position no brown button is wired to (`dc3bb11`, UB-4)**,
+  as MS always did, instead of throwing a `NullPointerException` from a null list (jc-15's Fix 3,
+  re-applied alone). Unreachable in play: Lynx springs traps through
+  `LynxCreatureList.springTrappedCreature`, and the method's one caller, `BrownButton.isOpen`, is
+  called by nothing in the jar. Corpus against jc-26: 24,212 of 24,212 identical.
+
+### Changed (tests only)
+- `ConnectionTest` §4's `upstreamBug` pin is a check again, plus a check that a wired trap with
+  nothing on its buttons is shut, and under Lynx four that it is open with a block or Chip resting
+  on either of its buttons, as Tile World's `lxlogic.c` springs a Lynx trap (the path past the guard
+  and the loop's open answer, which no test reached; four defects planted in that loop each fail
+  them, whatever order the trap's buttons are listed in). On jc-26's jar exactly the converted
+  check fails. Suite 2,340 assertions, 84 pins. Coverage re-baselined: target 57.0% (1523/2670), `game\Lynx\**` 63.5%
+  (466/734).
+
 ## jc-26 — 2026-11-09 (the fix layer: trap Fix 4)
 
 The third trap fix goes back on the upstream baseline. It closes UB-5 in

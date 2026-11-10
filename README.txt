@@ -1,5 +1,5 @@
 ==============================================================================
-  SuperCC  --  Jeremy Christman's fork                      build jc-26
+  SuperCC  --  Jeremy Christman's fork                      build jc-27
 ==============================================================================
 
   1. What this is
@@ -593,6 +593,22 @@ AlwaysOpenInMS  Whether every level set opens under the MS ruleset, no matter
 Releases from jc-2 on carry a jc-N tag in the repository. The title bar, when
 ShowBuildTag is on, shows the build tag compiled into the jar, which matches
 the tag for that release. Newest first.
+
+
+jc-27  --  All four trap fixes are back
+-----------------------------------------
+
+  * THE FOURTH AND LAST TRAP FIX ON TOP OF UPSTREAM. Under Lynx, asking
+    whether a trap is open about a square no brown button is wired to
+    now answers "shut", as MS always has, instead of failing with an
+    internal error. Nothing in the game ever asks that question, so
+    nothing you see or play changes: every one of the 24,212 stored
+    solutions replays exactly as on jc-26.
+
+  * With this, every trap problem that the return to upstream brought
+    back in jc-19 is fixed (UB-1 to UB-5 in BASELINE-ISSUES.md in the
+    repository). The savestate-file cost described under jc-26 (UB-29)
+    stays as described there.
 
 
 jc-26  --  Savestate files store traps the way jc-18 and earlier did

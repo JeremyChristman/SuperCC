@@ -332,7 +332,7 @@ taken. JaCoCo is a test-time tool cached under `%LOCALAPPDATA%\jacoco\<version>\
 dependency**, never committed, never shipped. Output goes to `coverage-report\` (gitignored);
 `coverage.csv` is the evidence behind every percentage below.
 
-As of jc-26, with all 2,334 assertions passing (85 of them `upstreamBug` pins, §6) and 6 skipped —
+As of jc-27, with all 2,340 assertions passing (84 of them `upstreamBug` pins, §6) and 6 skipped —
 counts for a machine with 4 or more CPUs. `SeedSearchTest` §3 makes one pin per search thread, so a
 3-CPU run has one pass and pin fewer and a 2-CPU run two; at 1 CPU §3 and §2's pin are skipped
 (measured: 7 passes and 6 pins fewer, 2 skips more) — **measured on JDK 16.0.2** (16.0.2+7-67 on the desktop; Temurin 16.0.2+7, what CI pins, gives the
@@ -340,16 +340,16 @@ same figures):
 
 | scope | branch | line | branches |
 |---|---|---|---|
-| **`game\**` + `io\**` — THE TARGET** | **56.9%** | 71.3% | 1517/2668 |
-| &nbsp;&nbsp;`game\**` (the emulator) | 53.6% | 67.8% | 1204/2245 |
+| **`game\**` + `io\**` — THE TARGET** | **57.0%** | 71.4% | 1523/2670 |
+| &nbsp;&nbsp;`game\**` (the emulator) | 53.8% | 68.0% | 1210/2247 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\MS\**` | 47.7% | 62.6% | 558/1170 |
-| &nbsp;&nbsp;&nbsp;&nbsp;`game\Lynx\**` | 62.8% | 70.6% | 460/732 |
+| &nbsp;&nbsp;&nbsp;&nbsp;`game\Lynx\**` | 63.5% | 71.3% | 466/734 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 54.2% | 73.0% | 186/343 |
 | &nbsp;&nbsp;`io\**` (file formats) | 74.0% | 81.4% | 313/423 |
 | `emulator\**` | 30.2% | 34.0% | 134/444 |
 | `tools\**` + `graphics\**` — *not a target* | 2.7% | 9.0% | 52/1919 |
 
-**Read this correctly.** Whole-project branch coverage is 30.3% (1815/5997), and that number is
+**Read this correctly.** Whole-project branch coverage is 30.4% (1821/5999), and that number is
 meaningless: 15 form-based classes can be rebuilt here only by copying IntelliJ's output (ADR 0010), `tools\**`
 is 35 files of upstream code this fork does not modify, `graphics\**` is Swing with no headless test
 story, and the rest is vendored `org.json` / `com.intellij`. What this fork can break is the engine
@@ -360,7 +360,7 @@ spliced class is compiled by your `javac`, and `build-config.ps1` already notes 
 not emit identical bytecode to javac 16. That was once only the five `io\**` classes (`ErrorLog`,
 `LevelFactory`, `SuccPaths`, `TWSReader`, `TWSWriter`, 382 branches at jc-15, 386 now). Since the upstream
 trap merge (2026-11-02) it is also `MSCreature`, `MSLevel` and `LynxLevel` (plus `Level` and
-`BrownButton`, which have none): another 1,160 branches — 1,546 of the target's 2,668 in all. Only the rest comes from the committed
+`BrownButton`, which have none): another 1,162 branches — 1,548 of the target's 2,670 in all. Only the rest comes from the committed
 baseline and is byte-identical on every machine. A figure that differs slightly on another JDK is not
 a bug, but it is not the baseline either: `docs/coverage-baseline.tsv` and the table above are
 measured on 16.0.2, what CI and the release workflow pin. A machine without it does not need an
@@ -368,9 +368,9 @@ install: jc-15's baseline was taken on the laptop (JDK 18) from Temurin 16.0.2+7
 uses, checked against Adoptium's published SHA-256 — unpacked to a scratch folder, with `JAVA_HOME`
 pointed at it for the one command. `build-config.ps1` lets `JAVA_HOME` win.
 
-**56.9% is a floor to build on, not a passing grade**, and the split says where the work is:
+**57.0% is a floor to build on, not a passing grade**, and the split says where the work is:
 
-- **Lynx is ahead now — MS 47.7%, Lynx 62.8% — and both took deliberate work.**
+- **Lynx is ahead now — MS 47.7%, Lynx 63.5% — and both took deliberate work.**
   Four Lynx files built that side (the move-preference table `LynxCreatureMoveTest`, the entry rules
   `LynxCanEnterTest`, the creature list `LynxCreatureListTest`, the movement engine `LynxTickTest`,
   all against `lxlogic.c`); three MS files closed the gap (`MsTryEnterTest`, `MsCreatureListTest`,
@@ -517,7 +517,8 @@ built. (The rework was merged on 2026-11-02 with that fix and three more; `MsClo
 carry the fixtures that were missing, and each fails on the build it guards against. On 2026-11-08
 the four fixes were reverted for the upstream baseline (§6): those fixtures became `upstreamBug`
 pins and the corpus against jc-18 showed the same 13 differences again, on 24,212. jc-24 put Fix 1
-back alone: §6 is ordinary checks again, and the corpus against jc-18 is 24,212 of 24,212 identical.)
+back alone: §6 is ordinary checks again, and the corpus against jc-18 is 24,212 of 24,212 identical.
+Fixes 2, 4 and 3 followed in jc-25 to jc-27, each moving no stored route.)
 
 The corpus compares FINAL STATES, so it is blind to a change in what gets *recorded*. Upstream's
 input discarding (step 2) is the worked example: identical on all 24,204 solutions, yet 40 Lynx move
@@ -733,8 +734,8 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
 - **The committed `.class` baseline.** It is not build output that escaped `.gitignore`. See §1.
 - **Upstream's code is kept exactly — bugs included — on purpose (2026-11-08 on).** Jeremy is
   returning the fork to upstream one deviation at a time before layering fixes back on top (FORK.md,
-  *The upstream baseline*, which lists every step). Reverted: the trap code (`79b0032`; its Fix 1
-  is back from jc-24 — **the baseline was declared done on 2026-11-09 and fixes now go back one at a
+  *The upstream baseline*, which lists every step). Reverted: the trap code (`79b0032`; all four of
+  its fixes are back, one per release, jc-24 to jc-27 — **the baseline was declared done on 2026-11-09 and fixes now go back one at a
   time, FORK.md *The fix layer*; follow that procedure: a baseline commit that bundled several
   fixes comes back fix by fix, by hand, never as one whole `git revert`**),
   `SuperCC.tick`'s recorder (`923d07c`: upstream writes a wait on ANY discarded tick, even one that
@@ -757,15 +758,14 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
   an empty trap with a held button is open whatever the hash order; jc-26's Fix 4 (UB-5) numbers
   each trap's savestate bit by its first wire's record (`LevelFactory.getTrapIndexMap`), so a `.ser`
   from jc-19 to jc-25 can load a trap wrong in jc-26 -- UB-29, accepted and documented, not a bug
-  to chase. Still
-  upstream's on purpose: Lynx `isTrapOpen` throws on an unwired position (UB-4).
-  Do not fix that in passing: it comes back as its own fix-layer step, and then this bullet,
-  FORK.md's table, the coverage baseline (§4: `-UpdateBaseline`, the table, the pin count) are
-  updated to match. The tests that pin the bug use `Harness.upstreamBug` — each passes only on
-  upstream's own measured answer, fails "the correct answer came back" on the correct one, and
-  fails as a regression on anything else. "The correct answer came back" is the cue to turn the
-  pin back into a `check()` (if a fix was re-applied) or to find what moved (if not, e.g. hash
-  order in `MsCloneTrapTest` §7) — never to restore the bug.
+  to chase; jc-27's Fix 3 (UB-4) makes Lynx `isTrapOpen` answer shut on an unwired position
+  instead of throwing. No trap bug is kept now. The bugs still kept elsewhere are pinned by tests
+  using `Harness.upstreamBug`; do not fix one in passing: it comes back as its own fix-layer step,
+  and then this bullet, FORK.md's table and the coverage baseline (§4: `-UpdateBaseline`, the
+  table, the pin count) are updated to match. Each pin passes only on upstream's own measured
+  answer, fails "the correct answer came back" on the correct one, and fails as a regression on
+  anything else. "The correct answer came back" is the cue to turn the pin back into a `check()`
+  (if a fix was re-applied) or to find what moved (if not) — never to restore the bug.
 - **With no level set open, 29 menu controls fail — on purpose, for now (jc-21).** The menus are
   upstream's again (`c57f217`, UB-11): `72476bc` guards six Level items by hand, and jc-17's
   `MenuBar.requireALevel()`, which wrapped every menu's listeners so a new item was covered
