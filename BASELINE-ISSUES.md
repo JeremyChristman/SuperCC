@@ -27,7 +27,7 @@ How to keep it:
 | UB-2 | ...and wired to 1 button, that trap starts SHUT (MSCC and Tile World start it open) | anyone playing such a level; 6 solved routes lost, 2 unsolved changed | `79b0032`, jc-19 | **FIXED in `0cd4140` (jc-24)** |
 | UB-3 | An empty trap with 2+ buttons, one held: open or shut depending on hash order | none seen in a real route | `79b0032`, jc-19 | **FIXED in `be0d0fb` (jc-25)** |
 | UB-4 | Lynx `isTrapOpen` throws on a position no button is wired to | code only; nothing in the game asks | `79b0032`, jc-19 | open |
-| UB-5 | Trap bits in a `.ser` savestate are numbered by hash order | anyone loading a `.ser` saved by another build | `79b0032`, jc-19 | open |
+| UB-5 | Trap bits in a `.ser` savestate are numbered by hash order | anyone loading a `.ser` saved by another build | `79b0032`, jc-19 | **FIXED in `d974875` (jc-26)** |
 | UB-6 | A tick that reports both "discard" and "automatic ticks" is recorded as a wait, so the route saves short | nobody today: no real tick does that | `923d07c`, ships in jc-20 | open (latent) |
 | UB-7 | Seed Search with a negative start: one thread does all the work | anyone typing a negative start | `397c7bb`, ships in jc-20 | open |
 | UB-8 | Seed Search's threads race at the start: "running" can drop mid-search, a Pause can be undone | anyone, mostly on short searches | `397c7bb`, ships in jc-20 | open |
@@ -51,16 +51,18 @@ How to keep it:
 | UB-26 | With Auto diagonals on, the move is made from a background thread, beside the one that draws and takes input | anyone with Auto diagonals on; no clash seen | `d08e6ef`, ships in jc-23 | open |
 | UB-27 | With Auto diagonals on, a key let go while the main window does not have the keyboard stays "held" | anyone with Auto diagonals on | `d08e6ef`, ships in jc-23 | open |
 | UB-28 | `AutoDiagonals = 1` is OFF, and a value read as OFF is usually written back as it was, so the file can look ON | anyone editing the file by hand | `d08e6ef`, ships in jc-23 | open |
+| UB-29 | A `.ser` savestate saved by jc-19 to jc-25 can load a trap wrong in other builds (two or more traps) | anyone keeping such a file; none in the maintainer's collection | `79b0032` (jc-19), exposed by jc-26 | open, accepted |
 
 ---
 
 ## The trap code (`79b0032`, released in jc-19)
 
-The fork's four fixes to upstream's trap rework (`858dbd0`), merged in jc-15, were reverted. Fix 1
-came back in jc-24 (`0cd4140`, the fix layer: UB-1 and UB-2 below), and Fix 2 after it in jc-25 (`be0d0fb`,
-UB-3). Fixes 3 and 4 are re-applied by hand, one at a time, from `79b0032`'s diff; a whole `git revert 79b0032` no longer applies cleanly,
-since jc-24 rewrote the same lines of `MSLevel`'s constructor. FORK.md step 1 has the full
-engineering record, and *The fix layer* how each fix goes back.
+The fork's four fixes to upstream's trap rework (`858dbd0`), merged in jc-15, were reverted. Three
+are back, one per release (the fix layer): Fix 1 in jc-24 (`0cd4140`, UB-1 and UB-2 below), Fix 2 in
+jc-25 (`be0d0fb`, UB-3) and Fix 4 in jc-26 (`d974875`, UB-5). Fix 3, still reverted, goes back by
+hand from `79b0032`'s diff when its turn comes; a whole `git revert 79b0032` no longer applies cleanly, since jc-24 rewrote the same
+lines of `MSLevel`'s constructor. FORK.md step 1 has the full engineering record, and *The fix layer*
+how each fix goes back.
 
 ### UB-1 — a level with an occupied trap wired to two or more buttons does not open
 
@@ -76,7 +78,8 @@ exit (IsaacD1-Old #116's is an unfinished attempt). Measured on the whole collec
 - **Cause:** `MSLevel`'s constructor pressed every trap that starts holding Chip, a block or an ice
   block *before* it built its trap index; the second wire's press read the null map.
 - **Fix:** build `trapButtons` and `trapIndexMap` before the start-of-level press (jc-15's Fix 1).
-  Re-applied alone in jc-24; upstream's hash-order trap numbering is untouched (UB-5 stays open).
+  Re-applied alone in jc-24, leaving upstream's hash-order trap numbering alone (that was UB-5, fixed
+  in jc-26).
 - **Checked by:** `MsCloneTrapTest` §6, the two-wire cases (pinned at upstream's crash from jc-19 to
   jc-23; ordinary checks again from jc-24).
 
@@ -125,13 +128,40 @@ jc-24 is unchanged, as expected for a latent defect.
 
 ### UB-5 — `.ser` trap bits are numbered by hash order
 
-- **What a user sees:** a savestate file saved by an earlier build may load with a trap wrongly open
-  or shut: one from jc-15 to jc-18 on a level with more than one trap; one from jc-14 or earlier also
-  wherever a trap has two or more buttons. And states saved now may load wrongly in those builds.
+**Status: FIXED in `d974875` (jc-26).** Each trap's bit is its first wire's record index again, so
+`.ser` files from jc-15 to jc-18 load right, and those from jc-14 and earlier wherever each trap has
+one wire; a state played in jc-26 and saved loads right in all of them (one loaded from another
+build's file keeps that file's extra bits; see the last section). On a trap with two or more wires a jc-14
+state saved while only a later wire's button held it loads that trap shut -- the cost FORK.md step
+1 has documented since jc-15, now pinned by a check in `MsCloneTrapTest` §10. The reverse cost,
+`.ser` files saved by jc-19 to jc-25, is UB-29. The maintainer's Dropbox holds no `.ser` file at
+all (searched 2026-11-09). No stored route changes.
+
+- **What a user saw (jc-19 to jc-25):** a savestate file saved by an earlier build could load with a
+  trap wrongly open or shut: one from jc-15 to jc-18 on a level with more than one trap; one from
+  jc-14 or earlier also wherever a trap has two or more buttons. And states saved then may load
+  wrongly in those builds.
 - **Measured:** the collection holds no `.ser` files.
 - **Fix:** number each trap by its first wire's record index, as jc-14's per-wire bits were (jc-15's
   Fix 4, `LevelFactory.getTrapIndexMap`).
-- **Pinned by:** `MsCloneTrapTest` §10.
+- **Checked by:** `MsCloneTrapTest` §10 (its three pins, at upstream's bit numbers from jc-19 to
+  jc-25, are ordinary checks again).
+
+### UB-29 — `.ser` files saved by jc-19 to jc-25 store trap bits in hash order
+
+**Status: open, accepted.** The lasting cost of the baseline's trap numbering, raised by the jc-26
+review so it has a row of its own rather than living inside UB-5.
+
+- **What a user sees:** a savestate file saved by jc-19 to jc-25 (Save all states to disk) can load
+  in jc-26 or later, or in jc-18 or earlier, with a trap wrongly open or shut, on a level with two or
+  more traps where hash order and first-wire order number them differently. The build that saved it
+  still loads it right.
+- **Measured:** the maintainer's Dropbox holds no `.ser` file at all (searched 2026-11-09). How many
+  levels number their traps differently under the two schemes was not counted.
+- **Fix:** none planned. A `.ser` does not record which build wrote it, so jc-26 cannot tell a
+  hash-ordered file from a first-wire one; the README tells a `.ser` owner to load it in the build
+  that saved it. A future savestate version that records its numbering could close it.
+- **Checked by:** nothing (it is a property of files, not of the code jc-26 runs).
 
 ## The move recorder (`923d07c`, ships in jc-20)
 
@@ -582,3 +612,12 @@ are not lost.
   the buttons, and from jc-25 the end-of-tick update opens it again, so no stored route depends on
   it. In upstream since its trap rework, and in every fork build since jc-15 merged it. Raised by
   the jc-25 review; verified in the code, not measured in play.
+- **A loaded `.ser`'s trap bits that belong to no trap are kept, and saved back out.** `MSSavestate`
+  restores the trap bits as they are in the file, and the end-of-tick update only ever touches the
+  bits of known traps, so any other bit set in a file from a different numbering stays set and is
+  written into the next save. It changes nothing in play -- nothing reads those bits -- but a state
+  that started from another build's file can carry that build's bits back to it: load a jc-14 file
+  with only a two-wire trap's second bit set, save it from jc-26, and jc-14 then opens that trap. So
+  "what a build saves loads right in the others" holds for states played in that build. In upstream
+  and in every fork build (jc-15 to jc-18 kept the bits the same way); raised by the jc-26 review,
+  verified in the code, not measured. The maintainer has no `.ser` files.

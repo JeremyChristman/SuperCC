@@ -12,6 +12,30 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## jc-26 — 2026-11-09 (the fix layer: trap Fix 4)
+
+The third trap fix goes back on the upstream baseline. It closes UB-5 in
+[`BASELINE-ISSUES.md`](BASELINE-ISSUES.md). No stored solution changes.
+
+### Fixed
+- **A trap's savestate bit is its first wire's record index again (`d974875`, UB-5).**
+  `LevelFactory.getTrapIndexMap` numbers each trap by the record of the first wire into it, and
+  `MSLevel` takes that map instead of numbering traps in HashMap order (jc-15's Fix 4, re-applied
+  alone). The number is part of the `.ser` file "Save all states to disk" writes, so it must not
+  depend on hashing: `.ser` files from jc-15 to jc-18 load right again, and those from jc-14 and
+  earlier wherever each trap has one wire (on a trap with two or more, one saved while only a later
+  wire's button held it loads it shut, the cost documented since jc-15); a state played in jc-26
+  and saved loads right in all of them (one loaded from another build's file keeps that file's
+  extra bits and saves them back, as jc-15 to jc-18 did). ⚠ The other cost, the same problem in reverse: a `.ser` saved by jc-19 to
+  jc-25 can load with a trap wrongly open or shut, on a level with two or more traps (UB-29). The
+  maintainer's Dropbox holds no `.ser` file at all (searched 2026-11-09). Corpus against jc-25:
+  24,212 of 24,212 identical.
+
+### Changed (tests only)
+- `MsCloneTrapTest` §10's 3 `upstreamBug` pins are checks again, and a new check pins the jc-14
+  two-wire cost and tells the numberings apart; on jc-25's jar exactly those 4 checks fail. Suite 2,334 assertions, 85 pins. Coverage re-baselined: target unchanged at 56.9% (1517/2668);
+  two branches moved from `MSLevel` to `LevelFactory` (`game\MS\**` 558/1170, `io\**` 313/423).
+
 ## jc-25 — 2026-11-09 (the fix layer: trap Fix 2)
 
 The second trap fix goes back on the upstream baseline. It closes UB-3 in

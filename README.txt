@@ -1,5 +1,5 @@
 ==============================================================================
-  SuperCC  --  Jeremy Christman's fork                      build jc-25
+  SuperCC  --  Jeremy Christman's fork                      build jc-26
 ==============================================================================
 
   1. What this is
@@ -593,6 +593,33 @@ AlwaysOpenInMS  Whether every level set opens under the MS ruleset, no matter
 Releases from jc-2 on carry a jc-N tag in the repository. The title bar, when
 ShowBuildTag is on, shows the build tag compiled into the jar, which matches
 the tag for that release. Newest first.
+
+
+jc-26  --  Savestate files store traps the way jc-18 and earlier did
+-----------------------------------------------------------------------
+
+  * THE THIRD FIX ON TOP OF UPSTREAM, AND IT IS ABOUT SAVESTATE FILES
+    (Solution > Save all states to disk, the .ser file). Each trap's
+    open/shut state is stored under a number, and upstream's code chose
+    that number by the order of a hash map. jc-26 numbers each trap by its
+    first brown-button wire in the level file again, as jc-18 and earlier
+    did. So:
+      - .ser files saved by jc-15 to jc-18 load correctly again, and so
+        do ones from jc-14 or earlier wherever each trap has a single
+        brown button (where two or more buttons share a trap, one saved
+        while only a later button held it open loads it shut, as it has
+        since jc-15); a state played in jc-26 and saved loads correctly
+        in all of those (one loaded from another build's file can carry
+        that file's extra trap bits back out);
+      - BUT a .ser file saved by jc-19 to jc-25 can load with a trap
+        wrongly open or shut, on a level with two or more traps. If you
+        have one you care about, load it in the build that saved it.
+    (The maintainer has none.) Nothing you play changes: every one of
+    the 24,212 stored solutions replays exactly as on jc-25.
+
+  * Still there, on purpose until its own fix comes back: one trap
+    problem from jc-19 (UB-4 in BASELINE-ISSUES.md in the repository),
+    which nothing in the game ever reaches.
 
 
 jc-25  --  A trap's state no longer depends on hash order
