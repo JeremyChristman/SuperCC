@@ -43,11 +43,14 @@ import java.util.zip.ZipFile;
  *      fails here and nowhere else.
  *   2. With NO level set open -- the state every launch starts in -- EVERY button in EVERY menu
  *      (found by walking the menu bar, so an item added later is covered), every submenu hovered, a
- *      key press, the play button, the speed slider, and a full repaint. Measured on the build with
- *      only upstream's 72476bc guards: 26 of the 56 menu controls still threw NullPointerException
- *      on the event thread, which is why jc-17 to jc-20 guarded the whole bar at once
- *      (MenuBar.requireALevel). On jc-16 more threw; the maintainer's own error log holds Restart
- *      and Next/Previous.
+ *      key press, the play button, the speed slider, and a full repaint. Measured with only
+ *      upstream's 72476bc guards, 26 of the 56 menu controls still threw NullPointerException on
+ *      the event thread when jc-17 merged it, and on jc-21 to jc-27's upstream menus 28 of the 57
+ *      this walk clicks or hovers (Go to... and the custom tile size among them; 29 with Paste
+ *      solution, whose outcome there depends on the clipboard), which is why jc-17 to jc-20, and jc-28 on,
+ *      guard the whole bar at once (MenuBar.requireALevel). On jc-16 more threw; the maintainer's
+ *      own error log holds Restart and Next/Previous. A control that needs a level must do
+ *      nothing; one that works without one must do its job (Probe.job).
  *   3a. A set whose level 1 cannot load, one whose first three cannot, and one with no levels
  *      each show exactly ONE error (counted by a closer that stays on for the whole open, so a
  *      second dialog fails the count rather than hanging the child).
@@ -60,7 +63,10 @@ import java.util.zip.ZipFile;
  * maintainer's request (FORK.md, "The upstream baseline"; BASELINE-ISSUES.md UB-11 to UB-14). Where
  * upstream's code gives another answer, the child reports a PIN line -- what it saw, upstream's
  * measured answer, the correct one -- and this side judges it with Harness.upstreamBug. Every check
- * upstream passes is still an ordinary one.
+ * upstream passes is still an ordinary one. The fix behind 2 (UB-11, the guard over the whole menu
+ * bar) is back from jc-28 (FORK.md, "The fix layer"), so 2's UB-11 pins are checks again; its two
+ * pins on View > Tileset > custom (UB-18, from the custom-tileset step) stay, as do 3a's, 4's and
+ * 5's (UB-12 to UB-14).
  *
  * Run with -Dsupercc.jar (run-tests.ps1 passes it); the child gets this JVM's own classpath.
  */
@@ -179,7 +185,9 @@ public class GuiWindowTest {
             System.out.println("PIN " + what + "\t" + actual + "\t" + upstream + "\t" + correct);
         }
 
-        /** A check deliberately not made, with the reason; the parent records it as a skip. */
+        /** A check deliberately not made, with the reason; the parent records it as a skip. Part
+         *  of the child's PASS/FAIL/PIN/SKIP protocol even while no check uses it (jc-28 review:
+         *  without the parent's half, a SKIP line would vanish from the report unseen). */
         static void skip(String why) {
             System.out.println("SKIP " + why);
         }
@@ -316,18 +324,90 @@ public class GuiWindowTest {
             }
         }
 
-        /** Closes any tool window a click opened (a frame other than the main window). */
-        static void closeToolWindows(graphics.Gui main) throws Exception {
-            Thread.sleep(100);
-            for (java.awt.Window win : java.awt.Window.getWindows())
-                if (win != main && win.isShowing() && !(win instanceof javax.swing.JDialog))
-                    SwingUtilities.invokeAndWait(win::dispose);
+        /**
+         * Closes any window a click left open: a tool window (a frame other than the main window),
+         * or a dialog that is not modal. Run it after the click's dialog closer has been stopped: a
+         * modal dialog blocks the click until the closer disposes it, so one still showing here was
+         * not closed that way.
+         */
+        static int closeToolWindows(graphics.Gui main) throws Exception {
+            return closeToolWindows(main, 0);
         }
 
+        /**
+         * The same, first waiting up to {@code waitForOneMs} for one to appear -- Tools > Controls
+         * builds its window on a SwingWorker's thread, after the click has returned. Returns how many
+         * it closed.
+         */
+        static int closeToolWindows(graphics.Gui main, long waitForOneMs) throws Exception {
+            long end = System.currentTimeMillis() + waitForOneMs;
+            do {
+                Thread.sleep(100);
+                List<java.awt.Window> tools = new ArrayList<>();
+                for (java.awt.Window win : java.awt.Window.getWindows())
+                    if (win != main && win.isShowing()) tools.add(win);
+                if (!tools.isEmpty() || System.currentTimeMillis() >= end) {
+                    for (java.awt.Window win : tools) SwingUtilities.invokeAndWait(win::dispose);
+                    return tools.size();
+                }
+            } while (true);
+        }
+
+        /** A field of {@code o}, declared in its class or any superclass (GamePanel's flags). */
         static Object field(Object o, String name) throws Exception {
-            Field f = o.getClass().getDeclaredField(name);
-            f.setAccessible(true);
-            return f.get(o);
+            for (Class<?> k = o.getClass(); k != null; k = k.getSuperclass()) {
+                try {
+                    Field f = k.getDeclaredField(name);
+                    f.setAccessible(true);
+                    return f.get(o);
+                } catch (NoSuchFieldException notHere) { /* try the superclass */ }
+            }
+            throw new NoSuchFieldException(o.getClass().getName() + "." + name);
+        }
+
+        static final String DID_ITS_JOB = "did its job";
+
+        /**
+         * What a control that works without a level (MenuBar.worksWithoutALevel) must have DONE when
+         * clicked with none open: DID_ITS_JOB, or what it failed to do. A guard that wrongly blocked
+         * one of these neither throws nor shows anything, so the "no throw" check alone passes it --
+         * a blocked Open levelset would leave no way to open a set at all. `dialogs` and `windows`
+         * are what the click opened (and the walk closed).
+         */
+        static String job(String name, AbstractButton b, graphics.Gui w, SuperCC emu,
+                          Object[] tilesetMarks, int dialogs, int windows) throws Exception {
+            String item = name.substring(name.lastIndexOf(" > ") + 3);
+            Matcher size = Pattern.compile("(\\d+)x\\1").matcher(item);
+            if (name.equals("Level > Open levelset") || name.equals("TWS > Open tws"))
+                return dialogs == 1 ? DID_ITS_JOB : "showed " + dialogs + " dialogs, not its file chooser alone";
+            if (name.startsWith("View > Tileset > ")) {
+                int i = java.util.Arrays.asList(tilesetMarks).indexOf(b);
+                if (i < 0) return "is not one of the tileset buttons";
+                graphics.TileSheet drawn = w.getGamePanel().getTileSheet();
+                return drawn == graphics.TileSheet.values()[i] ? DID_ITS_JOB : "left " + drawn + " drawn";
+            }
+            if (name.startsWith("View > Tile size > ") && size.matches()) {
+                int width = w.getGamePanel().getTileWidth();
+                return width == Integer.parseInt(size.group(1)) ? DID_ITS_JOB : "left the tiles " + width + " wide";
+            }
+            if (name.startsWith("View > Game window size > ") && size.matches()) {
+                int across = ((graphics.SmallGamePanel) w.getGamePanel()).getWindowSizeX();
+                return across == Integer.parseInt(size.group(1)) ? DID_ITS_JOB : "left the window " + across + " tiles across";
+            }
+            if (name.equals("View > Tile size > custom") || name.equals("View > Game window size > custom")
+                    || name.equals("Tools > Controls"))
+                return windows == 1 ? DID_ITS_JOB : "opened " + windows + " windows, not 1";
+            String flag = java.util.Map.of(
+                    "View > Show Monster List", "showMonsterListNumbers", "View > Show Slip List", "showSlipListNumbers",
+                    "View > Show Clone Connections", "showCloneConnections", "View > Show Trap Connections", "showTrapConnections",
+                    "View > Show Move History", "showHistory").get(name);
+            if (flag != null)
+                return field(w.getGamePanel(), flag).equals(b.isSelected()) ? DID_ITS_JOB
+                       : "left the game panel's " + flag + " at " + field(w.getGamePanel(), flag) + ", the button at " + b.isSelected();
+            if (name.equals("View > Switch Decimal Notation"))
+                return emu.getPaths().getTWSNotation() == b.isSelected() ? DID_ITS_JOB
+                       : "left the saved notation at " + emu.getPaths().getTWSNotation() + ", the button at " + b.isSelected();
+            return "has no job listed in GuiWindowTest.Probe.job";
         }
 
         /** Six times auto-diagonals' 50 ms window: long enough for any window to have closed. */
@@ -465,11 +545,11 @@ public class GuiWindowTest {
 
             // 2. No level set open: EVERY button in EVERY menu, found by walking the menu bar -- so a
             //    menu item added later is covered too -- plus hovering each submenu (Copy macro moves
-            //    threw on hover). On upstream's menus 28 of the clicked ones throw, each pinned
-            //    (below); Paste solution is not clicked (it reads the clipboard first); all the
-            //    others must not throw. A dialog or file chooser a click opens is closed, as its close
-            //    box would, so a regression is a failure rather than a hang; the closer is stopped
-            //    after each click so it cannot close a later one.
+            //    threw on hover). None may throw; one that needs a level must do NOTHING (no dialog,
+            //    no window); one that works without a level must do its job (job(), below). A dialog
+            //    or file chooser a click opens is closed, as its close box would, so a regression is
+            //    a failure rather than a hang; the closer is stopped after each click so it cannot
+            //    close a later one.
             fact("no level is loaded yet", !emu.isLevelLoaded());
             List<Object[]> controls = new ArrayList<>();
             for (int i = 0; i < w.getJMenuBar().getMenuCount(); i++) {
@@ -477,35 +557,41 @@ public class GuiWindowTest {
                 if (m != null) walk(m, m.getText() + " > ", controls);
             }
             fact("the menu bar has its controls (" + controls.size() + ")", controls.size() >= 50);
-            /* ⚠ UPSTREAM BASELINE (from jc-21): jc-17's one guard over the whole menu bar
-             * (MenuBar.requireALevel) was REVERTED at the maintainer's request, so the menus are
-             * upstream's: 72476bc guards six Level items and nothing else (FORK.md, "The upstream
-             * baseline"; BASELINE-ISSUES.md UB-11). These are the controls that throw on upstream's
-             * code with no level open, measured; each is pinned at exactly that, and every other
-             * control must still work. To re-apply all of them at once (the fix layer, FORK.md,
-             * takes them back one fix at a time instead): `git revert` both of this step's commits,
-             * newest first -- "GuiWindowTest: do not click Paste solution on upstream's menus", then
-             * "Upstream baseline: revert the no-level-loaded guards"; they hold this change too.
-             * If step 5 ("Upstream baseline: revert the custom-tileset fixes") is still reverted,
-             * re-apply it FIRST: both steps rewrote View > Tileset's listener in MenuBar. */
-            java.util.Set<String> upstreamThrows = new java.util.HashSet<>(java.util.Arrays.asList(
-                    "Level > Go to...", "Level > Change stepping value",
-                    "Solution > Save as", "Solution > Save", "Solution > Open", "Solution > Search for seeds",
-                    "Solution > Copy solution",
-                    "Solution > Copy all previous moves", "Solution > Copy all future moves",
-                    "hovering Solution > Copy macro moves",
-                    "Solution > Save all states to disk", "Solution > Load states from disk",
-                    "TWS > Write solution to new tws", "TWS > Verify tws",
+            /* MOD (Jeremy, fix layer, UB-11): jc-17's one guard over the whole menu bar
+             * (MenuBar.requireALevel) is back, re-applied alone on the upstream baseline; jc-21 to
+             * jc-27 had upstream's menus, where 72476bc guards six Level items and nothing else, and
+             * 28 of the controls clicked here threw (they were pinned at that). Now every one of
+             * them works, and Paste solution is clicked again: it does nothing with no level open,
+             * so it no longer reads the clipboard (on upstream's menus what it did depended on what
+             * the clipboard held, so jc-21 to jc-27 did not click it).
+             * "Works" has two halves, and the walk checks both. A control that needs a level must
+             * do nothing at all: it opens no dialog and no window (opened, below). A control marked
+             * worksWithoutALevel must do its job (worksWithout, job()): blocked by the guard, it
+             * would neither throw nor show anything, and the no-throw check alone would pass it.
+             * View > Tileset > custom is the one exempt control not in that list: it has its own
+             * case in the walk (UB-18). */
+            java.util.Set<String> worksWithout = new java.util.HashSet<>(java.util.Arrays.asList(
+                    "Level > Open levelset", "TWS > Open tws",
                     "View > Tileset > Tile World (CCEdit)", "View > Tileset > Tile World",
                     "View > Tileset > MSCC (CCEdit)", "View > Tileset > MSCC",
-                    "View > Tileset > MSCC (Black and White - Editor)", "View > Tile size > custom",
-                    "Tools > Variation testing", "Tools > TSP Solver",
-                    "Cheats > Change inventory", "Cheats > Change timer",
-                    "Cheats > Change Monster List Positions", "Cheats > Change Slip List Positions",
-                    "Cheats > Press Green Button", "Cheats > Press Blue Button"));
-            int pinnedControls = 0;
+                    "View > Tileset > MSCC (Black and White - Editor)",
+                    "View > Tile size > 16x16", "View > Tile size > 20x20", "View > Tile size > 24x24",
+                    "View > Tile size > 32x32", "View > Tile size > custom",
+                    "View > Game window size > 9x9", "View > Game window size > 32x32",
+                    "View > Game window size > custom",
+                    "View > Show Monster List", "View > Show Slip List", "View > Show Clone Connections",
+                    "View > Show Trap Connections", "View > Show Move History",
+                    "View > Switch Decimal Notation", "Tools > Controls"));
+            Object[] tilesetMarks = (Object[]) field(w.getJMenuBar(), "tilesetButtons");
+            int exemptChecked = 0, needsALevel = 0, hovered = 0;
+            List<String> opened = new ArrayList<>();
             for (Object[] c : controls) {
-                Thread closer = closeNextDialog();
+                // closeEveryDialog, not closeNextDialog: the walk COUNTS dialogs, so a second one must
+                // be closed and counted, not left blocking the event thread until the parent's
+                // 90-second kill (review; reproduced with Open levelset made to ask twice: the child
+                // hung, and the count checks never ran).
+                int dialogsBefore = dialogsClosed.get();
+                Thread closer = closeEveryDialog();
                 String name;
                 Runnable act;
                 if (c[1] instanceof JMenu) {
@@ -519,65 +605,68 @@ public class GuiWindowTest {
                     name = (String) c[0];
                     act = ((AbstractButton) c[1])::doClick;
                 }
-                if (name.equals("Solution > Paste solution")) {
-                    /* Not clicked on upstream's menus. Paste reads the system clipboard BEFORE it
-                     * touches the level, so with no level open what it does depends on what the
-                     * clipboard holds: with text it fails on the missing level (UB-11; seen on the
-                     * desktop), with none it prints an UnsupportedFlavorException trace to the error
-                     * log (CI, 2026-11-08). A test must not depend on the clipboard, and must never
-                     * write to the user's. jc-17 to jc-20 skipped the paste with no level open, so
-                     * this did not arise. */
-                    skip(name + " with no level open: depends on the system clipboard (UB-11), not clicked");
-                    closer.interrupt();
-                    continue;
-                }
                 if (name.equals("View > Tileset > custom")) {
                     /* ⚠ UPSTREAM BASELINE (from jc-22, UB-18): upstream asks for BOTH images even when
                      * the first chooser is canceled, then reports "No tileset image provided" -- three
-                     * dialogs, which closeNextDialog (one) would leave hanging. jc-18 to jc-21 stopped
-                     * at the first Cancel. Counted with closeEveryDialog, and pinned. */
-                    stop(closer);
-                    int beforeCustom = dialogsClosed.get();
-                    Thread every = closeEveryDialog();
+                     * dialogs. jc-18 to jc-21 stopped at the first Cancel. Counted, and pinned. */
                     String did = outcome(act);
-                    stop(every);
-                    int shown = dialogsClosed.get() - beforeCustom;
+                    stop(closer);
+                    int shown = dialogsClosed.get() - dialogsBefore;
                     pin(name + ", canceled, with no level open", did + ", " + (shown == 1 ? "one chooser"
                             : shown == 3 ? "both choosers and an error" : shown + " dialogs"),
                         "works, both choosers and an error", "works, one chooser");
                     closeToolWindows(w);
                     continue;
                 }
-                if (upstreamThrows.contains(name)) {
-                    pinnedControls++;
-                    pin(name + " with no level open", outcome(act), "throws NullPointerException", "works");
+                noThrow(name + " with no level open", act);
+                // A modal dialog blocks the click until the closer disposes it, so the count is
+                // final here. Anything still showing afterward -- a window, or a dialog that is not
+                // modal (none exists today; review) -- is counted and closed by closeToolWindows;
+                // Controls' window comes later, from a SwingWorker, and is waited for: up to 20 s,
+                // since a slow CI runner must not fail it, or leave it to be blamed on the next
+                // control (review). The wait ends as soon as the window shows.
+                stop(closer);
+                int dialogs = dialogsClosed.get() - dialogsBefore;
+                int windows = closeToolWindows(w, name.equals("Tools > Controls") ? 20_000 : 0);
+                if (worksWithout.contains(name)) {
+                    exemptChecked++;
+                    String did = job(name, (AbstractButton) c[1], w, emu, tilesetMarks, dialogs, windows);
+                    fact(name + " does its job with no level open" + (did.equals(DID_ITS_JOB) ? "" : " (it " + did + ")"),
+                         did.equals(DID_ITS_JOB));
                 } else {
-                    noThrow(name + " with no level open", act);
+                    // A hovered submenu is not a control that needs a level; it is counted on its
+                    // own, but must open nothing either (review: the count had included them).
+                    if (c[1] instanceof JMenu) hovered++; else needsALevel++;
+                    if (dialogs + windows > 0) opened.add(name + " (" + dialogs + " dialogs, " + windows + " windows)");
                 }
-                closer.interrupt();
-                closeToolWindows(w);
             }
-            fact("every control upstream throws on was found in the menus (" + pinnedControls + " of "
-                 + upstreamThrows.size() + ")", pinnedControls == upstreamThrows.size());
+            fact("every control that works without a level was found in the menus (" + exemptChecked
+                 + " of " + worksWithout.size() + ")", exemptChecked == worksWithout.size());
+            fact("and the " + needsALevel + " that need one did nothing, nor did hovering the " + hovered
+                 + " submenus: no dialog, no window" + (opened.isEmpty() ? "" : " (these opened something: " + opened + ")"),
+                 needsALevel >= 30 && hovered >= 4 && opened.isEmpty());
+            // A window that shows LATE -- after its control's 100 ms sweep, as Controls' does -- is
+            // counted against the next control in the walk; after the last one, only this sees it
+            // (review). Two seconds; it ends at once if one shows.
+            int late = closeToolWindows(w, 2_000);
+            fact("and no window or dialog turned up late, after the walk (" + late + ")", late == 0);
             fact("and still no level is loaded (Open levelset was canceled)", !emu.isLevelLoaded());
 
-            //    View > Tileset with no level open. jc-17 to jc-20 made it work (it had been skipped by
-            //    requireALevel() while its radio mark still moved: a tileset neither drawn nor saved).
-            //    The walk above clicked every tileset in menu order. The last BUILT-IN one -- MSCC
-            //    (Black and White - Editor), whose overlay image could not be found in any jar before
-            //    jc-17 -- is drawn; saving it as the MS tileset is pinned (UB-11), since upstream
-            //    throws before it saves. The Lynx choice is untouched.
+            //    View > Tileset with no level open (MOD (Jeremy, fix layer, UB-11)). It works: without
+            //    worksWithoutALevel, requireALevel() would skip it while its radio mark still moved, a
+            //    tileset neither drawn nor saved. The walk above clicked every tileset in menu order,
+            //    and checked each was drawn. The last BUILT-IN one -- MSCC (Black and White - Editor),
+            //    whose overlay image could not be found in any jar before jc-17 -- is saved as the MS
+            //    tileset, the one drawn at startup (jc-21 to jc-27 threw reading the level's ruleset
+            //    before saving it, and the stock 0 stayed). The Lynx choice is untouched.
             //    Then came "custom" (jc-18), whose choosers the closer canceled. jc-18 to jc-21 made
             //    that a no-op that put the radio mark back on Black and White; upstream leaves the mark
             //    on custom, which is not drawn (UB-18, pinned). Either way no image path is saved.
             graphics.TileSheet bw = graphics.TileSheet.CCEDIT_BLACK_AND_WHITE;
             fact("custom is the last tileset in the menu", graphics.TileSheet.values()[graphics.TileSheet.values().length - 1] == graphics.TileSheet.CUSTOM);
             fact("the last built-in tileset clicked is drawn (" + bw + ")", w.getGamePanel().getTileSheet() == bw);
-            // ⚠ UPSTREAM BASELINE (UB-11): upstream draws it, then throws reading the level's ruleset
-            // before it saves, so the stock 0 stays.
-            pin("and saved as the MS tileset", String.valueOf(emu.getPaths().getMSTilesetNum()), "0", String.valueOf(bw.ordinal()));
+            fact("and saved as the MS tileset (" + emu.getPaths().getMSTilesetNum() + ")", emu.getPaths().getMSTilesetNum() == bw.ordinal());
             fact("and the Lynx tileset is left alone", emu.getPaths().getLynxTilesetNum() == 0);
-            Object[] tilesetMarks = (Object[]) field(w.getJMenuBar(), "tilesetButtons");
             boolean markOnBw = ((AbstractButton) tilesetMarks[bw.ordinal()]).isSelected();
             boolean markOnCustom = ((AbstractButton) tilesetMarks[graphics.TileSheet.CUSTOM.ordinal()]).isSelected();
             pin("canceling custom put the radio mark back on " + bw,
@@ -588,9 +677,10 @@ public class GuiWindowTest {
                  && emu.getPaths().getMSTilesetNum() != graphics.TileSheet.CUSTOM.ordinal());
 
             //    And custom with two real pictures CHOSEN, still with no level open (answerChoosers
-            //    approves each chooser with a file, as a person would). jc-18 to jc-21 saved it as the
-            //    MS choice; ⚠ upstream saves the pictures, draws them, then throws reading the level's
-            //    ruleset, so the tileset choice itself is never saved (UB-11, pinned).
+            //    approves each chooser with a file, as a person would). It is drawn and saved as the
+            //    MS choice (MOD (Jeremy, fix layer, UB-11)); jc-21 to jc-27 saved the pictures, drew
+            //    them, then threw reading the level's ruleset, so the tileset choice itself was never
+            //    saved.
             File cBase = new File("cbase.png").getAbsoluteFile(), cOver = new File("coverlay.png").getAbsoluteFile();
             File cText = new File("cnotes.png").getAbsoluteFile();
             javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(28, 64, java.awt.image.BufferedImage.TYPE_INT_ARGB), "png", cBase);
@@ -605,11 +695,44 @@ public class GuiWindowTest {
             javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(28, 64, java.awt.image.BufferedImage.TYPE_INT_ARGB), "png", nOver);
             List<String> picked = java.util.Collections.synchronizedList(new ArrayList<>());
             Thread pick = answerChoosers(picked, nBase, nOver);
-            pin("View > Tileset > custom, two pictures chosen, with no level open", outcome(customMark::doClick),
-                "throws NullPointerException", "works");
+            noThrow("View > Tileset > custom, two pictures chosen, with no level open", customMark::doClick);
             stop(pick);
             fact("and both of its choosers were answered (" + picked + ")",
                  picked.size() >= 2 && picked.get(0).equals("chooser") && picked.get(1).equals("chooser"));
+            // "Saved as the MS choice" is read through upstream's form of it, custom as tileset
+            // number 5 (UB-16); when UB-16's fix comes back, this reads its switch instead.
+            fact("and it is drawn, and saved as the MS choice, the Lynx one left alone",
+                 w.getGamePanel().getTileSheet() == graphics.TileSheet.CUSTOM
+                 && emu.getPaths().getMSTilesetNum() == graphics.TileSheet.CUSTOM.ordinal()
+                 && emu.getPaths().getLynxTilesetNum() == 0);
+            //    Then a built-in tileset again, still with no level open. Custom is the saved MS
+            //    choice now, so every set opened from here on would be drawn with these pictures, and
+            //    section 5b's own custom pick could pass on this one's saved choice (its "drawn" and
+            //    "tileset number 5" checks). The stock tileset puts the window back where jc-21 to
+            //    jc-27 left it.
+            graphics.TileSheet stock = graphics.TileSheet.values()[0];
+            noThrow("and the stock tileset chosen after it, with no level open", ((AbstractButton) tilesetMarks[0])::doClick);
+            fact("is drawn and saved as the MS tileset (" + stock + ")",
+                 w.getGamePanel().getTileSheet() == stock && emu.getPaths().getMSTilesetNum() == stock.ordinal());
+
+            //    TWS > Open tws with a file CHOSEN, still with no level open. The walk canceled its
+            //    chooser, so what runs after a pick (SuperCC.setTWSFile, which reads the file's
+            //    header) was not reached there (review of jc-28). A header-only .tws -- Tile World's
+            //    signature, MS, no extra header, no levels -- is a valid file to open. (Open
+            //    levelset's after-pick work is emulator.openLevelset, which section 3a runs with no
+            //    level open, plus a settings write.)
+            File twsFixture = new File("nolevel.tws").getAbsoluteFile();
+            Files.write(twsFixture.toPath(), new byte[]{ 0x35, 0x33, (byte) 0x9B, (byte) 0x99, 2, 0, 0, 0 });
+            JMenuItem openTws = item(w, "TWS", "Open tws");
+            fact("TWS > Open tws exists, and no tws is open yet", openTws != null && emu.twsReader == null);
+            if (openTws != null) {
+                List<String> twsPicked = java.util.Collections.synchronizedList(new ArrayList<>());
+                Thread twsPick = answerChoosers(twsPicked, twsFixture);
+                noThrow("TWS > Open tws, a file chosen, with no level open", openTws::doClick);
+                stop(twsPick);
+                fact("its chooser was answered with no error shown (" + twsPicked + "), and the tws is open",
+                     twsPicked.equals(List.of("chooser")) && emu.twsReader != null);
+            }
             for (KeyListener k : w.getKeyListeners()) {
                 noThrow("a key press (" + k.getClass().getSimpleName() + ") with no level open", () -> {
                     k.keyPressed(new KeyEvent(w, KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, KeyEvent.VK_UP, KeyEvent.CHAR_UNDEFINED));
@@ -718,6 +841,42 @@ public class GuiWindowTest {
             fact("a level is loaded now", emu.isLevelLoaded());
             noThrow("a full repaint with a level open", () -> w.repaint(true));
             fact("the title names the level", w.getTitle().contains("Gui Probe"));
+
+            // 3b. The menu guard keeps a button's listeners in Swing's own order (MOD (Jeremy, fix
+            //     layer, UB-11); review of jc-28: re-added in the order getActionListeners() gives,
+            //     they ran in reverse). No real item has two listeners, so an item made here goes
+            //     through the real MenuBar.requireALevel, with a level loaded so both run; its order
+            //     must be the one the same item has with no guard at all -- Swing's, not a guess.
+            List<String> order = java.util.Collections.synchronizedList(new ArrayList<>());
+            java.util.function.Supplier<JMenuItem> twoListeners = () -> {
+                JMenuItem it = new JMenuItem("order probe");
+                it.addActionListener(e -> order.add("first added"));
+                it.addActionListener(e -> order.add("second added"));
+                return it;
+            };
+            JMenuItem unguarded = twoListeners.get();
+            noThrow("an item with two listeners, clicked with no guard", unguarded::doClick);
+            String swingOrder = String.join(", ", order);
+            order.clear();
+            JMenu probeMenu = new JMenu("order probe");
+            JMenuItem guarded = twoListeners.get();
+            probeMenu.add(guarded);
+            java.lang.reflect.Method require = null;
+            try { require = w.getJMenuBar().getClass().getDeclaredMethod("requireALevel", JMenu.class); }
+            catch (NoSuchMethodException none) { /* a build without the guard: reported just below */ }
+            fact("the menu bar has its guard, MenuBar.requireALevel", require != null);
+            if (require != null) {
+                java.lang.reflect.Method guard = require;
+                guard.setAccessible(true);
+                noThrow("the same item put through MenuBar.requireALevel", () -> {
+                    try { guard.invoke(w.getJMenuBar(), probeMenu); }
+                    catch (ReflectiveOperationException e) { throw new RuntimeException(e); }
+                });
+                noThrow("and clicked with a level loaded", guarded::doClick);
+                String guardedOrder = String.join(", ", order);
+                fact("runs both listeners in Swing's own order (unguarded: " + swingOrder + "; guarded: " + guardedOrder + ")",
+                     order.size() == 2 && guardedOrder.equals(swingOrder));
+            }
 
             // 4. Canceling the two input dialogs. showInputDialog returns null for Cancel or the
             //    close box; upstream tested the reply for empty only, so canceling threw.

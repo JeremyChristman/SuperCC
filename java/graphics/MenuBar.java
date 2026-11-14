@@ -26,6 +26,7 @@ import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.Transferable;
 import java.awt.datatransfer.UnsupportedFlavorException;
+import java.awt.event.ActionListener;
 import java.awt.event.InputEvent;
 import java.awt.image.BufferedImage;
 import java.io.*;
@@ -68,7 +69,7 @@ class MenuBar extends JMenuBar{
         LevelMenu(){
             super("Level");
 
-            JMenuItem openLevelset = new JMenuItem("Open levelset");
+            JMenuItem openLevelset = worksWithoutALevel(new JMenuItem("Open levelset"));  // MOD (Jeremy, fix layer, UB-11)
             openLevelset.addActionListener(e -> {
                 File levelset = openFile(emulator.getPaths().getLevelsetFolderPath(), "Levelset file", "dat", "ccl");
                 if (levelset != null) {
@@ -134,6 +135,8 @@ class MenuBar extends JMenuBar{
 
             JMenuItem changeStep = new JMenuItem("Change stepping value");
             changeStep.addActionListener(e -> {
+                // (72476bc guarded its neighbors but not this item; requireALevel() covers it --
+                // MOD (Jeremy, fix layer, UB-11).)
                 if (!SuperCC.areToolsRunning()) {
                     Level oldLevel = emulator.getLevel();
                     Step newStep = Step.EVEN;
@@ -353,6 +356,10 @@ class MenuBar extends JMenuBar{
                 @Override
                 public void menuSelected(MenuEvent e) {
                     copyMacroMenu.removeAll(); //clear the previous menu
+                    // MOD (Jeremy, fix layer, UB-11): merely hovering here with no level open threw
+                    // (getSavestates() is null). requireALevel() wraps only ActionListeners, so this
+                    // one MenuListener checks for itself.
+                    if (!emulator.isLevelLoaded()) return;
 
                     CharList[] macros = emulator.getSavestates().getMacros();
                     Level level = emulator.getLevel();
@@ -457,7 +464,7 @@ class MenuBar extends JMenuBar{
             add(newTWS);
             addIcon(newTWS, "/resources/icons/new.gif");
 
-            JMenuItem openTWS = new JMenuItem("Open tws");
+            JMenuItem openTWS = worksWithoutALevel(new JMenuItem("Open tws"));  // it only chooses the file (MOD (Jeremy, fix layer, UB-11))
             openTWS.addActionListener(e -> {
                 File file = openFile(emulator.getPaths().getTWSPath(), "TWS solution file", "tws");
                 if (file != null) {
@@ -501,7 +508,12 @@ class MenuBar extends JMenuBar{
             TileSheet[] tileSheets = TileSheet.values();
             tilesetButtons = new JRadioButton[tilesetNames.length];
             for (int i = 0; i < tilesetNames.length; i++) {
-                JRadioButton tilesheetButton = new JRadioButton(tilesetNames[i]);
+                /* MOD (Jeremy, fix layer, UB-11): works with no level open. requireALevel() would
+                 * otherwise skip this listener while the radio mark still moved, so the menu would
+                 * show a tileset that was neither drawn nor saved. With no level there is no ruleset
+                 * to file the choice under, so it is saved as the MS tileset (below) -- the one
+                 * SuperCC draws at startup, which is what is on screen in exactly that state. */
+                JRadioButton tilesheetButton = worksWithoutALevel(new JRadioButton(tilesetNames[i]));
                 TileSheet tileSheet = tileSheets[i];
                 tilesetButtons[i] = tilesheetButton;
                 tilesheetButton.addActionListener(e -> {
@@ -540,7 +552,8 @@ class MenuBar extends JMenuBar{
                         window.getInventoryPanel().initialise(emulator);  // aen-exempt: upstream method name
                         window.repaint(true);
 
-                        if (emulator.getLevel().getRuleset() == Ruleset.MS)
+                        // MOD (Jeremy, fix layer, UB-11): no level open -> the MS tileset (see above).
+                        if (!emulator.isLevelLoaded() || emulator.getLevel().getRuleset() == Ruleset.MS)
                             emulator.getPaths().setMSTilesetNum(tileSheet.ordinal());
                         else
                             emulator.getPaths().setLynxTilesetNum(tileSheet.ordinal());
@@ -557,7 +570,7 @@ class MenuBar extends JMenuBar{
             ButtonGroup tileSizes = new ButtonGroup();
             int[] sizes = new int[] {16, 20, 24, 32};
             for (int size : sizes) {
-                JRadioButton sizeButton = new JRadioButton(size + "x" + size);
+                JRadioButton sizeButton = worksWithoutALevel(new JRadioButton(size + "x" + size));  // MOD (Jeremy, fix layer, UB-11)
                 sizeButton.addActionListener((e) -> {
                     try {
                         TileSheet ts;
@@ -583,13 +596,15 @@ class MenuBar extends JMenuBar{
                 tileSizes.add(sizeButton);
                 tileSize.add(sizeButton);
             }
-            JRadioButton sizeButton = new JRadioButton("custom");
+            // MOD (Jeremy, fix layer, UB-11): needs no level, now that ChooseTileSize's dead
+            // getKeys() line is gone.
+            JRadioButton sizeButton = worksWithoutALevel(new JRadioButton("custom"));
             sizeButton.addActionListener(e -> new ChooseTileSize(emulator, window.getGamePanel().getTileWidth(), 0, 256));
             tileSizes.add(sizeButton);
             tileSize.add(sizeButton);
             add(tileSize);
             
-            JMenu windowSize = new JMenu("Game window size");
+            JMenu windowSize = worksWithoutALevel(new JMenu("Game window size"));  // MOD (Jeremy, fix layer, UB-11): all of it
             ButtonGroup windowSizes = new ButtonGroup();
             sizes = new int[] {9, 32};
             for (int size : sizes) {
@@ -632,7 +647,7 @@ class MenuBar extends JMenuBar{
             );
             
             for (int i = 0; i < setterNames.length; i++){
-                JToggleButton b = new JToggleButton(setterNames[i]);
+                JToggleButton b = worksWithoutALevel(new JToggleButton(setterNames[i]));  // MOD (Jeremy, fix layer, UB-11)
                 Consumer<Boolean> setter = setters.get(i);
                 if (i == 0 || i == 1 || i == 2 || i == 3) b.setSelected(true); //MOD (Jeremy): Clone (2) & Trap (3) buttons default ON too, matching the backend state in GamePanel.java
                 b.addActionListener(e -> {
@@ -657,7 +672,7 @@ class MenuBar extends JMenuBar{
             );
 
             for (int i = 0; i < setterHUDNames.length; i++){
-                JToggleButton b = new JToggleButton(setterHUDNames[i]);
+                JToggleButton b = worksWithoutALevel(new JToggleButton(setterHUDNames[i]));  // MOD (Jeremy, fix layer, UB-11)
                 Consumer<Boolean> setter = HUDSetters.get(i);
                 b.setSelected(selected.get(i));
                 b.addActionListener(e -> {
@@ -673,7 +688,7 @@ class MenuBar extends JMenuBar{
         ToolMenu() {
             super("Tools");
     
-            JMenuItem controls = new JMenuItem("Controls");
+            JMenuItem controls = worksWithoutALevel(new JMenuItem("Controls"));  // MOD (Jeremy, fix layer, UB-11)
             controls.addActionListener(e -> new SwingWorker<Void, Void>(){
                 @Override
                 protected Void doInBackground() {
@@ -874,6 +889,62 @@ class MenuBar extends JMenuBar{
         add(toolMenu);
         add(cheatMenu);
 //        add(helpMenu);
+        for (int i = 0; i < getMenuCount(); i++) requireALevel(getMenu(i));
+    }
+
+    /* MOD (Jeremy, fix layer, UB-11): ONE guard for the whole menu bar, instead of one per item.
+     * jc-17's fix (merged as "upstream merge", reverted for the upstream baseline in jc-21),
+     * re-applied alone.
+     *
+     * Every launch starts with no level set open, and most of these controls read the level or its
+     * savestates the moment they run. Upstream's 72476bc guarded six of them by hand; clicking every
+     * button in these menus with no level open still finds 28 that throw NullPointerException on the
+     * event thread -- Level > Go to... and Change stepping value, Solution (Save, Copy, the state
+     * files...), TWS, View > Tileset and Tile size > custom, Tools > Variation testing and TSP
+     * Solver, and every cheat -- each one written to jc-11's error log, and Ctrl+S is a keystroke
+     * away (BASELINE-ISSUES.md UB-11).
+     *
+     * So the rule is inverted: a button in these menus does NOTHING until a level is loaded, unless
+     * it is marked worksWithoutALevel(...) where it is made (Open levelset, Open tws, the tilesets,
+     * the tile sizes, the Game window size submenu, the View toggles, Controls). A new item made in
+     * a menu's constructor, as every item is, is covered without anyone having to remember.
+     * Accelerators go through the same listeners, so they are covered too. GuiWindowTest clicks
+     * every button in the bar with no level open, and fails on any that throws, on a guarded one
+     * that opens anything, and on an exempt one that does not do its job.
+     *
+     * Only the ActionListeners present when this constructor ends are wrapped. Swing's menu UIs
+     * listen through other interfaces; the one MenuListener here (Copy macro moves) checks the
+     * level itself, and the items it builds on hover exist only once a level is loaded, which
+     * nothing unloads. A listener added to a menu item later would NOT be guarded (review). Nor
+     * does the guard stop a toggle or radio item's own mark from moving: there are none in a
+     * guarded menu, and one added there must be made to work without a level and exempted.
+     *
+     * Swing calls a button's listeners newest first, and getActionListeners() lists them in that
+     * order too, so each is re-added from the END of that array: re-added in the order the array
+     * gives, a button's listeners would run in the reverse of their order without the guard. jc-17
+     * did that; no item has two listeners, so nothing ran backward, and this keeps it that way
+     * (review of jc-28; GuiWindowTest checks the order). */
+    private static final String WORKS_WITHOUT_A_LEVEL = "supercc.worksWithoutALevel";
+
+    private static <T extends JComponent> T worksWithoutALevel(T c) {
+        c.putClientProperty(WORKS_WITHOUT_A_LEVEL, Boolean.TRUE);
+        return c;
+    }
+
+    private void requireALevel(JMenu menu) {
+        if (menu == null || Boolean.TRUE.equals(menu.getClientProperty(WORKS_WITHOUT_A_LEVEL))) return;
+        for (Component c : menu.getMenuComponents()) {
+            if (c instanceof JMenu) { requireALevel((JMenu) c); continue; }
+            if (!(c instanceof AbstractButton)) continue;
+            AbstractButton b = (AbstractButton) c;
+            if (Boolean.TRUE.equals(b.getClientProperty(WORKS_WITHOUT_A_LEVEL))) continue;
+            ActionListener[] listeners = b.getActionListeners();
+            for (int i = listeners.length - 1; i >= 0; i--) {   // oldest first: see above
+                ActionListener l = listeners[i];
+                b.removeActionListener(l);
+                b.addActionListener(e -> { if (emulator.isLevelLoaded()) l.actionPerformed(e); });
+            }
+        }
     }
 
 }

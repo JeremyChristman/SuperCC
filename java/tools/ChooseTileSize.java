@@ -17,7 +17,10 @@ public class ChooseTileSize {
     private JButton okButton;
     
     public ChooseTileSize(SuperCC emulator, int defaultValue, int min, int max){
-        short[] keys = emulator.getLevel().getKeys();
+        // MOD (Jeremy, fix layer, UB-11): `short[] keys = emulator.getLevel().getKeys();` removed. The
+        // array was never used, and it was the only reason a custom tile size needed a level open:
+        // with none, it threw, and under MenuBar.requireALevel() that menu button would otherwise be
+        // skipped while its radio mark still moved.
         SpinnerModel sm = new SpinnerNumberModel(defaultValue, min, max, 1);
         heightSpinner.setModel(sm);
         sm = new SpinnerNumberModel(defaultValue, min, max, 1);
@@ -40,8 +43,8 @@ public class ChooseTileSize {
                 int height = ((Number) heightSpinner.getValue()).intValue();
                 Gui window = emulator.getMainWindow();
                 SmallGamePanel gamePanel = (SmallGamePanel) window.getGamePanel();
-                window.getGamePanel().initialise(emulator, ts.getTileSheets(emulator, width, height), ts, width, height);
-                window.getInventoryPanel().initialise(emulator);
+                window.getGamePanel().initialise(emulator, ts.getTileSheets(emulator, width, height), ts, width, height);  // aen-exempt: upstream method name
+                window.getInventoryPanel().initialise(emulator);  // aen-exempt: upstream method name
                 window.getInventoryPanel().repaint();
                 window.setSize(200+width*gamePanel.getWindowSizeX(), 200+height*gamePanel.getWindowSizeY());
                 window.getGamePanel().setPreferredSize(new Dimension(width * gamePanel.getWindowSizeX(), height * gamePanel.getWindowSizeY()));
