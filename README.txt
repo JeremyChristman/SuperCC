@@ -1,5 +1,5 @@
 ==============================================================================
-  SuperCC  --  Jeremy Christman's fork                      build jc-28
+  SuperCC  --  Jeremy Christman's fork                      build jc-29
 ==============================================================================
 
   1. What this is
@@ -593,6 +593,29 @@ AlwaysOpenInMS  Whether every level set opens under the MS ruleset, no matter
 Releases from jc-2 on carry a jc-N tag in the repository. The title bar, when
 ShowBuildTag is on, shows the build tag compiled into the jar, which matches
 the tag for that release. Newest first.
+
+
+jc-29  --  A level set opens at its first level that loads
+-----------------------------------------------------------
+
+  * IF A LEVEL SET'S FIRST LEVEL CANNOT BE LOADED, THE SET NOW OPENS AT
+    THE FIRST LEVEL THAT CAN, as in jc-17 to jc-20, with one message
+    naming the levels it skipped. Since jc-21 such a set opened badly:
+    on a fresh start nothing was loaded at all, and with another set
+    already open, that set's level stayed on screen under the new set's
+    file, so Solution > Save would have put its route in the wrong
+    folder.
+
+  * A level set with no level that loads leaves the set you had open
+    exactly as it was, with one message.
+
+  * This also removes jc-28's new limit (UB-30): such a set's levels can
+    be reached again.
+
+  * Nothing you play changes: every one of the 24,217 stored solutions
+    replays exactly as on jc-28. None of the 331 sets in the maintainer's
+    collection has a first level that fails. This closes UB-14 in
+    BASELINE-ISSUES.md in the repository.
 
 
 jc-28  --  Menus are safe again before a level set is open

@@ -248,7 +248,7 @@ test/LinkTest.java           every call between the fork's classes resolves IN T
 test/InputDiscardTest.java   which keys Level.tick reports as DISCARDED, and the WAIT the move list records
 test/SeedSearchTest.java     Seed Search through its REAL constructor, headless: stops at the top seed, threads, Pause
 test/FormClassTest.java      every form window's REAL constructor builds its components (14 of 15; Gui is the JFrame)
-test/GuiWindowTest.java      the MAIN window (Gui) built for real in a NON-headless child JVM; every menu control with no level open (PIN lines: UB-12..14, UB-16..19, UB-22..27)
+test/GuiWindowTest.java      the MAIN window (Gui) built for real in a NON-headless child JVM; every menu control with no level open (PIN lines: UB-12..13, UB-16..19, UB-22..27)
 ```
 
 **Testing a form-based window headless.** Its constructor builds every component
@@ -332,7 +332,7 @@ taken. JaCoCo is a test-time tool cached under `%LOCALAPPDATA%\jacoco\<version>\
 dependency**, never committed, never shipped. Output goes to `coverage-report\` (gitignored);
 `coverage.csv` is the evidence behind every percentage below.
 
-As of jc-28, with all 2,376 assertions passing (54 of them `upstreamBug` pins, §6) and 5 skipped —
+As of jc-29, with all 2,386 assertions passing (41 of them `upstreamBug` pins, §6) and 5 skipped —
 counts for a machine with 4 or more CPUs. `SeedSearchTest` §3 makes one pin per search thread, so a
 3-CPU run has one pass and pin fewer and a 2-CPU run two; at 1 CPU §3 and §2's pin are skipped
 (measured: 7 passes and 6 pins fewer, 2 skips more) — **measured on JDK 16.0.2** (16.0.2+7-67 on the desktop; Temurin 16.0.2+7, what CI pins, gives the
@@ -340,16 +340,16 @@ same figures):
 
 | scope | branch | line | branches |
 |---|---|---|---|
-| **`game\**` + `io\**` — THE TARGET** | **57.0%** | 71.4% | 1523/2670 |
+| **`game\**` + `io\**` — THE TARGET** | **57.1%** | 71.4% | 1524/2670 |
 | &nbsp;&nbsp;`game\**` (the emulator) | 53.8% | 68.0% | 1210/2247 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\MS\**` | 47.7% | 62.6% | 558/1170 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\Lynx\**` | 63.5% | 71.3% | 466/734 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 54.2% | 73.0% | 186/343 |
-| &nbsp;&nbsp;`io\**` (file formats) | 74.0% | 81.4% | 313/423 |
-| `emulator\**` | 30.2% | 34.0% | 134/444 |
+| &nbsp;&nbsp;`io\**` (file formats) | 74.2% | 81.4% | 314/423 |
+| `emulator\**` | 33.8% | 35.9% | 159/470 |
 | `tools\**` + `graphics\**` — *not a target* | 2.7% | 8.9% | 52/1941 |
 
-**Read this correctly.** Whole-project branch coverage is 30.2% (1821/6021), and that number is
+**Read this correctly.** Whole-project branch coverage is 30.5% (1847/6047), and that number is
 meaningless: 15 form-based classes can be rebuilt here only by copying IntelliJ's output (ADR 0010), `tools\**`
 is 35 files of upstream code this fork does not modify, `graphics\**` is Swing with no headless test
 story, and the rest is vendored `org.json` / `com.intellij`. What this fork can break is the engine
@@ -368,7 +368,7 @@ install: jc-15's baseline was taken on the laptop (JDK 18) from Temurin 16.0.2+7
 uses, checked against Adoptium's published SHA-256 — unpacked to a scratch folder, with `JAVA_HOME`
 pointed at it for the one command. `build-config.ps1` lets `JAVA_HOME` win.
 
-**57.0% is a floor to build on, not a passing grade**, and the split says where the work is:
+**57.1% is a floor to build on, not a passing grade**, and the split says where the work is:
 
 - **Lynx is ahead now — MS 47.7%, Lynx 63.5% — and both took deliberate work.**
   Four Lynx files built that side (the move-preference table `LynxCreatureMoveTest`, the entry rules
@@ -605,11 +605,11 @@ Things that are load-bearing in `CorpusCheck` and `corpus.ps1`:
   unchanged means the previous level is still loaded; the savestate manager unchanged means the
   level parsed but `SavestateManager`'s constructor threw (a level with no title did this — MO3
   #12 and #14 — until jc-17 named such a level `""`, as Tile World does). Either is `LOADFAIL`.
-  Reporting a stale level as a result is the failure to avoid. jc-17 to jc-20 open a set at its first
-  level that loads, and a set where NONE loads leaves no set open on a fresh emulator, so its saves
-  read `OPENFAIL` (an NPE from `lastLevelNumber()`) instead. jc-21, the upstream baseline, opens at
-  level 1 only again (UB-14), as builds before jc-17 did. No set in the collection is affected
-  either way: all 331 open at level 1 (scanned 2026-11-08).
+  Reporting a stale level as a result is the failure to avoid. jc-17 to jc-20, and jc-29 on (the fix
+  layer, UB-14), open a set at its first level that loads, and a set where NONE loads leaves no set
+  open on a fresh emulator, so its saves read `OPENFAIL` (an NPE from `lastLevelNumber()`) instead.
+  jc-21 to jc-28, the upstream baseline, opened at level 1 only, as builds before jc-17 did. No set
+  in the collection is affected either way: all 331 open at level 1 (scanned 2026-11-08).
 - **The set may be `<pack>.dat` or `<pack>.ccl`** — SuperCC names the solution folder after the set
   with any extension removed. Both present is reported, not guessed.
 - **The replay loop mirrors `Solution.tickBasicMoves`** exactly, like `TraceLevel`'s, because that
@@ -741,8 +741,9 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
   `SuperCC.tick`'s recorder (`923d07c`: upstream writes a wait on ANY discarded tick, even one that
   also ran automatic ticks; no real level returns both bits, and `InputDiscardTest` §5 pins it
   through a wrapped level), Seed Search (`397c7bb`), the no-level-loaded guards (`c57f217`; the
-  menu guard, UB-11, is back since jc-28 -- see the next bullet; Cancel on Go to... and Set RNG
-  Seed, a canceled file chooser and the set/level loading, UB-12 to UB-15, are still upstream's),
+  menu guard, UB-11, is back since jc-28 -- see the next bullet -- and opening a set at its first
+  level that loads, UB-14, since jc-29; Cancel on Go to... and Set RNG Seed, a canceled file chooser
+  and the all-or-nothing level load, UB-12, UB-13 and UB-15, are still upstream's),
   custom tilesets (`5d3f0a3`: a saved tileset that cannot be drawn stops
   SuperCC from starting, UB-20 -- do not "fix" it in passing) and auto-diagonals (`d08e6ef`:
   with the switch on, EVERY game key waits 50 ms and a `java.util.Timer` makes ONE move, on its own
@@ -786,10 +787,11 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
   listener added to an item AFTER the constructor is not guarded; a toggle or radio item in a
   guarded menu would still move its own mark while its action is skipped (none exists; make one
   work without a level and exempt it); and the guard asks only `isLevelLoaded()`, so a level loaded
-  without its savestates (UB-15, open, unreachable today) would get past it. And until UB-14's fix
-  is back, a set opened at launch whose level 1 fails is open with no level, so Go to... is guarded
-  and none of its levels can be reached (UB-30; jc-17 shipped both fixes together; do not exempt
-  Go to... for it — Cancel would then fail on every launch, UB-12). The wrapper re-adds a
+  without its savestates (UB-15, open, unreachable today) would get past it. jc-28 alone left one
+  more gap, UB-30 (a set opened at launch whose level 1 failed was open with no level, and Go to...
+  was guarded); jc-29's UB-14 fix closed it, since an open now either loads a level or puts the
+  previous set back -- never exempt Go to... for anything like it, as Cancel would then fail on
+  every launch (UB-12). The wrapper re-adds a
   button's listeners oldest first, so they keep Swing's order (newest first); `GuiWindowTest` §3b
   checks it.
 - **`formclass/FormTransplant.java` imports `jdk.internal.org.objectweb.asm`.** That is the JDK's own

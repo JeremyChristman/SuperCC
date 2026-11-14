@@ -12,6 +12,37 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## jc-29 — 2026-11-14 (the fix layer: a set opens at its first level that loads)
+
+The second of the no-level-loaded fixes goes back on the upstream baseline. It closes UB-14 in
+[`BASELINE-ISSUES.md`](BASELINE-ISSUES.md), and UB-30 with it. No stored solution changes.
+
+### Fixed
+- **A set whose level 1 will not load opens at its first level that does (`48a3eca`, UB-14)**,
+  with one error naming every failure before it by position ("Levels 1 to 3 could not be loaded …
+  Opened at level 4."). A set where nothing loads leaves the previous set open (or none), put back
+  before its error shows, so a save can no longer go into the wrong set's folder; a level that loaded
+  is not reported as failed when only its repaint threw. jc-17's `openLevelset`, re-applied alone;
+  `loadLevel`'s body is `tryLoadLevel`, which returns its failure, and `loadLevel` reports it as
+  before. One change to jc-17's code: the previous set goes back in a `finally`, so an `Error` (a jar
+  replaced under a running instance, measured by review) cannot leave one set's file under another's
+  level either. Corpus against jc-28: 24,217 of 24,217 identical.
+- **UB-30 is fixed with it:** a set opened at launch whose level 1 fails now opens at a level, so its
+  levels are reachable again.
+
+### Known issue
+- A damaged file whose header claims far more levels than it holds is tried level by level: a 4-byte
+  file claims 65,535, and the open spends about 4 seconds on the event thread trying them (jc-17 to jc-20 the same). A real set
+  costs tens of milliseconds.
+
+### Changed (tests only)
+- `EngineTest` §6c/§6d's 7 pins and `GuiWindowTest` §3a/§5's 6 are checks again. New in `EngineTest`:
+  no set is left open without a level, `loadLevel` still reports a failure, and an `Error` escaping
+  an open puts the previous set back; in `GuiWindowTest`, that no set's file is left open after a
+  failed fresh open. On jc-28's jar the two tests fail 12 and 8 checks, each
+  accounted for; 13 defects planted in `SuperCC`, all caught. Suite 2,386 assertions, 41 pins.
+  Coverage re-baselined: target 57.1% (1524/2670), `emulator\**` 33.8% (159/470).
+
 ## jc-28 — 2026-11-14 (the fix layer: the menu guard)
 
 The first of the no-level-loaded fixes goes back on the upstream baseline. It closes UB-11 in

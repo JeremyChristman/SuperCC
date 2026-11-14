@@ -36,7 +36,7 @@ How to keep it:
 | UB-11 | With no level set open, most menu controls fail with an internal error | everyone, from launch until a set is opened | `c57f217`, ships in jc-21 | **FIXED in `d57d419` (jc-28)** |
 | UB-12 | Canceling Go to... or Set RNG Seed fails with an internal error | anyone who cancels either | `c57f217`, ships in jc-21 | open |
 | UB-13 | Canceling the file chooser of Solution › Open, Search for seeds or Load states fails | anyone who cancels one | `c57f217`, ships in jc-21 | open |
-| UB-14 | A set whose level 1 will not load opens badly: an error, then no level, or the previous set's level under the new file | none of the 331 sets in the collection | `c57f217`, ships in jc-21 | open |
+| UB-14 | A set whose level 1 will not load opens badly: an error, then no level, or the previous set's level under the new file | none of the 331 sets in the collection | `c57f217`, ships in jc-21 | **FIXED in `48a3eca` (jc-29)** |
 | UB-15 | A level whose savestates cannot be built is left half-loaded | nobody today (no level reaches it) | `c57f217`, ships in jc-21 | open (latent) |
 | UB-16 | Choosing a custom tileset saves it as tileset number 5, which builds before jc-18 cannot start with | anyone sharing the settings file with an older build | `5d3f0a3`, ships in jc-22 | open |
 | UB-17 | Custom tileset pictures are saved as full paths, which the other computer does not have | anyone sharing the folder between computers | `5d3f0a3`, ships in jc-22 | open |
@@ -52,7 +52,7 @@ How to keep it:
 | UB-27 | With Auto diagonals on, a key let go while the main window does not have the keyboard stays "held" | anyone with Auto diagonals on | `d08e6ef`, ships in jc-23 | open |
 | UB-28 | `AutoDiagonals = 1` is OFF, and a value read as OFF is usually written back as it was, so the file can look ON | anyone editing the file by hand | `d08e6ef`, ships in jc-23 | open |
 | UB-29 | A `.ser` savestate saved by jc-19 to jc-25 can load a trap wrong in other builds (two or more traps) | anyone keeping such a file; none in the maintainer's collection | `79b0032` (jc-19), exposed by jc-26 | open, accepted |
-| UB-30 | A set opened at launch whose level 1 will not load: its other levels cannot be reached (Go to... is guarded while no level is loaded) | anyone opening such a set before any other; none of the 331 sets in the collection | `d57d419` (jc-28): UB-11's fix back before UB-14's | open (closes with UB-14's fix) |
+| UB-30 | A set opened at launch whose level 1 will not load: its other levels cannot be reached (Go to... is guarded while no level is loaded) | anyone opening such a set before any other; none of the 331 sets in the collection | `d57d419` (jc-28): UB-11's fix back before UB-14's | **FIXED in `48a3eca` (jc-29)**, with UB-14 |
 
 ---
 
@@ -268,8 +268,9 @@ Paste solution depends on the clipboard), which also restores `ChooseTileSize`'s
 and both baselines. If step 5 (custom tilesets, below) is still reverted, re-apply it first: both
 steps rewrote View › Tileset's listener in `MenuBar`.
 FORK.md step 4 has the engineering record. **The menu guard (UB-11) is back since jc-28
-(`d57d419`)**, so a whole `git revert` no longer applies: UB-12 to UB-15 go back fix by fix, by hand
-from `c57f217`'s diff.
+(`d57d419`), and opening a set at its first level that loads (UB-14) since jc-29 (`48a3eca`)**, so a
+whole `git revert` no longer applies: UB-12, UB-13 and UB-15 go back fix by fix, by hand from
+`c57f217`'s diff.
 
 "Fails with an internal error" below means a `NullPointerException` on the event thread: nothing
 visible happens except that it is written to the error log (`succ_error-<MACHINE>.log`).
@@ -358,7 +359,32 @@ has no reachable level).
 
 ### UB-14 — a set whose level 1 will not load opens badly
 
-- **What a user sees:** a level set opens at level 1 only. If level 1 will not load:
+**Status: FIXED in `48a3eca` (jc-29).** jc-17's `openLevelset` is back, re-applied alone: a set
+opens at its first level that loads, every failure before it is reported once by position, a set
+where nothing loads puts the previous set (or none) back before its one error is shown, and a level
+that loaded is not reported as failed when only the repaint after it threw; `loadLevel`'s body is
+`tryLoadLevel`, which returns its failure, and `loadLevel` reports it exactly as before. UB-30 is
+fixed with it: an open now either loads a level or leaves no new file open. One change to jc-17's
+code: the previous set goes back in a `finally`, so an `Error` escaping the loop (not an Exception,
+which `tryLoadLevel` catches) puts it back too -- the jc-29 failure-mode review measured one, a jar
+replaced under a running instance throwing `NoClassDefFoundError` out of `parseLevel`, which left
+set B's file under set A's level on jc-28 (measured; jc-20's code does the same). NOT fixed, because jc-17's code never
+fixed them either, and moved to the last section: the title bar keeping the previous level's name
+when the repaint throws, and a later load (Next, Go to...) whose repaint throws being reported as
+"Could not load level". One cost, as in jc-17 to jc-20: a damaged file whose header claims more
+levels than it holds is tried level by level -- a 4-byte file with only an MS signature claims
+65,535 (`DatParser` reads 0xFF past the end), measured at 4.3 s headless on the candidate against
+0.15 s on jc-28 -- on the event thread, so the window would freeze that long (inferred, not timed in a window); a real set costs tens of milliseconds. While
+UB-15 is open, a level whose savestates cannot be built would be counted as loaded by the open
+(see UB-15). Measured: `EngineTest` §6c/§6d's 7 pins and `GuiWindowTest` §3a/§5's 6 are checks
+again, plus checks that no set is left open without a level, that an Error puts the previous set
+back, and that `loadLevel` still reports a failure; on jc-28's jar `EngineTest` fails 12 and
+`GuiWindowTest` 8 (6, its no-file-left-open check, and its exit check), each accounted for; 13 defects planted in `SuperCC` all
+caught; a failure-mode fuzz of 120,000 opens of randomly damaged level-1 records kept the set file
+and the level together every time (in the 40,000 of those opens run against jc-28, it broke 23,792 times; the fuzz ran before the `finally`, which changes nothing for an Exception); corpus against jc-28 24,217 of
+24,217 identical, `-CrossCheck` clean.
+
+- **What a user saw (jc-21 to jc-28):** a level set opens at level 1 only. If level 1 will not load:
   - on a fresh start, its error is shown and then the open fails (an internal error), leaving no
     level loaded;
   - with a set already open, the previous set's level stays on screen under the new set's file, so
@@ -380,8 +406,8 @@ has no reachable level).
   ("Levels 1 to 3 could not be loaded … Opened at level 4"), put the previous set back before the
   error is shown when nothing loads, and count positions, not record numbers — through
   `tryLoadLevel`, which returns a failure instead of reporting it.
-- **Pinned by:** `EngineTest` §6c and §6d; `GuiWindowTest` §3a (including the open level kept under
-  the new set's file, in a real window) and §5.
+- **Pinned by (jc-21 to jc-28):** `EngineTest` §6c and §6d; `GuiWindowTest` §3a (including the open level kept under
+  the new set's file, in a real window) and §5. **Checked by (jc-29 on):** the same, as checks.
 
 ### UB-15 — a level whose savestates cannot be built is half-loaded
 
@@ -390,7 +416,11 @@ has no reachable level).
   the previous level's, and slip past the guards that ask whether a level is loaded.
 - **Measured:** no level reaches it. The one cause ever seen, a level with no title, is handled by the
   fork's own untitled-level fix (jc-17, kept: it is not part of this step), and all 23,476 levels of
-  the collection load except UB-1's five, which fail earlier, while parsing.
+  the collection load except UB-1's five, which fail earlier, while parsing. One way in that is not a
+  level: an `Error` thrown after the level is assigned. The jc-29 failure-mode review replaced the
+  jar under a running probe after only the parsing classes had loaded, and `SavestateManager` then
+  threw `NoClassDefFoundError`, leaving the level loaded with no savestates -- on jc-28 and the
+  jc-29 candidate alike. This fix closes that too.
 - **Fix:** build the level and its savestates first, then assign both, or neither (jc-17).
 - **Also reaches the menus (since jc-28):** UB-11's menu guard, re-applied as jc-17 wrote it, asks
   only `isLevelLoaded()` (a level is assigned), which jc-17's all-or-nothing load made the same as
@@ -398,9 +428,20 @@ has no reachable level).
   and Ctrl+S, the Copy items and the state files would fail on the missing savestates. Widening the
   guard instead would be a new deviation from jc-17's fix; this fix is the real one (review of
   jc-28, defended).
+- **Also reaches the open (since jc-29):** UB-14's fix, re-applied without this one, tells a level
+  that loaded from one that did not by whether `level` changed, which this fix made exact. Until it
+  comes back, a level whose savestates cannot be built changes `level` too, so opening a set would
+  land on it half-loaded and only log the failure -- where jc-28's open at least showed "Could not
+  load level" (both jc-29 reviews; the failure-mode fuzz of 120,000 damaged records reached it
+  zero times).
 - **Pinned by:** nothing — no fixture reaches it while untitled levels load.
 
 ### UB-30 — after a fresh-start open whose level 1 fails, the set's other levels cannot be reached
+
+**Status: FIXED in `48a3eca` (jc-29)**, by UB-14's fix: an open now either loads a level or puts the
+previous set (on a fresh start, none) back, so a set's file is never left open without a level --
+checked by `EngineTest` §6c after a fresh open where nothing loads, and after an `Error` escapes an
+open (both fail on jc-28's jar).
 
 Introduced by the fix layer itself, not by a baseline revert: jc-28 put UB-11's menu guard back
 before UB-14's fix, and jc-17 had shipped the two together.
@@ -733,3 +774,26 @@ are not lost.
   `getTileWidth()`, and `ChooseTileSize` starts both spinners at it, so after a custom 32x16, an
   unchanged OK makes the tiles 32x32 and saves that. Upstream's code. Raised by the jc-28 review;
   verified in the code, not measured.
+- **When the repaint after a load throws, the title bar keeps the previous level's name.** The title
+  is set after the repaint, inside the same `try`, so a repaint that throws (CLAUDE.md §9's jar
+  replaced under a running instance) skips it. Listed under UB-14 until jc-29, but jc-17's fix never
+  covered it: jc-17 to jc-20 set the title in the same place. Every build. Raised by the jc-29
+  review; verified in the code.
+- **A load that worked is reported as "Could not load level" when only its repaint threw -- for
+  every load but an open.** jc-17's fix (back in jc-29) tells the two apart inside `openLevelset`
+  only; Next, Previous, Go to..., Restart and the rest go through `loadLevel`, which reports any
+  failure `tryLoadLevel` returns. Every build. Raised by the jc-29 review; verified in the code.
+- **Each failed level parse leaves its file handle open until garbage collection.**
+  `DatParser.parseLevel` closes its reader only on an `IOException`, so a record that fails another
+  way (an `ArrayIndexOutOfBoundsException` on a damaged record) leaves the file open: right after
+  such an open, renaming the .dat was refused on jc-28 and the jc-29 candidate alike, and worked
+  after a forced GC. Upstream's code; jc-29's open, which tries level after level, multiplies it on
+  a damaged set (see UB-14's status). Raised by the jc-29 failure-mode review; measured.
+- **Playback keeps running across an open.** The play button's thread (`Gui` → `SavestateManager.play`)
+  reads `emulator.getLevel()` on each step, so opening a set while a route plays loads the old
+  level's savestate bytes into the new level; Open levelset is not blocked while tools run either.
+  Upstream's code. Raised by the jc-29 failure-mode review; verified in the code, not measured.
+- **`openLevelset` swaps the level set outside the emulator's lock.** `loadLevel` and `tryLoadLevel`
+  are `synchronized`; `openLevelset` is not, so a thread that ticks the emulator -- auto-diagonals'
+  timer (UB-26), when the switch is on -- can run while the new set's file is in place. Upstream's
+  code and every fork build. Raised by the jc-29 review; verified in the code.
