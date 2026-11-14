@@ -65,8 +65,9 @@ import java.util.zip.ZipFile;
  * measured answer, the correct one -- and this side judges it with Harness.upstreamBug. Every check
  * upstream passes is still an ordinary one. The fix behind 2 (UB-11, the guard over the whole menu
  * bar) is back from jc-28 (FORK.md, "The fix layer"), so 2's UB-11 pins are checks again; its two
- * pins on View > Tileset > custom (UB-18, from the custom-tileset step) stay, as do 3a's, 4's and
- * 5's (UB-12 to UB-14).
+ * pins on View > Tileset > custom (UB-18, from the custom-tileset step) stay. The fix behind 3a and
+ * 5 (UB-14, opening a set at its first level that loads) is back from jc-29, so their pins are
+ * checks again too; 4's stay (UB-12, UB-13).
  *
  * Run with -Dsupercc.jar (run-tests.ps1 passes it); the child gets this JVM's own classpath.
  */
@@ -773,41 +774,43 @@ public class GuiWindowTest {
 
             // 3a. A set whose level 1 cannot load (a corrupt record -- an untitled level was the
             //     fixture until jc-17 made those load). Before jc-17 it threw on a null level right
-            //     after the error; jc-17 to jc-20 showed the error once and left nothing half-open;
-            //     upstream's code, restored, throws again (pinned below). The failed load is a real
-            //     error, so it SHOULD reach the log -- and nothing else may.
+            //     after the error; jc-17 to jc-20, and jc-29 on, show the error once and leave nothing
+            //     half-open (MOD (Jeremy, fix layer, UB-14)). jc-21 to jc-28 had upstream's open,
+            //     which tries level 1 only, shows its error, then throws on the null level swapping
+            //     the tileset -- each check here that differed was pinned at that. The failed load is
+            //     a real error, so it SHOULD reach the log -- and nothing else may.
             //     Each open below runs under closeEveryDialog, so a second dialog is counted, not hung on.
-            //     ⚠ UPSTREAM BASELINE (from jc-21, UB-14): jc-17's open-at-the-first-level-that-loads
-            //     was REVERTED. Upstream tries level 1 only, shows its error, and then throws on the
-            //     null level swapping the tileset; each check below that differs is pinned at that.
             int beforeBad = dialogsClosed.get();
             Thread badCloser = closeEveryDialog();
-            pin("opening a set whose first level cannot load", outcome(() -> emu.openLevelset(new File(args[1]))),
-                "throws NullPointerException", "works");
+            noThrow("opening a set whose first level cannot load", () -> emu.openLevelset(new File(args[1])));
             stop(badCloser);
             fact("and its error was shown, once", dialogsClosed.get() == beforeBad + 1);
             fact("and still no level is loaded", !emu.isLevelLoaded());
+            // UB-30's state, in a real window: upstream's open (jc-21 to jc-28) left this set's FILE
+            // open with no level, and jc-28's menu guard then blocked Go to... on it. From jc-29 the
+            // failed open puts back what was open before -- here nothing (review of jc-29).
+            fact("and no set's file is left open either", field(emu, "dat") == null);
             fact("and the failed load was recorded in the error log", logSize() > 0);
 
             //     Three levels that cannot load, then one that can: the set opens at level 4, with ONE
             //     error for all three (it was one modal dialog per level).
             int beforeMulti = dialogsClosed.get();
             Thread multiCloser = closeEveryDialog();
-            pin("opening a set whose first three levels cannot load", outcome(() -> emu.openLevelset(new File(args[2]))),
-                "throws NullPointerException", "works");
+            noThrow("opening a set whose first three levels cannot load", () -> emu.openLevelset(new File(args[2])));
             stop(multiCloser);
-            pin("it opens at level 4", !emu.isLevelLoaded() ? "no level loaded"
-                                       : "level " + emu.getLevel().getLevelNumber() + " " + emu.getLevel().getTitle(),
-                "no level loaded", "level 4 Fourth");
+            String landed = !emu.isLevelLoaded() ? "no level loaded"
+                            : "level " + emu.getLevel().getLevelNumber() + " " + emu.getLevel().getTitle();
+            fact("it opens at level 4 (" + landed + ")", landed.equals("level 4 Fourth"));
             fact("with one error for the three, not three", dialogsClosed.get() == beforeMulti + 1);
 
             //     A set with no levels at all, opened while a GOOD set is open -- the case where a
-            //     failed open does its damage. jc-17 to jc-20 show one error and keep the open set,
-            //     and keep it WHILE the error is on screen, not only after it: the dialog runs a nested
-            //     event loop, and the previous set used to be put back only once it closed (review).
-            //     The closer reads the open set's file from inside that loop, then closes it.
-            //     Upstream keeps the open LEVEL, but under the new set's FILE (UB-14, pinned), so
-            //     Solution > Save would file that level's route in the new set's folder.
+            //     failed open does its damage. jc-17 to jc-20, and jc-29 on, show one error and keep
+            //     the open set, and keep it WHILE the error is on screen, not only after it: the dialog
+            //     runs a nested event loop, and the previous set used to be put back only once it
+            //     closed (review). The closer reads the open set's file from inside that loop, then
+            //     closes it. Upstream (jc-21 to jc-28, pinned there) kept the open LEVEL, but under
+            //     the new set's FILE (UB-14), so Solution > Save would have filed that level's route
+            //     in the new set's folder.
             int beforeGood = dialogsClosed.get();
             Thread goodCloser = closeEveryDialog();
             noThrow("opening a good set first", () -> emu.openLevelset(new File(args[0])));
@@ -822,13 +825,13 @@ public class GuiWindowTest {
             fact("says so, once", dialogsClosed.get() == beforeEmpty + 1);
             fact("and keeps the level that was open", emu.isLevelLoaded() && "Gui Probe".equals(emu.getLevel().getTitle()));
             String fileNow = emu.getLevelsetPath();
-            pin("and the open set's file with it", fileNow.equals(openSet) ? "the open set's file"
-                                                  : fileNow.endsWith("nolevels.dat") ? "the new set's file" : fileNow,
-                "the new set's file", "the open set's file");
+            String kept = fileNow.equals(openSet) ? "the open set's file"
+                        : fileNow.endsWith("nolevels.dat") ? "the new set's file" : fileNow;
+            fact("and the open set's file with it (" + kept + ")", kept.equals("the open set's file"));
             String seen = duringDialog.size() != 1 ? duringDialog.size() + " readings"
                         : openSet.equals(duringDialog.get(0)) ? "the open set's file"
                         : duringDialog.get(0).endsWith("nolevels.dat") ? "the new set's file" : duringDialog.get(0);
-            pin("and had already put it back while the error was showing", seen, "the new set's file", "the open set's file");
+            fact("and had already put it back while the error was showing (" + seen + ")", seen.equals("the open set's file"));
             long logAfterBad = logSize();
 
             // 3. With a level set open, the full repaint path runs. Any dialog while opening it is an
@@ -930,12 +933,12 @@ public class GuiWindowTest {
             });
             playButton.set(w, realButton);
             stop(faultCloser);
-            // ⚠ UPSTREAM BASELINE (from jc-21, UB-14): upstream's loadLevel reports any throw inside
-            // it, the repaint's included, as "Could not load level".
+            // (jc-21 to jc-28, upstream's open, reported any throw inside loadLevel, the repaint's
+            // included, as "Could not load level"; pinned there. MOD (Jeremy, fix layer, UB-14).)
             int faultDialogs = dialogsClosed.get() - beforeFault;
-            pin("a level that loads is not reported as failed when its repaint throws",
-                faultDialogs == 0 ? "not reported" : faultDialogs == 1 ? "reported as failed" : faultDialogs + " dialogs",
-                "reported as failed", "not reported");
+            String reported = faultDialogs == 0 ? "not reported" : faultDialogs == 1 ? "reported as failed" : faultDialogs + " dialogs";
+            fact("a level that loads is not reported as failed when its repaint throws (" + reported + ")",
+                 reported.equals("not reported"));
             fact("and it did load", emu.getLevel() != levelBefore && emu.getSavestates() != null
                                     && "Gui Probe".equals(emu.getLevel().getTitle()));
             noThrow("and the window repaints again with its play button back", () -> w.repaint(true));

@@ -240,6 +240,8 @@ public class SuperCC {
     }
 
     public void openLevelset(File levelset){
+        DatParser previousDat = dat;     // MOD (Jeremy, fix layer, UB-14): see below
+        Level previousLevel = level;
         try{
             dat = new DatParser(levelset);
         }
@@ -260,7 +262,80 @@ public class SuperCC {
              * stays loaded, instead of being silently replaced by level 1 of itself. */
             return;
         }
-        loadLevel(1, 0, Step.EVEN, false, startingRuleset(), Direction.UP);
+        /* MOD (Jeremy, fix layer, UB-14): open at the FIRST level that loads, not blindly at level 1.
+         * jc-17's fix (merged as "upstream merge", reverted for the upstream baseline in jc-21),
+         * re-applied alone.
+         *
+         * A level that fails to parse leaves the previous one in place (loadLevel assigns nothing).
+         * Opening a set whose level 1 fails therefore left set A's level under set B's file --
+         * measured by review: getJSONPath() pointed into B's save folder, so Ctrl+S would have
+         * written A's route there -- and on a fresh open the line at the end threw on a null level,
+         * leaving B's file open with no level at all (and, behind jc-28's menu guard, none of its
+         * levels reachable: UB-30). Restoring set A instead closed off ALL of set B: its other
+         * levels unreachable in the GUI, and every save in such a pack an OPENFAIL in the corpus
+         * harness. So the next level is tried, and the set opens at the first one that loads. Only a
+         * set where NOTHING loads leaves the previous set open, which is the rule above for a file
+         * that does not read. A successful load always assigns a new Level object, so identity tells
+         * which happened.
+         *
+         * ⚠ While UB-15 is open (loadLevel assigns the level BEFORE it builds the savestates), a
+         * level whose savestates cannot be built is assigned too, so identity counts it as loaded and
+         * the set would open on it half-loaded. Nothing reaches that today: the one cause ever seen,
+         * a level with no title, loads since jc-17 (LevelFactory). UB-15's fix makes identity exact
+         * again (BASELINE-ISSUES.md UB-15).
+         *
+         * Reported ONCE per open, not once per level: a set of 30 untitled levels was 30 modal
+         * dialogs and ~45 KB of error log (measured by review), and a set with no levels at all
+         * opened in silence. Every failure counted here is a level before the one it lands on.
+         *
+         * A failure is counted only when the level did NOT change. tryLoadLevel's GUI work
+         * (repaint, title) runs after the assignment, so a throw there comes back as a failure
+         * for a level that loaded -- reproduced by review with the repaint made to throw, which
+         * reported "Level 1 could not be loaded ... Opened at level 1." That one is logged, not
+         * shown.
+         *
+         * Every number in the message is a POSITION in the set (what Go to... takes), never the
+         * record's own stored number, which the format lets differ from its position. The landing
+         * level is reported by the position it was loaded from, for that reason (review). */
+        Exception firstFailure = null;
+        int failed = 0;
+        int openedAt = 0;
+        try {
+            for (int n = 1; n < lastLevelNumber() && level == previousLevel; n++) {
+                Exception e = tryLoadLevel(n, 0, Step.EVEN, false, startingRuleset(), Direction.UP);
+                if (level != previousLevel) openedAt = n;
+                if (e == null) continue;
+                if (level != previousLevel) {
+                    e.printStackTrace();
+                    continue;
+                }
+                failed++;
+                if (firstFailure == null) firstFailure = e;
+            }
+        } finally {
+            /* If no level loaded, the previous set goes back -- in a finally, because tryLoadLevel
+             * catches Exceptions only: an Error (a jar replaced under a running instance threw
+             * NoClassDefFoundError out of parseLevel, measured by the jc-29 failure-mode review)
+             * would otherwise leave this set's file under the previous set's level, or, on a fresh
+             * open, a file with no level (UB-30). jc-17 restored only on the normal path; this is
+             * the one change to its code (MOD (Jeremy, fix layer, UB-14)).
+             * And BEFORE the dialog below, not after it: throwError's modal dialog runs a nested
+             * event loop, and for as long as it was open the emulator paired this new set's file
+             * with the previous set's level -- the getJSONPath() mismatch the comment above exists
+             * to remove, live while a playing level kept ticking (review). */
+            if (level == previousLevel) dat = previousDat;
+        }
+        if (level == previousLevel) {
+            if (firstFailure != null) firstFailure.printStackTrace();
+            throwError("No level in " + levelset.getName() + " could be loaded"
+                       + (firstFailure == null ? " -- it has no levels." : ":\n" + firstFailure.getMessage()));
+            return;
+        }
+        if (firstFailure != null) {
+            firstFailure.printStackTrace();
+            throwError((failed == 1 ? "Level 1 could not be loaded" : "Levels 1 to " + failed + " could not be loaded")
+                       + ":\n" + firstFailure.getMessage() + "\n\nOpened at level " + openedAt + ".");
+        }
         if (hasGui)
             window.swapRulesetTilesheet(level.getRuleset());
     }
@@ -282,6 +357,18 @@ public class SuperCC {
     }
 
     public synchronized void loadLevel(int levelNumber, int rngSeed, Step step, boolean keepMoves, Ruleset rules, Direction initialSlide){
+        Exception e = tryLoadLevel(levelNumber, rngSeed, step, keepMoves, rules, initialSlide);
+        if (e != null) {
+            e.printStackTrace();
+            throwError("Could not load level: "+e.getMessage());
+        }
+    }
+
+    /* MOD (Jeremy, fix layer, UB-14): loadLevel's body, returning its failure instead of reporting it,
+     * so openLevelset can try several levels and report ONCE. Callers of loadLevel see no change.
+     * (jc-17's version also built the level and its savestates before assigning either; that is
+     * UB-15's fix, still reverted, so the assignments below are upstream's.) */
+    private synchronized Exception tryLoadLevel(int levelNumber, int rngSeed, Step step, boolean keepMoves, Ruleset rules, Direction initialSlide){
         /* MOD (Jeremy, jc-11): no level set open, nothing to load.
          *
          * The two lastLevelNumber() calls below sit OUTSIDE the try block and dereference `dat`
@@ -294,7 +381,7 @@ public class SuperCC {
          *
          * Guarding here rather than at each caller covers all of them, including future ones, and
          * keeps the fix inside a file that is already spliced. */
-        if (dat == null) return;
+        if (dat == null) return null;
         if (levelNumber == 0) levelNumber = lastLevelNumber()-1; //If the level number is 0 (player goes back from level 1, load the last level)
         if (levelNumber == lastLevelNumber()) levelNumber = 1; //And vice versa
         try{
@@ -315,9 +402,9 @@ public class SuperCC {
             }
         }
         catch (Exception e){
-            e.printStackTrace();
-            throwError("Could not load level: "+e.getMessage());
+            return e;
         }
+        return null;
     }
 
     public synchronized void loadLevel(int levelNumber){

@@ -39,9 +39,61 @@ public class EngineTest {
         return Harness.tempDir("scc-engine-" + name + "-");
     }
 
-    /** The loaded level's title, or "(no level)" -- upstream's open can leave none (UB-14). */
+    /** The loaded level's title, or "(no level)" -- upstream's open (jc-21 to jc-28) can leave none
+     *  (UB-14), and a check on a build like that must fail rather than throw out of its section. */
     private static String titleOf(SuperCC emu) {
         return emu.getLevel() == null ? "(no level)" : emu.getLevel().getTitle();
+    }
+
+    /** Settings whose "always open in MS?" question -- asked for the starting ruleset before every
+     *  level an open tries -- throws an Error on its Nth asking, standing in for one out of
+     *  parseLevel itself. Before that it answers no. */
+    private static final class ErrorOnRulesetQuestion extends io.SuccPaths {
+        private final int throwOnCall;
+        private int calls;
+        ErrorOnRulesetQuestion(File settings, int throwOnCall) throws IOException {
+            super(settings);
+            this.throwOnCall = throwOnCall;
+        }
+        @Override public boolean getAlwaysOpenInMS() {
+            if (++calls >= throwOnCall) throw new LinkageError("planted by EngineTest 6c");
+            return false;
+        }
+    }
+
+    /** What r printed to stderr -- where the headless emulator reports its errors. */
+    private static String captureStderr(Runnable r) throws IOException {
+        java.io.PrintStream before = System.err;
+        java.io.ByteArrayOutputStream said = new java.io.ByteArrayOutputStream();
+        System.setErr(new java.io.PrintStream(said, true, "UTF-8"));
+        try {
+            r.run();
+        } finally {
+            System.setErr(before);
+        }
+        return said.toString("UTF-8");
+    }
+
+    /** Puts settings into a headless emulator, which never builds any of its own. */
+    private static void installSettings(SuperCC emu, io.SuccPaths settings) throws ReflectiveOperationException {
+        java.lang.reflect.Field paths = SuperCC.class.getDeclaredField("paths");
+        paths.setAccessible(true);
+        paths.set(emu, settings);
+    }
+
+    /** Runs r: true if it threw an Error (an Exception counts as false, as does no throw). */
+    private static boolean throwsAnError(Runnable r) {
+        try { r.run(); return false; }
+        catch (Error expected) { return true; }
+        catch (RuntimeException e) { return false; }
+    }
+
+    /** Whether a level set's file is open, loaded level or not (SuperCC.dat; getLevelsetPath()
+     *  throws when none is). */
+    private static boolean aSetIsOpen(SuperCC emu) throws ReflectiveOperationException {
+        java.lang.reflect.Field dat = SuperCC.class.getDeclaredField("dat");
+        dat.setAccessible(true);
+        return dat.get(emu) != null;
     }
 
     /** A headless emulator whose settings file names these two custom tileset images (null: none
@@ -52,9 +104,7 @@ public class EngineTest {
         Files.writeString(ini.toPath(), "[Graphics]\nCustomBaseImage = " + (base == null ? "" : base.getAbsolutePath())
                 + "\nCustomOverlayImage = " + (overlay == null ? "" : overlay.getAbsolutePath()) + "\n");
         SuperCC emu = new SuperCC(false);
-        java.lang.reflect.Field pathsField = SuperCC.class.getDeclaredField("paths");
-        pathsField.setAccessible(true);
-        pathsField.set(emu, io.SuccPaths.load(ini));
+        installSettings(emu, io.SuccPaths.load(ini));
         return emu;
     }
 
@@ -341,50 +391,80 @@ public class EngineTest {
         emu3.openLevelset(setA);
         Harness.eq("set A opens on its good level 1", emu3.getLevel().getTitle(), "Titled");
         Object level1States = emu3.getSavestates();
-        emu3.loadLevel(2, 0, Step.EVEN, false, Ruleset.MS, Direction.UP);  // unreadable: fails
+        /* loadLevel still REPORTS its failure (the headless emulator prints it to stderr): since
+         * UB-14's fix its body is tryLoadLevel, which only returns the failure, and loadLevel reports
+         * it -- a loadLevel that dropped it would leave Go to..., Next and the rest silent on a level
+         * that will not load (planted: it passed every other check). */
+        String loadSaid = captureStderr(() -> emu3.loadLevel(2, 0, Step.EVEN, false, Ruleset.MS, Direction.UP));  // unreadable: fails
+        Harness.check("loading the unreadable level 2 reports it (\"Could not load level: ...\")",
+                      loadSaid.contains("Could not load level: "));
         Harness.eq("loading the unreadable level 2 keeps level 1", emu3.getLevel().getLevelNumber(), 1);
         Harness.check("with level 1's own savestates, not a mismatch", emu3.getSavestates() == level1States);
 
-        /* And openLevelset, where it is level 1 that fails. The right answer -- jc-17 to jc-20's -- is
-         * to open the set at its first level that loads. Two wrong answers came first, both measured
-         * by review: keeping the new file with the old level (set A's level sat under set B's file,
-         * and getJSONPath() pointed into B's save folder, so a save would have written A's route
-         * there), and restoring set A outright (all of set B unreachable, and every save in such a
-         * pack an OPENFAIL in the corpus harness). The first of those IS upstream's behavior, which
-         * the baseline restores (UB-14, pinned below). */
+        /* And openLevelset, where it is level 1 that fails. The right answer -- jc-17 to jc-20's,
+         * and from jc-29 (MOD (Jeremy, fix layer, UB-14)) -- is to open the set at its first level
+         * that loads. Two wrong answers came first, both measured by review: keeping the new file
+         * with the old level (set A's level sat under set B's file, and getJSONPath() pointed into
+         * B's save folder, so a save would have written A's route there), and restoring set A
+         * outright (all of set B unreachable, and every save in such a pack an OPENFAIL in the corpus
+         * harness). The first of those is upstream's behavior, which jc-21 to jc-28 had (these
+         * checks were pinned at it). */
         File setC = new DatBuilder().signature(DatBuilder.SIG_MS)
                 .level().title("Only").password("QRST").chips(0).timeLimit(100).unreadable().end()  // its only level
                 .writeTo(d6c, "nothingloads.dat").toFile();
-        /* ⚠ UPSTREAM BASELINE (from jc-21): jc-17's open-at-the-first-level-that-loads was REVERTED
-         * (FORK.md, "The upstream baseline"; BASELINE-ISSUES.md UB-14). Upstream opens a set at level
-         * 1 only, so where level 1 fails the PREVIOUS set's level stays under the new set's file, and
-         * a fresh open is left with no level at all. Those checks are pinned at upstream's answers.
-         * To re-apply all of them at once (the fix layer, FORK.md, takes them back one fix at a time
-         * instead): `git revert` both of this step's commits, newest first -- "GuiWindowTest: do
-         * not click Paste solution on upstream's menus", then "Upstream baseline: revert the
-         * no-level-loaded guards"; the second holds this change. If step 5 ("Upstream baseline:
-         * revert the custom-tileset fixes") is still reverted, re-apply it first (both touched
-         * MenuBar's View > Tileset listener). */
         emu3.openLevelset(setB);
-        Harness.upstreamBug("opening set B, whose level 1 fails, opens it at level 2", titleOf(emu3), "Titled", "Second");
+        Harness.eq("opening set B, whose level 1 fails, opens it at level 2", titleOf(emu3), "Second");
         Harness.eq("and it is set B's file now", emu3.getLevelsetPath(), setB.getAbsolutePath());
-        Harness.upstreamBug("with level 2's own savestates", emu3.getSavestates() != level1States);
+        Harness.check("with level 2's own savestates", emu3.getSavestates() != level1States);
 
         String pathB = emu3.getLevelsetPath();
         emu3.openLevelset(setC);  // no level in it loads at all
-        Harness.upstreamBug("a set where nothing loads leaves the open set's level", titleOf(emu3), "Titled", "Second");
-        String fileNow = emu3.getLevelsetPath();
-        Harness.upstreamBug("and its file",
-                fileNow.equals(pathB) ? "the open set's file" : fileNow.equals(setC.getAbsolutePath()) ? "the new set's file" : fileNow,
-                "the new set's file", "the open set's file");
+        Harness.eq("a set where nothing loads leaves the open set's level", titleOf(emu3), "Second");
+        Harness.eq("and its file", emu3.getLevelsetPath(), pathB);
 
         SuperCC emu4 = new SuperCC(false);
         emu4.openLevelset(setB);  // a FRESH open whose level 1 fails
-        Harness.upstreamBug("a fresh open of set B lands on level 2", titleOf(emu4), "(no level)", "Second");
+        Harness.eq("a fresh open of set B lands on level 2", titleOf(emu4), "Second");
         SuperCC emu5 = new SuperCC(false);
         emu5.openLevelset(setC);  // a fresh open where nothing loads
         Harness.check("a fresh open where nothing loads leaves nothing loaded", !emu5.isLevelLoaded());
         Harness.check("and no half-built savestates", emu5.getSavestates() == null);
+        /* UB-30's state, which jc-28's menu guard made a dead end: a set's FILE open with no level
+         * loaded, so Go to... (guarded) cannot reach its levels. Upstream's open (jc-21 to jc-28)
+         * left it after both fresh opens above; from jc-29 an open either loads a level or puts the
+         * previous set -- here none -- back. */
+        Harness.check("and no set is left open without a level (UB-30)", !aSetIsOpen(emu5));
+
+        /* An ERROR escaping the open -- not an Exception, which tryLoadLevel catches -- still puts
+         * the previous set back. The jc-29 failure-mode review measured one: a jar replaced under a
+         * running instance threw NoClassDefFoundError out of parseLevel, and that left set B's file
+         * under set A's level (getJSONPath() pointing into B's save folder), or on a fresh open B's
+         * file with no level at all (UB-30). Here the Error comes from the settings, which the loop
+         * asks for the starting ruleset before every level it tries: a SuccPaths that throws. */
+        Path d6cErr = tempDir("error");
+        File errSettings = d6cErr.resolve("succ_settings.ini").toFile();
+        Files.write(errSettings.toPath(), new byte[0]);
+        SuperCC emu8 = new SuperCC(false);
+        emu8.openLevelset(setA);
+        String pathA = emu8.getLevelsetPath();
+        Object levelA = emu8.getLevel();
+        installSettings(emu8, new ErrorOnRulesetQuestion(errSettings, 1));
+        Harness.check("an Error thrown during an open escapes it (it is not swallowed)", throwsAnError(() -> emu8.openLevelset(setB)));
+        Harness.eq("and the open set's file is put back", emu8.getLevelsetPath(), pathA);
+        Harness.check("with the open set's level, still loaded", emu8.getLevel() == levelA);
+        SuperCC emu9 = new SuperCC(false);
+        installSettings(emu9, new ErrorOnRulesetQuestion(errSettings, 1));
+        Harness.check("and on a fresh open, the Error escapes too", throwsAnError(() -> emu9.openLevelset(setB)));
+        Harness.check("leaving no set open without a level (UB-30)", !emu9.isLevelLoaded() && !aSetIsOpen(emu9));
+        //  And an Error that comes AFTER an ordinary failure: set B's level 1 fails to load (an
+        //  Exception, counted) and the Error comes as the loop moves on to level 2 (review).
+        SuperCC emu10 = new SuperCC(false);
+        emu10.openLevelset(setA);
+        Object levelA10 = emu10.getLevel();
+        installSettings(emu10, new ErrorOnRulesetQuestion(errSettings, 2));
+        Harness.check("an Error after level 1 failed normally escapes too", throwsAnError(() -> emu10.openLevelset(setB)));
+        Harness.check("and still puts the open set back, its level loaded",
+                      emu10.getLevelsetPath().equals(pathA) && emu10.getLevel() == levelA10);
 
         Harness.section("6d. an untitled level loads, with an empty title -- as in Tile World");
         /* jc-17 (MOD in LevelFactory.makeLevel): title is optional field 3, and a level without it
@@ -419,19 +499,12 @@ public class EngineTest {
         renumbered.level().title("Bad B").password("MNOP").unreadable().end();
         renumbered.level().number(7).title("Lands").password("QRST").chips(0).timeLimit(100).tile(3, 5, Tile.CHIP_RIGHT).end();
         File setR = renumbered.writeTo(d6d, "renumbered.dat").toFile();
-        java.io.PrintStream realErr = System.err;
-        java.io.ByteArrayOutputStream captured = new java.io.ByteArrayOutputStream();
-        System.setErr(new java.io.PrintStream(captured, true, "UTF-8"));
-        try {
-            new SuperCC(false).openLevelset(setR);
-        } finally {
-            System.setErr(realErr);
-        }
-        String said = captured.toString("UTF-8");
-        /* ⚠ UPSTREAM BASELINE (from jc-21, UB-14): upstream tries level 1 only and reports it as any
-         * load ("Could not load level: ..."), so the first two are pinned; the third holds either way. */
-        Harness.upstreamBug("it reports the two failures by position", said.contains("Levels 1 to 2 could not be loaded"));
-        Harness.upstreamBug("and the landing level by its position, 3", said.contains("Opened at level 3."));
+        String said = captureStderr(() -> new SuperCC(false).openLevelset(setR));
+        /* (jc-21 to jc-28 tried level 1 only and reported it as any load, "Could not load level: ...",
+         * so the first two were pinned there; the third holds either way. MOD (Jeremy, fix layer,
+         * UB-14).) */
+        Harness.check("it reports the two failures by position", said.contains("Levels 1 to 2 could not be loaded"));
+        Harness.check("and the landing level by its position, 3", said.contains("Opened at level 3."));
         Harness.check("never by its record number, 7", !said.contains("Opened at level 7"));
 
         Harness.section("6e. every built-in tileset loads from the built jar");

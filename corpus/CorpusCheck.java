@@ -214,9 +214,10 @@ public class CorpusCheck {
                          * reads the set itself, so it throws here, inside the handler, instead.
                          * (Deliberately NOT a getLevel() check: on jars before jc-17 a set whose
                          * level 1 fails to load is still open, and its other levels deserve their
-                         * own lines -- and again from jc-21, the upstream baseline, which reverts
-                         * jc-17's open. From jc-17 to jc-20 the set opens at its first level that
-                         * loads instead, and only a set where NO level loads is left unopened --
+                         * own lines -- and again from jc-21 to jc-28, the upstream baseline, which
+                         * reverted jc-17's open. From jc-17 to jc-20, and from jc-29 (the fix layer,
+                         * UB-14), the set opens at its first level that loads instead, and only a
+                         * set where NO level loads is left unopened --
                          * on a fresh emulator that leaves no set at all, so the line below throws a
                          * NullPointerException on the parser and every save in the pack is one
                          * OPENFAIL with that message. It is a load failure, not an engine
