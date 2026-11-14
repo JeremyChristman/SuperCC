@@ -248,7 +248,7 @@ test/LinkTest.java           every call between the fork's classes resolves IN T
 test/InputDiscardTest.java   which keys Level.tick reports as DISCARDED, and the WAIT the move list records
 test/SeedSearchTest.java     Seed Search through its REAL constructor, headless: stops at the top seed, threads, Pause
 test/FormClassTest.java      every form window's REAL constructor builds its components (14 of 15; Gui is the JFrame)
-test/GuiWindowTest.java      the MAIN window (Gui) built for real in a NON-headless child JVM; no level open (PIN lines, UB-11..14)
+test/GuiWindowTest.java      the MAIN window (Gui) built for real in a NON-headless child JVM; every menu control with no level open (PIN lines: UB-12..14, UB-16..19, UB-22..27)
 ```
 
 **Testing a form-based window headless.** Its constructor builds every component
@@ -332,7 +332,7 @@ taken. JaCoCo is a test-time tool cached under `%LOCALAPPDATA%\jacoco\<version>\
 dependency**, never committed, never shipped. Output goes to `coverage-report\` (gitignored);
 `coverage.csv` is the evidence behind every percentage below.
 
-As of jc-27, with all 2,340 assertions passing (84 of them `upstreamBug` pins, §6) and 6 skipped —
+As of jc-28, with all 2,376 assertions passing (54 of them `upstreamBug` pins, §6) and 5 skipped —
 counts for a machine with 4 or more CPUs. `SeedSearchTest` §3 makes one pin per search thread, so a
 3-CPU run has one pass and pin fewer and a 2-CPU run two; at 1 CPU §3 and §2's pin are skipped
 (measured: 7 passes and 6 pins fewer, 2 skips more) — **measured on JDK 16.0.2** (16.0.2+7-67 on the desktop; Temurin 16.0.2+7, what CI pins, gives the
@@ -347,9 +347,9 @@ same figures):
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 54.2% | 73.0% | 186/343 |
 | &nbsp;&nbsp;`io\**` (file formats) | 74.0% | 81.4% | 313/423 |
 | `emulator\**` | 30.2% | 34.0% | 134/444 |
-| `tools\**` + `graphics\**` — *not a target* | 2.7% | 9.0% | 52/1919 |
+| `tools\**` + `graphics\**` — *not a target* | 2.7% | 8.9% | 52/1941 |
 
-**Read this correctly.** Whole-project branch coverage is 30.4% (1821/5999), and that number is
+**Read this correctly.** Whole-project branch coverage is 30.2% (1821/6021), and that number is
 meaningless: 15 form-based classes can be rebuilt here only by copying IntelliJ's output (ADR 0010), `tools\**`
 is 35 files of upstream code this fork does not modify, `graphics\**` is Swing with no headless test
 story, and the rest is vendored `org.json` / `com.intellij`. What this fork can break is the engine
@@ -740,8 +740,10 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
   fixes comes back fix by fix, by hand, never as one whole `git revert`**),
   `SuperCC.tick`'s recorder (`923d07c`: upstream writes a wait on ANY discarded tick, even one that
   also ran automatic ticks; no real level returns both bits, and `InputDiscardTest` §5 pins it
-  through a wrapped level), Seed Search (`397c7bb`), the no-level-loaded guards (`c57f217`; see
-  the next bullet), custom tilesets (`5d3f0a3`: a saved tileset that cannot be drawn stops
+  through a wrapped level), Seed Search (`397c7bb`), the no-level-loaded guards (`c57f217`; the
+  menu guard, UB-11, is back since jc-28 -- see the next bullet; Cancel on Go to... and Set RNG
+  Seed, a canceled file chooser and the set/level loading, UB-12 to UB-15, are still upstream's),
+  custom tilesets (`5d3f0a3`: a saved tileset that cannot be drawn stops
   SuperCC from starting, UB-20 -- do not "fix" it in passing) and auto-diagonals (`d08e6ef`:
   with the switch on, EVERY game key waits 50 ms and a `java.util.Timer` makes ONE move, on its own
   thread, from the keys still held, so taps are lost and other input jumps ahead; UB-22 to UB-28). **Every problem a revert brings back goes
@@ -766,16 +768,30 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
   answer, fails "the correct answer came back" on the correct one, and fails as a regression on
   anything else. "The correct answer came back" is the cue to turn the pin back into a `check()`
   (if a fix was re-applied) or to find what moved (if not) — never to restore the bug.
-- **With no level set open, 29 menu controls fail — on purpose, for now (jc-21).** The menus are
-  upstream's again (`c57f217`, UB-11): `72476bc` guards six Level items by hand, and jc-17's
-  `MenuBar.requireALevel()`, which wrapped every menu's listeners so a new item was covered
-  automatically, is reverted. Do not add guards in passing — per-item `isLevelLoaded()` checks would
-  be a new deviation, and the real fix (one guard over the whole bar, with `worksWithoutALevel(...)`
-  exemptions) comes back as its own fix-layer step, by hand from `c57f217` and `7ba0d45` (FORK.md,
-  *The fix layer*); `c57f217` bundled several guards, so not as one whole `git revert`, and step 5's
-  revert touched the same View › Tileset listener. `GuiWindowTest` still clicks every button in the bar with no level open and pins 28 that
-  fail, plus custom with two pictures chosen; Paste solution is not clicked there, since with no
-  level its outcome depends on the system clipboard.
+- **With no level set open, a menu control does NOTHING unless it is marked to work without one
+  (jc-28, UB-11).** `MenuBar.requireALevel()`, run at the end of the constructor, wraps every
+  button's action listeners in every menu so they run only once a level is loaded; the controls that
+  make sense without a level are marked `worksWithoutALevel(...)` where they are made (Open levelset,
+  Open tws, the tilesets, the tile sizes, the Game window size submenu, the View toggles, Controls),
+  and the Copy macro moves hover, a `MenuListener`, checks for itself. jc-17's fix, reverted for the
+  baseline in jc-21 (`c57f217`) and re-applied alone in jc-28. **Add a new menu item in its menu's
+  constructor and it is guarded with no extra code; never add a per-item `isLevelLoaded()` GUARD**
+  (an early return that does the wrapper's job; upstream's own six in the Level menu stay,
+  redundant and harmless). The two `isLevelLoaded()` tests that are not that are deliberate: the
+  Copy macro moves hover, a `MenuListener` the wrapper cannot reach, and the tileset listener's
+  choice of which ruleset to save the tileset under. Mark an item
+  `worksWithoutALevel` only if it really works with no level, and add it to `GuiWindowTest`'s
+  `worksWithout` list with the job it does (`Probe.job`): the walk fails on an exempt control that
+  does not do its job, and on a guarded one that opens anything. ⚠ Three limits, all recorded: a
+  listener added to an item AFTER the constructor is not guarded; a toggle or radio item in a
+  guarded menu would still move its own mark while its action is skipped (none exists; make one
+  work without a level and exempt it); and the guard asks only `isLevelLoaded()`, so a level loaded
+  without its savestates (UB-15, open, unreachable today) would get past it. And until UB-14's fix
+  is back, a set opened at launch whose level 1 fails is open with no level, so Go to... is guarded
+  and none of its levels can be reached (UB-30; jc-17 shipped both fixes together; do not exempt
+  Go to... for it — Cancel would then fail on every launch, UB-12). The wrapper re-adds a
+  button's listeners oldest first, so they keep Swing's order (newest first); `GuiWindowTest` §3b
+  checks it.
 - **`formclass/FormTransplant.java` imports `jdk.internal.org.objectweb.asm`.** That is the JDK's own
   internal ASM, chosen so this repo takes on no dependency (ADR 0002); the tool is pinned to JDK
   16.0.2, where it exists. Do not "modernize" it to a downloaded ASM or to a newer JDK's class-file

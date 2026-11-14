@@ -33,7 +33,7 @@ How to keep it:
 | UB-8 | Seed Search's threads race at the start: "running" can drop mid-search, a Pause can be undone | anyone, mostly on short searches | `397c7bb`, ships in jc-20 | open |
 | UB-9 | Seed Search never shows a success at a negative seed as the example | anyone searching from a negative start | `397c7bb`, ships in jc-20 | open |
 | UB-10 | Seed Search's Pause flag is not `volatile` | nobody observed (theoretical) | `397c7bb`, ships in jc-20 | open |
-| UB-11 | With no level set open, most menu controls fail with an internal error | everyone, from launch until a set is opened | `c57f217`, ships in jc-21 | open |
+| UB-11 | With no level set open, most menu controls fail with an internal error | everyone, from launch until a set is opened | `c57f217`, ships in jc-21 | **FIXED in `d57d419` (jc-28)** |
 | UB-12 | Canceling Go to... or Set RNG Seed fails with an internal error | anyone who cancels either | `c57f217`, ships in jc-21 | open |
 | UB-13 | Canceling the file chooser of Solution › Open, Search for seeds or Load states fails | anyone who cancels one | `c57f217`, ships in jc-21 | open |
 | UB-14 | A set whose level 1 will not load opens badly: an error, then no level, or the previous set's level under the new file | none of the 331 sets in the collection | `c57f217`, ships in jc-21 | open |
@@ -52,6 +52,7 @@ How to keep it:
 | UB-27 | With Auto diagonals on, a key let go while the main window does not have the keyboard stays "held" | anyone with Auto diagonals on | `d08e6ef`, ships in jc-23 | open |
 | UB-28 | `AutoDiagonals = 1` is OFF, and a value read as OFF is usually written back as it was, so the file can look ON | anyone editing the file by hand | `d08e6ef`, ships in jc-23 | open |
 | UB-29 | A `.ser` savestate saved by jc-19 to jc-25 can load a trap wrong in other builds (two or more traps) | anyone keeping such a file; none in the maintainer's collection | `79b0032` (jc-19), exposed by jc-26 | open, accepted |
+| UB-30 | A set opened at launch whose level 1 will not load: its other levels cannot be reached (Go to... is guarded while no level is loaded) | anyone opening such a set before any other; none of the 331 sets in the collection | `d57d419` (jc-28): UB-11's fix back before UB-14's | open (closes with UB-14's fix) |
 
 ---
 
@@ -266,14 +267,38 @@ with `git revert 7ba0d45 c57f217` (the fix layer takes it back one fix at a time
 Paste solution depends on the clipboard), which also restores `ChooseTileSize`'s compiled class
 and both baselines. If step 5 (custom tilesets, below) is still reverted, re-apply it first: both
 steps rewrote View › Tileset's listener in `MenuBar`.
-FORK.md step 4 has the engineering record.
+FORK.md step 4 has the engineering record. **The menu guard (UB-11) is back since jc-28
+(`d57d419`)**, so a whole `git revert` no longer applies: UB-12 to UB-15 go back fix by fix, by hand
+from `c57f217`'s diff.
 
 "Fails with an internal error" below means a `NullPointerException` on the event thread: nothing
 visible happens except that it is written to the error log (`succ_error-<MACHINE>.log`).
 
 ### UB-11 — most menu controls fail before a level set is open
 
-- **What a user sees:** until a level set is opened, these controls fail instead of doing nothing:
+**Status: FIXED in `d57d419` (jc-28).** jc-17's `MenuBar.requireALevel()` is back, re-applied alone
+(the Copy macro hover check and `ChooseTileSize`'s dead line with it): with no level set open, every
+control that needs a level does nothing, and the 28 that threw on jc-21 to jc-27 (plus Paste
+solution, clicked again) are ordinary checks. As in jc-17 to jc-20, Tools › Record gif and
+TWS › Load solution now do nothing with no level open as well (on upstream's menus Record gif
+opened its window and Load solution showed an error message; neither threw, so neither is listed
+below). The 22
+controls that work without a level are now each checked to DO their job (a chooser shown, a size
+or flag changed, a window opened, a tileset drawn): blocked by the guard, one would neither throw
+nor show anything. A tileset chosen with no level, custom included, is saved as the MS choice --
+so custom chosen before a set is open is now saved in upstream's form (UB-16, UB-17), exactly as
+when a level is open, and UB-20 can follow from it the same way. On jc-27's jar `GuiWindowTest`
+fails exactly the 30 converted checks, Paste solution, 5 new checks (4 in the walk, and "the menu
+bar has its guard"), and the child's exit check -- 37;
+corpus against jc-27: 24,217 of 24,217 identical. Re-applied with one change to jc-17's code: the
+wrapper re-adds a button's listeners oldest first, so they keep Swing's order (jc-17's loop reversed
+them; latent, since no item has two). Three limits stay, recorded in CLAUDE.md §6: a listener added
+to a menu item after the constructor is not guarded, a toggle or radio item in a guarded menu would
+still move its mark (none exists), and the guard asks only `isLevelLoaded()` (see UB-15). And one
+cost, because UB-14's fix is not back yet: **UB-30** (a set opened at launch whose level 1 fails
+has no reachable level).
+
+- **What a user saw (jc-21 to jc-27):** until a level set is opened, these controls fail instead of doing nothing:
   - Level › Change stepping value, and Level › Go to... when its box is canceled (UB-12; a number
     typed there does nothing with no set open);
   - Solution › Save as, Save (so Ctrl+S and Ctrl+Shift+S), Open, Search for seeds, Copy solution,
@@ -301,24 +326,29 @@ visible happens except that it is written to the error log (`succ_error-<MACHINE
   the tile sizes, the window size, the View toggles and tilesets — a tileset chosen with no level is
   saved as the MS one, the one drawn at startup — and Controls); the Copy macro hover checking for
   itself; and `ChooseTileSize`'s dead `getKeys()` line removed.
-- **Pinned by:** `GuiWindowTest` §2: 28 of them, with a check that all 28 were found, the tileset
+- **Pinned by (jc-21 to jc-27):** `GuiWindowTest` §2: 28 of them, with a check that all 28 were found, the tileset
   save, and custom with two pictures chosen (its file choosers answered with real pictures). Paste
   solution is not clicked there, so the run never depends on — or writes to — the system
   clipboard. (The custom pin still fails on jc-21's code, which already had this step reverted; it
-  flips on jc-20's.)
+  flips on jc-20's.) **Checked by (jc-28 on):** the same walk, every pin a check, Paste solution
+  clicked (the guard stops it before it reads the clipboard), plus the 22 jobs and "the controls
+  that need a level open nothing".
 
 ### UB-12 — canceling Go to... or Set RNG Seed fails
 
 - **What a user sees:** pressing Cancel (or the close box) in either box fails with an internal
-  error, with a level open or not.
+  error, with a level open. (With none open, jc-21 to jc-27 failed on Go to... too; since jc-28's
+  menu guard, UB-11, neither box opens without a level.)
 - **Cause:** the reply to a canceled box is `null`, and upstream tests it for empty only.
 - **Fix:** test for `null` too (jc-17).
-- **Pinned by:** `GuiWindowTest` §4 (both, with a level open) and §2 (Go to..., with none).
+- **Pinned by:** `GuiWindowTest` §4 (both, with a level open). (§2 pinned Go to... with none
+  open until jc-28.)
 
 ### UB-13 — canceling a file chooser fails
 
 - **What a user sees:** canceling the file chooser of Solution › Open, Solution › Search for seeds
-  or Solution › Load states from disk fails with an internal error. (jc-12 fixed this; its clearer
+  or Solution › Load states from disk fails with an internal error, with a level open (since jc-28's
+  menu guard, UB-11, none of the three opens its chooser without one). (jc-12 fixed this; its clearer
   message for a file that is not there stays.) With assertions on (`java -ea`, never a normal
   launch), canceling TWS › Write solution to new tws fails too, on upstream's `assert tws != null`.
 - **Cause:** upstream's `72476bc` wraps the chooser's reply in `Objects.requireNonNull`, which jc-17
@@ -339,7 +369,8 @@ visible happens except that it is written to the error log (`succ_error-<MACHINE
     never loaded: the window is left half-built. (Reproduced to the error dialog on the jc-21
     candidate; the rest is jc-16's code, measured then — FORK.md step 4, *The second review*.)
 
-  Its other levels can still be reached with Level › Go to.... Separately, an error in the window's
+  Its other levels can still be reached with Level › Go to... when a set was already open; on a
+  fresh start, not since jc-28 (UB-30, which this fix closes). Separately, an error in the window's
   repaint during a load (CLAUDE.md §9's jar replaced under a running instance) is reported as
   "Could not load level" although the level loaded, and the title bar keeps the previous level's
   name.
@@ -361,7 +392,36 @@ visible happens except that it is written to the error log (`succ_error-<MACHINE
   fork's own untitled-level fix (jc-17, kept: it is not part of this step), and all 23,476 levels of
   the collection load except UB-1's five, which fail earlier, while parsing.
 - **Fix:** build the level and its savestates first, then assign both, or neither (jc-17).
+- **Also reaches the menus (since jc-28):** UB-11's menu guard, re-applied as jc-17 wrote it, asks
+  only `isLevelLoaded()` (a level is assigned), which jc-17's all-or-nothing load made the same as
+  "its savestates exist". Until this fix comes back, a half-loaded level would get past the guard,
+  and Ctrl+S, the Copy items and the state files would fail on the missing savestates. Widening the
+  guard instead would be a new deviation from jc-17's fix; this fix is the real one (review of
+  jc-28, defended).
 - **Pinned by:** nothing — no fixture reaches it while untitled levels load.
+
+### UB-30 — after a fresh-start open whose level 1 fails, the set's other levels cannot be reached
+
+Introduced by the fix layer itself, not by a baseline revert: jc-28 put UB-11's menu guard back
+before UB-14's fix, and jc-17 had shipped the two together.
+- **What a user sees:** opening, as the first set of a session, a set whose level 1 will not load
+  leaves that set's file open with no level loaded (UB-14). On jc-21 to jc-27 its other levels could
+  be reached with Level › Go to... (Ctrl+G), which needs only the set's file. From jc-28 Go to...,
+  like every control that needs a level, does nothing while no level is loaded, and Next and
+  Previous have upstream's own guards, so none of that set's levels can be reached from the menus.
+  With a set already open beforehand, Go to... still works (that set's level stays loaded).
+- **Measured (2026-11-14, a real window, a scratch probe):** a fresh start, then a set whose first
+  three levels cannot load, then Go to... with "4" typed into its box: on jc-27's jar the box
+  appears and level 4 loads; on the jc-28 candidate no box appears and no level is loaded. None of
+  the 331 sets in the collection is affected: every level 1 loads (scanned 2026-11-08).
+- **Cause:** the guard asks `isLevelLoaded()`, and upstream's `openLevelset` (UB-14) can leave a set
+  open with none loaded.
+- **Fix:** UB-14's, which opens such a set at its first level that loads, so that state no longer
+  arises. Not exempting Go to... instead: with no set open at all, its box would then appear on every
+  launch and Cancel would fail (UB-12).
+- **Pinned by:** nothing — it is not upstream's answer (on jc-27 Go to... works), so an
+  `upstreamBug` pin does not fit, and UB-14's fix makes the state unreachable. Raised by the jc-28
+  review (sixth round), reproduced, and accepted until UB-14's fix.
 
 ## Custom tilesets (`5d3f0a3`, ships in jc-22)
 
@@ -433,7 +493,9 @@ custom tileset, or with a settings file that names one that cannot be drawn.
 - **What a user sees:** if `succ_settings.ini` names an MS tileset this version does not have, or
   custom whose pictures are missing or unreadable, no window appears at all: startup throws, and
   the program keeps running unseen (on a double-click, simply nothing happens). Setting
-  `TilesheetNum` back to 0–4 by hand is the way out.
+  `TilesheetNum` back to 0–4 by hand is the way out. Since jc-28 (UB-11's fix) custom chosen before
+  a level set is open is saved as the MS choice too, so it can lead here the same way as custom
+  chosen with an MS level open; jc-21 to jc-27 failed before saving that choice.
 - **Measured (2026-11-09, launching the jc-22 candidate from a sandbox):** `TilesheetNum = 99` →
   `ArrayIndexOutOfBoundsException` in `initialiseTilesheet`, no window; `TilesheetNum = 5` with the <!-- aen-exempt: upstream method name -->
   pictures missing → `IIOException`, then a `NullPointerException` on the missing images, no window.
@@ -642,3 +704,32 @@ are not lost.
   `BrownButton.isOpen`, is called by nothing in the jar -- so no route is affected; jc-27's Fix 3
   changed only the unwired case, and its tests pin only a creature at rest on a single-wired
   button, where the two agree. Raised by the jc-27 review; verified in the code, not measured.
+- **A custom tile size of 0 fails with an internal error.** View › Tile size › custom offers sizes
+  from 0 (`new ChooseTileSize(..., 0, 256)`, upstream's own call), and a width or height of 0 makes
+  the tileset scaling throw `IllegalArgumentException`, which `ChooseTileSize`'s OK handler does not
+  catch (it catches `IOException`): the error goes to the error log, the Choose Dimensions window
+  stays open, and the size does not change. Reproduced on the jc-28 candidate by calling
+  `TileSheet.getTileSheets` at 0x20 and 20x0 (the call that OK makes). In upstream v2.0.3 and every
+  fork build with a level open; with none open it was reachable in jc-17 to jc-20 and again from
+  jc-28, whose menu guard exempts the custom tile size (jc-21 to jc-27 failed earlier there, on the
+  `getKeys()` line). Raised by the jc-28 review.
+- **Closing a custom-size window without OK leaves the menu's mark on "custom".** View › Tile size
+  › custom and View › Game window size › custom each open a Choose Dimensions window; its close box
+  changes nothing, but the radio mark has already moved to "custom", so the menu and the screen
+  disagree until another size is picked. Upstream's code, with a level open or not. Raised by the
+  jc-28 review; verified in the code, not measured.
+- **Tools › Controls builds its window on a background thread.** Its listener runs `new
+  ControlGUI(emulator)` inside a `SwingWorker`'s `doInBackground`, off the event thread, which Swing
+  does not allow; nothing has been seen to go wrong, but the window's construction can race the
+  event thread's painting. Upstream's code; jc-28 only keeps it working with no level open (as
+  jc-17 to jc-20 did), and `GuiWindowTest` waits up to 20 s for that window. Raised by the jc-28
+  review; verified in the code.
+- **The custom-size windows are hidden, never disposed.** `ChooseTileSize` and `ChooseWindowSize`
+  close themselves by dispatching `WINDOW_CLOSING`, which under a `JFrame`'s default
+  `HIDE_ON_CLOSE` only hides the frame, so each use of View › Tile size › custom or Game window
+  size › custom leaves a hidden frame (and its OK listener) for the rest of the session. Upstream's
+  code, with a level open or not. Raised by the jc-28 review; verified in the code, not measured.
+- **The custom tile size opens with the height set to the WIDTH.** `MenuBar` passes only
+  `getTileWidth()`, and `ChooseTileSize` starts both spinners at it, so after a custom 32x16, an
+  unchanged OK makes the tiles 32x32 and saves that. Upstream's code. Raised by the jc-28 review;
+  verified in the code, not measured.

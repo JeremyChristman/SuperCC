@@ -12,6 +12,44 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## jc-28 — 2026-11-14 (the fix layer: the menu guard)
+
+The first of the no-level-loaded fixes goes back on the upstream baseline. It closes UB-11 in
+[`BASELINE-ISSUES.md`](BASELINE-ISSUES.md). No stored solution changes.
+
+### Fixed
+- **With no level set open, a menu control that needs a level does nothing (`d57d419`, UB-11)**,
+  instead of 28 of them failing with a `NullPointerException` on the event thread (each written to
+  the error log): jc-17's `MenuBar.requireALevel()`, re-applied alone, wraps every menu button's
+  action listeners, and `worksWithoutALevel(...)` exempts what works without one (Open levelset,
+  Open tws, the tilesets, the tile sizes, Game window size, the View toggles, Controls). The Copy
+  macro moves hover checks for itself, and `ChooseTileSize`'s unused `getKeys()` line is gone, so
+  View › Tile size › custom works with no level open. A tileset chosen before a set is open is saved
+  again, as the MS one. Tools › Record gif and TWS › Load solution do nothing with no level open
+  too, as in jc-17 to jc-20. One change to jc-17's code: the wrapper re-adds a button's listeners
+  oldest first, so they keep Swing's order (jc-17's loop reversed them; latent, since no item has
+  two). Corpus against jc-27: 24,217 of 24,217 identical.
+
+### Known issue
+- **UB-30 (new, open until UB-14's fix):** a set opened at launch whose level 1 will not load is
+  left open with no level loaded (UB-14), and Go to..., which reached its other levels on jc-21 to
+  jc-27, is now guarded, so none of them can be reached from the menus. jc-17 shipped this guard
+  together with UB-14's fix. None of the 331 sets in the collection is affected.
+
+### Changed (tests only)
+- `GuiWindowTest` §2's 30 UB-11 pins are checks again, and Paste solution is clicked again (the
+  guard stops it before it reads the clipboard). New: each of the 22 controls that work without a
+  level must do its job, and the 30 that need one (and the 4 submenus hovered) must open nothing,
+  so a guard that blocks too much fails too; dialogs in the walk are counted with
+  `closeEveryDialog`, so a second one fails the count instead of hanging the child; a final sweep
+  catches a window that shows late; §3b checks that the guard keeps a two-listener item's order;
+  and TWS › Open tws is run with a file chosen, not only canceled. On jc-27's jar the test fails
+  37 checks, each accounted for; eleven of twelve defects planted in `MenuBar` fail it (the twelfth
+  is equivalent on today's menus), and so do the three planted later (jc-17's listener order, a
+  second chooser, a level read after Open tws's pick). Suite
+  2,376 assertions, 54 pins. Coverage re-baselined: the target is unchanged at 57.0%; the non-target
+  pool is 52/1941.
+
 ## jc-27 — 2026-11-09 (the fix layer: trap Fix 3; all four trap fixes back)
 
 The fourth and last trap fix goes back on the upstream baseline. It closes UB-4 in

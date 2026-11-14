@@ -1,5 +1,5 @@
 ==============================================================================
-  SuperCC  --  Jeremy Christman's fork                      build jc-27
+  SuperCC  --  Jeremy Christman's fork                      build jc-28
 ==============================================================================
 
   1. What this is
@@ -593,6 +593,32 @@ AlwaysOpenInMS  Whether every level set opens under the MS ruleset, no matter
 Releases from jc-2 on carry a jc-N tag in the repository. The title bar, when
 ShowBuildTag is on, shows the build tag compiled into the jar, which matches
 the tag for that release. Newest first.
+
+
+jc-28  --  Menus are safe again before a level set is open
+-------------------------------------------------------------
+
+  * BEFORE YOU OPEN A LEVEL SET, A MENU ITEM THAT NEEDS ONE NOW DOES
+    NOTHING, as in jc-17 to jc-20. Since jc-21, 28 of them (Save and
+    Ctrl+S, the Copy items, the state files, the TWS items, Variation
+    testing, the TSP Solver, every cheat, and more) failed with an
+    internal error written to the error log instead. Everything that
+    makes sense without a level still works: Open levelset, Open tws,
+    the tilesets, the tile and window sizes (View > Tile size > custom
+    included), the View switches, and Tools > Controls.
+
+  * A tileset chosen before a level set is open is remembered again:
+    it is saved as the MS tileset, the one SuperCC shows at startup.
+
+  * Nothing you play changes: every one of the 24,217 stored solutions
+    replays exactly as on jc-27. This closes UB-11 in BASELINE-ISSUES.md
+    in the repository.
+
+  * One new limit, until a later build: if the FIRST level set you open
+    in a session has a first level that cannot be loaded at all, Level >
+    Go to... can no longer reach its other levels (jc-21 to jc-27 let it).
+    Opening any working set first avoids it. None of the 331 sets in the
+    maintainer's collection is affected (UB-30).
 
 
 jc-27  --  All four trap fixes are back
