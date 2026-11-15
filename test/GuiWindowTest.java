@@ -55,7 +55,8 @@ import java.util.zip.ZipFile;
  *      each show exactly ONE error (counted by a closer that stays on for the whole open, so a
  *      second dialog fails the count rather than hanging the child).
  *   3. After a level set opens, the same repaint works.
- *   4. Canceling Go to..., Set RNG Seed and a file chooser (the reply is null).
+ *   4. Canceling Go to... and Set RNG Seed (by the close box and by the Cancel button: the reply
+ *      is null), and each box's other answers; and canceling a file chooser.
  *   5. A level that loads is not reported as failed when the repaint after it throws.
  *   Nothing reaches the error log before 3a, nothing after 3a until 5, whose trace is expected.
  *
@@ -67,7 +68,8 @@ import java.util.zip.ZipFile;
  * bar) is back from jc-28 (FORK.md, "The fix layer"), so 2's UB-11 pins are checks again; its two
  * pins on View > Tileset > custom (UB-18, from the custom-tileset step) stay. The fix behind 3a and
  * 5 (UB-14, opening a set at its first level that loads) is back from jc-29, so their pins are
- * checks again too; 4's stay (UB-12, UB-13).
+ * checks again too, and the fix for canceling 4's two input boxes (UB-12) from jc-31; 4's file
+ * chooser pin stays (UB-13).
  *
  * Run with -Dsupercc.jar (run-tests.ps1 passes it); the child gets this JVM's own classpath.
  */
@@ -82,6 +84,9 @@ public class GuiWindowTest {
         Path dir = Harness.tempDir("scc-gui-");
         DatBuilder b = new DatBuilder().signature(DatBuilder.SIG_MS);
         b.level().title("Gui Probe").password("ABCD").chips(0).timeLimit(100)
+         .tile(3, 5, Tile.CHIP_RIGHT).tile(4, 5, Tile.EXIT).end();
+        // A second level, so Go to... (section 4) can be told to load a level other than the one open.
+        b.level().title("Gui Probe 2").password("EFGH").chips(0).timeLimit(100)
          .tile(3, 5, Tile.CHIP_RIGHT).tile(4, 5, Tile.EXIT).end();
         File dat = b.writeTo(dir, "guiprobe.dat").toFile();
         DatBuilder bad = new DatBuilder().signature(DatBuilder.SIG_MS);
@@ -193,25 +198,38 @@ public class GuiWindowTest {
             System.out.println("SKIP " + why);
         }
 
+        /** fact() for a check whose name must stay the same whatever happens, so a report compares
+         *  run with run: what was seen goes on a line of its own just before a failure (the parent
+         *  prints the child's output whenever a check fails). */
+        static void fact(String what, boolean ok, String seen) {
+            if (!ok) System.out.println("      seen: " + seen);
+            fact(what, ok);
+        }
+
         /**
-         * Closes the next modal dialog that appears, as its close box would (showInputDialog then
-         * returns null, exactly as for Cancel). The click that opens it blocks the event thread in
-         * the dialog's own loop, so this has to come from another thread; the dispose itself is
-         * queued, which that loop runs.
+         * Every dialog closeEveryDialog has closed, counted once each. A click that opens a modal
+         * dialog blocks the event thread in the dialog's own loop, so the helpers below work from
+         * another thread and queue what they do to the dialog, which that loop runs.
          */
         static final java.util.concurrent.atomic.AtomicInteger dialogsClosed = new java.util.concurrent.atomic.AtomicInteger();
 
-        static Thread closeNextDialog() {
+        /**
+         * Runs {@code act} once for each dialog that shows, on this helper's own thread, until
+         * stopped; act queues whatever it does to the dialog on the event thread. The loop under
+         * closeEveryDialog, answerChoosers and answerInputs. Stop it with stop().
+         */
+        static Thread onEachNewDialog(java.util.function.Consumer<java.awt.Window> act) {
             Thread t = new Thread(() -> {
-                long end = System.currentTimeMillis() + 15_000;
-                while (System.currentTimeMillis() < end) {
-                    for (java.awt.Window win : java.awt.Window.getWindows()) {
-                        if (win instanceof javax.swing.JDialog && win.isShowing()) {
-                            dialogsClosed.incrementAndGet();
-                            SwingUtilities.invokeLater(win::dispose);
-                            return;
-                        }
-                    }
+                Thread self = Thread.currentThread();
+                // seen: a close is queued, so a dialog can still be showing on the next pass.
+                java.util.Set<java.awt.Window> seen =
+                        java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+                while (!self.isInterrupted()) {
+                    for (java.awt.Window win : java.awt.Window.getWindows())
+                        // Asked per dialog, not only per pass, so a helper that stop() interrupts takes
+                        // up no further dialog (jc-31 review). One stalled past stop()'s 2 s wait could
+                        // still take up one, and that case is counted as a failure (lateHelpers).
+                        if (!self.isInterrupted() && win instanceof javax.swing.JDialog && win.isShowing() && seen.add(win)) act.accept(win);
                     try { Thread.sleep(50); } catch (InterruptedException e) { return; }
                 }
             });
@@ -221,11 +239,12 @@ public class GuiWindowTest {
         }
 
         /**
-         * Closes EVERY modal dialog until stopped, counting each one once. closeNextDialog stops
-         * after one, so where a check counts dialogs it cannot see a second: a build that went back
-         * to one dialog per bad level left that one open, the child blocked until the parent's
-         * 90-second kill, and the count checks never ran (reproduced by review with that mutant).
-         * With this the open finishes, and the count check is what fails. Stop it with stop().
+         * Closes EVERY modal dialog until stopped, counting each one once. (The closeNextDialog of
+         * jc-21 to jc-30 stopped after one, so where a check counted dialogs it could not see a
+         * second: a build that went back to one dialog per bad level left that one open, the child
+         * blocked until the parent's 90-second kill, and the count checks never ran -- reproduced
+         * by review with that mutant.) With this the open finishes, and the count check is what
+         * fails. Stop it with stop(), which also waits for it.
          */
         static Thread closeEveryDialog() {
             return closeEveryDialog(() -> { });
@@ -237,72 +256,146 @@ public class GuiWindowTest {
          * closing each one.
          */
         static Thread closeEveryDialog(Runnable whileShowing) {
-            Thread t = new Thread(() -> {
-                java.util.Set<java.awt.Window> seen =
-                        java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
-                while (!Thread.currentThread().isInterrupted()) {
-                    for (java.awt.Window win : java.awt.Window.getWindows()) {
-                        // seen: the dispose is queued, so a dialog can still be showing next pass.
-                        if (win instanceof javax.swing.JDialog && win.isShowing() && seen.add(win)) {
-                            dialogsClosed.incrementAndGet();
-                            SwingUtilities.invokeLater(() -> { whileShowing.run(); win.dispose(); });
-                        }
-                    }
-                    try { Thread.sleep(50); } catch (InterruptedException e) { return; }
-                }
+            return onEachNewDialog(win -> {
+                dialogsClosed.incrementAndGet();
+                SwingUtilities.invokeLater(() -> { whileShowing.run(); win.dispose(); });
             });
-            t.setDaemon(true);
-            t.start();
-            return t;
         }
 
         /**
          * Answers each file chooser that appears with the next of `files` -- selects it and approves,
          * as a person picking the file would -- and closes any other dialog (an error) as its close
-         * box would. Records "chooser" or "dialog" in `log` for each. Stop it with stop().
+         * box would. Records "chooser" or "dialog" in `log` for each. The dialog is looked at on
+         * the event thread, inside its own loop, so it is fully built by then (jc-31 review: looked
+         * at from the poller's thread, a chooser caught half-built would be closed as a "dialog"
+         * and never offered again). Stop it with stop().
          */
         static Thread answerChoosers(List<String> log, File... files) {
             java.util.concurrent.atomic.AtomicInteger next = new java.util.concurrent.atomic.AtomicInteger();
-            Thread t = new Thread(() -> {
-                java.util.Set<java.awt.Window> seen =
-                        java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
-                while (!Thread.currentThread().isInterrupted()) {
-                    for (java.awt.Window win : java.awt.Window.getWindows()) {
-                        if (!(win instanceof javax.swing.JDialog) || !win.isShowing() || !seen.add(win)) continue;
-                        javax.swing.JFileChooser fc = findChooser(win);
-                        int i = next.get();
-                        if (fc != null && i < files.length) {
-                            next.incrementAndGet();
-                            log.add("chooser");
-                            SwingUtilities.invokeLater(() -> { fc.setSelectedFile(files[i]); fc.approveSelection(); });
-                        } else {
-                            log.add(fc != null ? "chooser (closed)" : "dialog");
-                            SwingUtilities.invokeLater(win::dispose);
-                        }
-                    }
-                    try { Thread.sleep(50); } catch (InterruptedException e) { return; }
+            return onEachNewDialog(win -> SwingUtilities.invokeLater(() -> {
+                javax.swing.JFileChooser fc = find(win, javax.swing.JFileChooser.class);
+                int i = next.get();
+                if (fc != null && i < files.length) {
+                    next.incrementAndGet();
+                    log.add("chooser");
+                    fc.setSelectedFile(files[i]);
+                    fc.approveSelection();
+                } else {
+                    log.add(fc != null ? "chooser (closed)" : "dialog");
+                    win.dispose();
                 }
-            });
-            t.setDaemon(true);
-            t.start();
-            return t;
+            }));
         }
 
-        static javax.swing.JFileChooser findChooser(java.awt.Container c) {
+        /** One of section 4's input boxes: its Level menu item, the number that does its job, and
+         *  the level it starts on. */
+        record Box(String item, String number, int start) { }
+
+        /** How answerInputs answers an input box. */
+        enum Press { CLOSE_BOX, CANCEL, OK }
+
+        /** One way to answer an input box: what to press, and for OK the text typed first. */
+        record Answer(Press press, String typed) {
+            static Answer ok(String typed) { return new Answer(Press.OK, typed); }
+            String how() {
+                return press == Press.CLOSE_BOX ? "its close box" : press == Press.CANCEL ? "Cancel"
+                     : typed.isEmpty() ? "OK with nothing typed" : "OK with " + typed + " typed";
+            }
+        }
+
+        /**
+         * Answers each input box that appears (JOptionPane.showInputDialog) as a person would:
+         * CLOSE_BOX sends it the window-closing event its close box sends (JOptionPane's own
+         * handler then runs, which a plain dispose skips); CANCEL presses its Cancel button; OK
+         * types the answer's text into it and presses OK. Any other dialog is disposed and recorded
+         * as "message: <its text>". Records "input" for each input box answered, or what went
+         * wrong when one could not be answered -- a part missing, a button not found exactly once,
+         * or an exception -- and then disposes it, so the click cannot hang. Stop it with stop().
+         */
+        static Thread answerInputs(List<String> log, Answer answer) {
+            return onEachNewDialog(win -> SwingUtilities.invokeLater(() -> {
+                try {
+                    answerInput(log, win, answer);
+                } catch (Throwable t) {
+                    log.add("an input box that could not be answered (" + t + ")");
+                    win.dispose();
+                }
+            }));
+        }
+
+        private static void answerInput(List<String> log, java.awt.Window win, Answer answer) {
+            javax.swing.JOptionPane pane = find(win, javax.swing.JOptionPane.class);
+            if (pane == null || !pane.getWantsInput()) {
+                log.add("message: " + (pane == null ? "(not an option pane)" : pane.getMessage()));
+                win.dispose();
+                return;
+            }
+            if (answer.press() == Press.CLOSE_BOX) {
+                win.dispatchEvent(new java.awt.event.WindowEvent(win, java.awt.event.WindowEvent.WINDOW_CLOSING));
+                // A JDialog hides itself on that event, at once, unless told not to.
+                if (win.isShowing()) { log.add("an input box its close box did not close"); win.dispose(); }
+                else log.add("input");
+                return;
+            }
+            String label = javax.swing.UIManager.getString(
+                    answer.press() == Press.CANCEL ? "OptionPane.cancelButtonText" : "OptionPane.okButtonText", pane.getLocale());
+            List<javax.swing.JButton> buttons = new ArrayList<>();
+            for (javax.swing.JButton b : findAll(pane, javax.swing.JButton.class))
+                if (java.util.Objects.equals(label, b.getText())) buttons.add(b);
+            javax.swing.JTextField field = find(pane, javax.swing.JTextField.class);
+            if (buttons.size() != 1 || field == null) {
+                log.add("an input box with " + (buttons.size() != 1 ? buttons.size() + " " + label + " buttons" : "no text field"));
+                win.dispose();
+                return;
+            }
+            log.add("input");
+            if (answer.press() == Press.OK) field.setText(answer.typed());
+            buttons.get(0).doClick();
+        }
+
+        /** The first component of the given type below c, depth first, or null. */
+        static <T> T find(java.awt.Container c, Class<T> type) {
             for (Component k : c.getComponents()) {
-                if (k instanceof javax.swing.JFileChooser) return (javax.swing.JFileChooser) k;
+                if (type.isInstance(k)) return type.cast(k);
                 if (k instanceof java.awt.Container) {
-                    javax.swing.JFileChooser f = findChooser((java.awt.Container) k);
+                    T f = find((java.awt.Container) k, type);
                     if (f != null) return f;
                 }
             }
             return null;
         }
 
-        /** Stops a closer and waits for it, so it cannot close a dialog meant for a later check. */
+        /** Every component of the given type below c, depth first. */
+        static <T> List<T> findAll(java.awt.Container c, Class<T> type) {
+            List<T> out = new ArrayList<>();
+            for (Component k : c.getComponents()) {
+                if (type.isInstance(k)) out.add(type.cast(k));
+                if (k instanceof java.awt.Container) out.addAll(findAll((java.awt.Container) k, type));
+            }
+            return out;
+        }
+
+        /** Helpers still running 2 s after stop() told them to stop; one fact at the end reports it. */
+        static final java.util.concurrent.atomic.AtomicInteger lateHelpers = new java.util.concurrent.atomic.AtomicInteger();
+
+        /** Stops a closer -- interrupted, so it takes up no further dialog (onEachNewDialog asks per
+         *  dialog), unless it stalls past the wait below -- waits for it, then lets the event thread finish what it had already queued for
+         *  the dialogs it took up, so none of that runs during a later check (jc-31 review). One
+         *  still running 2 s later is noted here, where it happened, and counted for the one check
+         *  at the end, so the checks are the same whether or not it happens. */
         static void stop(Thread closer) throws InterruptedException {
             closer.interrupt();
             closer.join(2_000);
+            if (!SwingUtilities.isEventDispatchThread()) {
+                try { SwingUtilities.invokeAndWait(() -> { }); }
+                catch (InvocationTargetException cannot) { /* an empty task throws nothing */ }
+            }
+            if (closer.isAlive()) {
+                lateHelpers.incrementAndGet();
+                System.out.println("      seen: a dialog helper still running 2 s after stop(), at "
+                                   + java.util.Arrays.toString(closer.getStackTrace()) + "; stopped from "
+                                   + java.util.Arrays.toString(Thread.currentThread().getStackTrace()));
+            }
         }
 
         /** Total bytes in this folder's error log files (0 when there are none). */
@@ -428,7 +521,7 @@ public class GuiWindowTest {
                 emu.openLevelset(set);
                 for (int k : keys) press(w, k, 0);
                 if (then != null) then.run();
-                moves[0] = emu.getSavestates().movesToString();
+                moves[0] = movesOf(emu);
                 for (int k : keys) release(w, k);
             });
             return moves[0];
@@ -462,11 +555,34 @@ public class GuiWindowTest {
             return "something else: " + tap[0] + " / " + tap[1];
         }
 
-        /** On the event thread: the recorded moves, then `then` (if any). */
+        /** The recorded moves, or "(no savestates)", so a check fails by name rather than the probe
+         *  dying (jc-31 review). Call it on the event thread. */
+        static String movesOf(SuperCC emu) {
+            emulator.SavestateManager savestates = emu.getSavestates();
+            return savestates == null ? "(no savestates)" : savestates.movesToString();
+        }
+
+        /** Loads level n afresh: its moves not kept, seed 0, an even step, an Up slide. (Here, not in
+         *  run(), where a local named "game" hides the package.) */
+        static void loadAfresh(SuperCC emu, int n) {
+            emu.loadLevel(n, 0, game.Step.EVEN, false, game.Ruleset.CURRENT, game.Direction.UP);
+        }
+
+        /** A level and its recorded moves (movesOf), read together. */
+        record State(game.Level level, String moves) { }
+
+        /** The level loaded and its moves, read in one go on the event thread. */
+        static State stateOf(SuperCC emu) throws Exception {
+            State[] state = { null };
+            SwingUtilities.invokeAndWait(() -> state[0] = new State(emu.getLevel(), movesOf(emu)));
+            return state[0];
+        }
+
+        /** On the event thread: the recorded moves (movesOf), then `then` (if any). */
         static String movesThen(SuperCC emu, Runnable then) throws Exception {
             String[] moves = { null };
             SwingUtilities.invokeAndWait(() -> {
-                moves[0] = emu.getSavestates().movesToString();
+                moves[0] = movesOf(emu);
                 if (then != null) then.run();
             });
             return moves[0];
@@ -587,7 +703,7 @@ public class GuiWindowTest {
             int exemptChecked = 0, needsALevel = 0, hovered = 0;
             List<String> opened = new ArrayList<>();
             for (Object[] c : controls) {
-                // closeEveryDialog, not closeNextDialog: the walk COUNTS dialogs, so a second one must
+                // closeEveryDialog, not a closer that stops after one: the walk COUNTS dialogs, so a second one must
                 // be closed and counted, not left blocking the event thread until the parent's
                 // 90-second kill (review; reproduced with Open levelset made to ask twice: the child
                 // hung, and the count checks never ran).
@@ -843,7 +959,8 @@ public class GuiWindowTest {
             fact("and no error dialog appeared while it opened", dialogsClosed.get() == before);
             fact("a level is loaded now", emu.isLevelLoaded());
             noThrow("a full repaint with a level open", () -> w.repaint(true));
-            fact("the title names the level", w.getTitle().contains("Gui Probe"));
+            // Not merely "contains Gui Probe": the set has a level "Gui Probe 2" too (jc-31 review).
+            fact("the title names level 1", w.getTitle().contains("Gui Probe") && !w.getTitle().contains("Gui Probe 2"), w.getTitle());
 
             // 3b. The menu guard keeps a button's listeners in Swing's own order (MOD (Jeremy, fix
             //     layer, UB-11); review of jc-28: re-added in the order getActionListeners() gives,
@@ -881,20 +998,80 @@ public class GuiWindowTest {
                      order.size() == 2 && guardedOrder.equals(swingOrder));
             }
 
-            // 4. Canceling the two input dialogs. showInputDialog returns null for Cancel or the
-            //    close box; upstream tested the reply for empty only, so canceling threw.
-            for (String text : new String[]{ "Go to...", "Set RNG Seed" }) {
+            // 4. Canceling the two input boxes. showInputDialog returns null for Cancel or the close
+            //    box; upstream tested the reply for empty only, so canceling threw (jc-21 to jc-30,
+            //    pinned there: UB-12). MOD (Jeremy, fix layer, UB-12): jc-17 tested for null too.
+            //    Each box is answered five ways, as a person would (answerInputs): its close box, its
+            //    Cancel button, OK with nothing typed, OK with a letter, and OK with a number. Two
+            //    moves are made first, so there is something to lose. Canceling must leave the level
+            //    exactly as it was -- the same Level object and the same moves -- with nothing else
+            //    shown; OK with nothing typed does nothing too, as upstream always did; a letter shows
+            //    its one message; and a number does the box's job, which also proves the answers
+            //    really reach the box: Go to... loads level 2, not the level 1 that is open, and Set
+            //    RNG Seed reloads the same level with the seed typed, its moves kept.
+            for (Box box : List.of(new Box("Go to...", "2", 1), new Box("Set RNG Seed", "7", 2))) {
+                String text = box.item(), number = box.number();
+                int start = box.start();
                 JMenuItem it = item(w, "Level", text);
                 fact("Level > " + text + " exists", it != null);
                 if (it == null) continue;
-                int shown = dialogsClosed.get();
-                Thread closer = closeNextDialog();
-                // ⚠ UPSTREAM BASELINE (from jc-21, UB-12): upstream tests the reply for empty only,
-                // and Cancel's reply is null.
-                pin("Level > " + text + ", then Cancel", outcome(it::doClick), "throws NullPointerException", "works");
-                closer.interrupt();
-                // Otherwise this passes when the dialog never appears at all.
-                fact("and its dialog really appeared and was canceled", dialogsClosed.get() == shown + 1);
+                // Each box starts afresh (a new Level object) on a level of its own, so a fault in one
+                // box cannot fail the other box's checks (jc-31 review): Go to... on level 1, so the
+                // level 2 it is told to load is not the one open; Set RNG Seed on level 2, so a reseed
+                // that reloaded level 1 instead would show. A closer runs meanwhile, so a load that
+                // fails shows its error and the check below fails, rather than the box hanging the child.
+                int errorsBefore = dialogsClosed.get();
+                game.Level wasOpen = stateOf(emu).level();
+                Thread loadCloser = closeEveryDialog();
+                SwingUtilities.invokeAndWait(() -> {
+                    loadAfresh(emu, start);
+                    press(w, KeyEvent.VK_UP, 0); release(w, KeyEvent.VK_UP);
+                    press(w, KeyEvent.VK_DOWN, 0); release(w, KeyEvent.VK_DOWN);
+                });
+                stop(loadCloser);
+                int errors = dialogsClosed.get() - errorsBefore;
+                State first = stateOf(emu);
+                fact("Level > " + text + ": starts on level " + start + ", afresh, with two moves made",
+                     errors == 0 && first.level() != null && first.level() != wasOpen && first.level().getLevelNumber() == start && first.moves().length() == 2,
+                     errors + " error box(es); " + (first.level() == wasOpen ? "the same Level object; " : "") +
+                     (first.level() == null ? "no level" : "level " + first.level().getLevelNumber()) + ", moves \"" + first.moves() + "\"");
+                for (Answer answer : List.of(new Answer(Press.CLOSE_BOX, null), new Answer(Press.CANCEL, null),
+                                             Answer.ok(""), Answer.ok("x"), Answer.ok(number))) {
+                    // Each name names its box and answer, and stays the same whatever happens; what
+                    // was seen is printed only on a failure (fact's third argument).
+                    String name = "Level > " + text + ", then " + answer.how();
+                    List<String> answered = java.util.Collections.synchronizedList(new ArrayList<>());
+                    // The level and its moves are read together, on the event thread (jc-31 review).
+                    State then = stateOf(emu);
+                    game.Level beforeReply = then.level();
+                    String movesBefore = then.moves();
+                    Thread answerer = answerInputs(answered, answer);
+                    String result = outcome(it::doClick);
+                    stop(answerer);
+                    fact(name + ": works", result.equals("works"), result);
+                    // Otherwise the checks below pass when the box never appears at all.
+                    boolean letter = "x".equals(answer.typed());
+                    List<String> expected = letter ? List.of("input", "message: Please Enter a Whole Number") : List.of("input");
+                    fact(name + ": the box appeared, then " + (letter ? "its one message" : "nothing else"),
+                         answered.equals(expected), answered.toString());
+                    State now = stateOf(emu);
+                    game.Level after = now.level();
+                    String movesAfter = now.moves();
+                    String found = (after == null ? "no level loaded"
+                                    : "level " + after.getLevelNumber() + " \"" + after.getTitle() + "\", seed "
+                                      + after.getRngSeed() + (after == beforeReply ? ", the same object" : ", a new object"))
+                                 + "; moves \"" + movesBefore + "\" then \"" + movesAfter + "\"";
+                    if (!number.equals(answer.typed()))
+                        fact(name + ": the level exactly as it was (nothing reloaded, no move lost)",
+                             after == beforeReply && movesAfter.equals(movesBefore), found);
+                    else if (text.equals("Go to..."))
+                        fact(name + ": loaded level " + number + ", the one typed, afresh", after != null && after != beforeReply
+                             && after.getLevelNumber() == Integer.parseInt(number) && ("Gui Probe " + number).equals(after.getTitle()) && movesAfter.isEmpty(), found);
+                    else
+                        fact(name + ": reloaded the same level with seed 7, its moves kept", after != null && after != beforeReply
+                             && beforeReply != null && after.getLevelNumber() == beforeReply.getLevelNumber() && after.getRngSeed() == 7
+                             && movesAfter.equals(movesBefore), found);
+                }
             }
             fact("and the level is still loaded", emu.isLevelLoaded());
 
@@ -905,9 +1082,11 @@ public class GuiWindowTest {
             fact("Solution > Open exists", openRoute != null);
             if (openRoute != null) {
                 int shownOpen = dialogsClosed.get();
-                Thread closer = closeNextDialog();
+                // closeEveryDialog, stopped and waited for, so a second dialog fails the count below
+                // rather than hanging the child, and the closer cannot reach section 5 (jc-31 review).
+                Thread closer = closeEveryDialog();
                 pin("Solution > Open, then Cancel", outcome(openRoute::doClick), "throws NullPointerException", "works");
-                closer.interrupt();
+                stop(closer);
                 fact("and its file chooser really appeared and was canceled", dialogsClosed.get() == shownOpen + 1);
             }
 
@@ -1092,7 +1271,7 @@ public class GuiWindowTest {
                 press(w, KeyEvent.VK_UP, 0);
                 press(w, KeyEvent.VK_RIGHT, 0);
                 try { Thread.sleep(WINDOW_CLOSED_MS); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-                busy[0] = emu.getSavestates().movesToString();
+                busy[0] = movesOf(emu);
                 release(w, KeyEvent.VK_UP);
                 release(w, KeyEvent.VK_RIGHT);
             });
@@ -1119,6 +1298,8 @@ public class GuiWindowTest {
             Thread.sleep(WINDOW_CLOSED_MS);
             setAutoDiagonals(emu, false);
 
+            fact("every dialog helper stopped within 2 s of being told to", lateHelpers.get() == 0,
+                 lateHelpers.get() + " still running");
             SwingUtilities.invokeAndWait(w::dispose);
             // The parent requires this line: a click that quit the program with exit code 0 (closing
             // the main window does) would otherwise skip every check after it and still look clean.

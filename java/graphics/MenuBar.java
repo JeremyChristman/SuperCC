@@ -118,7 +118,11 @@ class MenuBar extends JMenuBar{
             goTo.addActionListener(e -> {
                 if (!SuperCC.areToolsRunning()) {
                     String s = JOptionPane.showInputDialog(window, "Choose a level number");
-                    if (s.length() == 0) return;
+                    // MOD (Jeremy, fix layer, UB-12): null is Cancel (or the box's close box). Upstream
+                    // tested only for empty, so canceling threw NullPointerException on the event
+                    // thread. jc-17's line, re-applied alone; the file-chooser version of this was
+                    // jc-12's fix (UB-13).
+                    if (s == null || s.isEmpty()) return;
                     try {
                         int n = Integer.parseInt(s);
                         emulator.loadLevel(n, 0, Step.EVEN, true, Ruleset.CURRENT, Direction.UP);
@@ -155,7 +159,8 @@ class MenuBar extends JMenuBar{
             rngSeed.addActionListener(e -> {
                 if (!SuperCC.areToolsRunning() && emulator.isLevelLoaded()) {
                     String s = JOptionPane.showInputDialog(window, "Choose a starting seed");
-                    if (s.equals("")) return;
+                    // MOD (Jeremy, fix layer, UB-12): null is Cancel; see "Go to..." above.
+                    if (s == null || s.isEmpty()) return;
                     try {
                         Level oldLevel = emulator.getLevel();
                         int n = Integer.parseInt(s);
