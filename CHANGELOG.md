@@ -12,6 +12,37 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## jc-32 — 2026-11-15 (the fix layer: a canceled file chooser; the no-level step all back)
+
+The last of the no-level-loaded fixes goes back on the upstream baseline. It closes UB-13 in
+[`BASELINE-ISSUES.md`](BASELINE-ISSUES.md), and with it the whole step (UB-11 to UB-15). The menus
+only: no stored solution changes.
+
+### Fixed
+- **Canceling the file chooser of Solution › Open, Search for seeds or Load states from disk does
+  nothing again (`7469c09`, UB-13)**, instead of failing with an internal error (a
+  `NullPointerException` on the event thread, written to the error log): `MenuBar.openFileBytes`
+  returns nothing for a canceled chooser, as jc-12 made it, in place of upstream's
+  `Objects.requireNonNull`. Upstream's `assert tws != null` after TWS › Write solution to new tws's
+  chooser is gone too (it failed a Cancel only under `java -ea`). Corpus against jc-31: 24,217 of 24,217 identical.
+
+### Changed (tests only)
+- `GuiWindowTest` §4b replaces the UB-13 pin: every file chooser the menus open with a level
+  loaded (but View › Tileset › custom's, UB-18) is answered in a real window by its close box
+  and its own Cancel button, and the four UB-13 concerns (Open, Search for seeds, Load states from
+  disk, the TWS save) with a file too, each from a fresh level 1 with two moves made. Canceling
+  must leave the level, its moves, its savestates, the TWS folder and the files as they were,
+  with nothing else shown and no window opened; a file that is not there must bring jc-12's
+  own message and nothing else; a new TWS file must be written and its folder remembered. The
+  child JVM runs with `-ea:graphics.MenuBar`, so a `MenuBar` assert fires there. On jc-31's jar
+  exactly the 8 cancel checks and the child's exit check fail; 13 defects planted in `MenuBar`,
+  all caught. Suite 2,509 assertions, 38 pins. Coverage: every figure unchanged (target 57.1%;
+  the non-target pool still 52/1945).
+- `BASELINE-ISSUES.md` records four upstream behaviors under "NOT introduced": every launch
+  rewrites `succ_settings.ini` with the same content; a file that is not what Solution › Open,
+  Search for seeds or Load states expects fails with an internal error; saving through a chooser
+  replaces a file without asking; and Load states deserializes any file chosen, unfiltered.
+
 ## jc-31 — 2026-11-15 (the fix layer: Cancel on Go to... and Set RNG Seed)
 
 The fourth of the no-level-loaded fixes goes back on the upstream baseline. It closes UB-12 in

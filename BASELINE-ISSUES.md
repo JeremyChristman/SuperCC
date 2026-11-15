@@ -35,7 +35,7 @@ How to keep it:
 | UB-10 | Seed Search's Pause flag is not `volatile` | nobody observed (theoretical) | `397c7bb`, ships in jc-20 | open |
 | UB-11 | With no level set open, most menu controls fail with an internal error | everyone, from launch until a set is opened | `c57f217`, ships in jc-21 | **FIXED in `d57d419` (jc-28)** |
 | UB-12 | Canceling Go to... or Set RNG Seed fails with an internal error | anyone who cancels either | `c57f217`, ships in jc-21 | **FIXED in `cd5a644` (jc-31)** |
-| UB-13 | Canceling the file chooser of Solution › Open, Search for seeds or Load states fails | anyone who cancels one | `c57f217`, ships in jc-21 | open |
+| UB-13 | Canceling the file chooser of Solution › Open, Search for seeds or Load states fails | anyone who cancels one | `c57f217`, ships in jc-21 | **FIXED in `7469c09` (jc-32)** |
 | UB-14 | A set whose level 1 will not load opens badly: an error, then no level, or the previous set's level under the new file | none of the 331 sets in the collection | `c57f217`, ships in jc-21 | **FIXED in `48a3eca` (jc-29)** |
 | UB-15 | A level whose savestates cannot be built is left half-loaded | nobody today (no level reaches it) | `c57f217`, ships in jc-21 | **FIXED in `e08c6b5` (jc-30)** |
 | UB-16 | Choosing a custom tileset saves it as tileset number 5, which builds before jc-18 cannot start with | anyone sharing the settings file with an older build | `5d3f0a3`, ships in jc-22 | open |
@@ -269,9 +269,10 @@ and both baselines. If step 5 (custom tilesets, below) is still reverted, re-app
 steps rewrote View › Tileset's listener in `MenuBar`.
 FORK.md step 4 has the engineering record. **The menu guard (UB-11) is back since jc-28
 (`d57d419`), opening a set at its first level that loads (UB-14) since jc-29 (`48a3eca`), the
-all-or-nothing level load (UB-15) since jc-30 (`e08c6b5`), and Cancel on Go to... and Set RNG Seed
-(UB-12) since jc-31 (`cd5a644`)**, so a whole `git revert` no longer applies: UB-13, the last,
-goes back by hand from `c57f217`'s diff.
+all-or-nothing level load (UB-15) since jc-30 (`e08c6b5`), Cancel on Go to... and Set RNG Seed
+(UB-12) since jc-31 (`cd5a644`), and a canceled file chooser (UB-13) since jc-32 (`7469c09`): the
+whole step is back**, each fix by hand from `c57f217`'s diff (a whole `git revert` no longer
+applies).
 
 "Fails with an internal error" below means a `NullPointerException` on the event thread: nothing
 visible happens except that it is written to the error log (`succ_error-<MACHINE>.log`).
@@ -371,15 +372,47 @@ against jc-30: 24,217 of 24,217 identical.
 
 ### UB-13 — canceling a file chooser fails
 
-- **What a user sees:** canceling the file chooser of Solution › Open, Solution › Search for seeds
-  or Solution › Load states from disk fails with an internal error, with a level open (since jc-28's
-  menu guard, UB-11, none of the three opens its chooser without one). (jc-12 fixed this; its clearer
-  message for a file that is not there stays.) With assertions on (`java -ea`, never a normal
-  launch), canceling TWS › Write solution to new tws fails too, on upstream's `assert tws != null`.
+**Status: FIXED in `7469c09` (jc-32).** jc-12's line is back in `MenuBar.openFileBytes`,
+re-applied alone: a `null` reply from the chooser (Cancel, or the close box) returns `null`
+at once, which all three callers already treat as nothing to do, in place of upstream's
+`Objects.requireNonNull`; and upstream's `assert tws != null` after the TWS save chooser is
+gone, as jc-17 left it out. With comments stripped, `MenuBar` now differs from jc-20's only
+by step 5's tileset code (still reverted) and jc-28's listener order, so the whole no-level
+step (UB-11 to UB-15) is back. `GuiWindowTest` §4b answers every file chooser the menus open
+with a level loaded -- but View › Tileset › custom's, whose Cancel is UB-18 (pinned in
+§5b) -- in a real window, as a person would: its close box (the window-closing event) and
+its own Cancel button, which must change nothing and show nothing else -- the same `Level`
+object, moves, savestates object and TWS folder, no file added, no window opened -- and, for
+the four UB-13 concerns (Solution › Open, Search for seeds, Load states from disk, TWS ›
+Write solution to new tws), a file too: for the three that open one, a file that is not there,
+which must bring jc-12's own message ("There is no file:" and the path) and nothing else; for
+the TWS save, a new file in a folder of its own, which must be the one file written and its
+folder remembered for the next tws chooser. The other four (Save as, Save all states to disk,
+Open tws, Open levelset) never threw on Cancel; they are covered so the whole family is. Each
+item starts afresh on level 1 with two moves made and the TWS folder in a folder of its own. The
+child JVM runs with `-ea:graphics.MenuBar`, so the canceled TWS save meets an `assert` there as
+`java -ea` would. On jc-31's jar `GuiWindowTest` fails exactly the 8 cancel checks (6 throwing
+`NullPointerException`, the TWS save's 2 `AssertionError`) and the child's exit check -- 9; 13
+defects planted in `MenuBar`, all caught (upstream's two lines back, Cancel showing an error,
+Cancel read as an empty file, jc-12's message dropped or replaced by the pre-jc-12 handling,
+Cancel moving the TWS folder, a written file's folder not remembered, Cancel falling back to
+the default path, Cancel on Load states rewinding a move, a save writing a stray file even when
+canceled, a TWS save losing a move, Open tws's own Cancel guard removed); the two TWS-folder
+defects survived the first version of the test, whose TWS folder was the child's own folder,
+until it got folders of its own; corpus against jc-31: 24,217 of 24,217 identical.
+
+- **What a user saw (jc-21 to jc-31):** canceling the file chooser of Solution › Open, Solution ›
+  Search for seeds or Solution › Load states from disk failed with an internal error, with a level
+  open (since jc-28's menu guard, UB-11, none of the three opens its chooser without one); nothing
+  else changed. (jc-12 fixed this; its clearer message for a file that is not there stayed.) With
+  assertions on (`java -ea`, never a normal launch), canceling TWS › Write solution to new tws
+  failed too, on upstream's `assert tws != null`.
 - **Cause:** upstream's `72476bc` wraps the chooser's reply in `Objects.requireNonNull`, which jc-17
-  left out because it undoes jc-12; the baseline has upstream's line.
+  left out because it undoes jc-12; the baseline had upstream's line.
 - **Fix:** treat a `null` reply as "nothing to do", as jc-12 did.
-- **Pinned by:** `GuiWindowTest` §4 (Solution › Open, then Cancel, with a level open).
+- **Pinned by (jc-21 to jc-31):** `GuiWindowTest` §4 (Solution › Open, then Cancel, with a level
+  open). **Checked by (jc-32 on):** §4b, above: three answers to each of the four choosers, and the two
+  cancels of the menus' four other choosers.
 
 ### UB-14 — a set whose level 1 will not load opens badly
 
@@ -914,3 +947,33 @@ are not lost.
   Index 99 out of bounds for length 3", and its stack trace goes to the error log. The level open
   stays as it was. Upstream's code. Raised by the jc-31 review (third round); the error-log entry
   measured by a planted load of level 9999 in the jc-31 mutation runs, the message read in the code.
+- **Every launch rewrites `succ_settings.ini`, with the same content.** At startup SuperCC calls
+  `LevelPanel.changeNotation(paths.getTWSNotation())`, which saves the TWS-notation setting back,
+  and any setting saved rewrites the whole file. Nothing in it changes, but its timestamp does, so
+  Dropbox syncs it after every launch, and a launch on each PC at once has two machines writing
+  one file. In the code since the import of upstream (`fc31de0`), so every build. Seen in the
+  jc-31 deploy (the file's hash unchanged, its time moved); traced in the code.
+- **Choosing a file that is not what the item expects fails with an internal error.** Solution ›
+  Open and Search for seeds turn a file that is not JSON into an `IllegalArgumentException`, and a
+  JSON file that is not an object into a `ClassCastException`, neither caught, so either reaches
+  the event thread and the error log and nothing is shown; the first one's message would also name
+  the default route path (`getJSONPath()`), not the file chosen. Load states from disk catches only
+  `IOException` and `ClassNotFoundException`, so a `.ser` holding some other object fails the same
+  way (`ClassCastException`). Upstream's code; jc-12 handled only a file that is not there, and
+  UB-13's fix only a canceled chooser. Raised by the jc-32 review (second round); read in the code,
+  not run.
+- **Saving through a chooser (`MenuBar.saveNewFile`): no overwrite question, a case-sensitive
+  extension, a stream not closed on failure.** Choosing an existing file replaces it without
+  asking; a name typed as `route.TWS` is saved as `route.TWS.tws`; and if the write fails part way
+  (a full disk), the `FileOutputStream` is never closed, so on Windows the half-written file stays
+  locked until the stream is collected. Solution › Save as, Save all states to disk and TWS ›
+  Write solution to new tws all save this way. Upstream's code. Raised by the jc-32 review (second
+  round); read in the code, not run.
+- **Load states from disk deserializes whatever file is chosen.** It hands the file to
+  `ObjectInputStream.readObject` with no filter and checks the type only afterward, so a `.ser`
+  from someone else runs Java deserialization of whatever classes it names (the classic route for
+  untrusted serialized data to run code, if a usable class is on the classpath) before anything is
+  checked. Its mismatch message also decodes the saved title with the platform's default charset
+  where the comparison above it uses Windows-1252. Upstream's code; a filter admitting only the
+  savestate classes would close it. Raised by the jc-32 review (third round); read in the code,
+  not run.

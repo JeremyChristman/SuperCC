@@ -248,7 +248,7 @@ test/LinkTest.java           every call between the fork's classes resolves IN T
 test/InputDiscardTest.java   which keys Level.tick reports as DISCARDED, and the WAIT the move list records
 test/SeedSearchTest.java     Seed Search through its REAL constructor, headless: stops at the top seed, threads, Pause
 test/FormClassTest.java      every form window's REAL constructor builds its components (14 of 15; Gui is the JFrame)
-test/GuiWindowTest.java      the MAIN window (Gui) built for real in a NON-headless child JVM; every menu control with no level open (PIN lines: UB-13, UB-16..19, UB-22..27)
+test/GuiWindowTest.java      the MAIN window (Gui) built for real in a NON-headless child JVM; every menu control with no level open (PIN lines: UB-16..19, UB-22..27)
 ```
 
 **Testing a form-based window headless.** Its constructor builds every component
@@ -269,7 +269,10 @@ waits for them, so none can close a later one. Where a check COUNTS dialogs, use
 `closeEveryDialog()`, never a closer that stops after one (jc-21 to jc-30 had one,
 `closeNextDialog`, removed in jc-31): a second dialog then hangs the child until the 90-second kill
 instead of failing the count. To answer an input box as a person would (its close box, its Cancel
-button, or OK with text typed), use `answerInputs`; file choosers, `answerChoosers`.
+button, or OK with text typed), use `answerInputs`; a file chooser, `answerChooser` (its close
+box, its Cancel button, or a file approved) or `answerChoosers` (a file for each in turn). The
+child runs with `-ea:graphics.MenuBar`, so an `assert` in `MenuBar` fires there as under `java
+-ea` (upstream's `assert tws != null` did, UB-13); other classes' assertions stay off.
 
 `InputDiscardTest` is about the move list, which the corpus cannot see: a discarded key changes no
 final state, only what SuperCC records, and so what a saved `.json` or an exported `.tws` holds.
@@ -335,7 +338,7 @@ taken. JaCoCo is a test-time tool cached under `%LOCALAPPDATA%\jacoco\<version>\
 dependency**, never committed, never shipped. Output goes to `coverage-report\` (gitignored);
 `coverage.csv` is the evidence behind every percentage below.
 
-As of jc-31, with all 2,427 assertions passing (39 of them `upstreamBug` pins, §6) and 5 skipped —
+As of jc-32, with all 2,509 assertions passing (38 of them `upstreamBug` pins, §6) and 5 skipped —
 counts for a machine with 4 or more CPUs. `SeedSearchTest` §3 makes one pin per search thread, so a
 3-CPU run has one pass and pin fewer and a 2-CPU run two; at 1 CPU §3 and §2's pin are skipped
 (measured: 7 passes and 6 pins fewer, 2 skips more) — **measured on JDK 16.0.2** (16.0.2+7-67 on the desktop; Temurin 16.0.2+7, what CI pins, gives the
@@ -748,8 +751,8 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
   through a wrapped level), Seed Search (`397c7bb`), the no-level-loaded guards (`c57f217`; the
   menu guard, UB-11, is back since jc-28 -- see the next bullet -- opening a set at its first
   level that loads, UB-14, since jc-29, the all-or-nothing level load, UB-15, since jc-30, and
-  Cancel on Go to... and Set RNG Seed, UB-12, since jc-31; a canceled file chooser, UB-13, is
-  still upstream's),
+  Cancel on Go to... and Set RNG Seed, UB-12, since jc-31, and a canceled file chooser, UB-13,
+  since jc-32: the whole step is back),
   custom tilesets (`5d3f0a3`: a saved tileset that cannot be drawn stops
   SuperCC from starting, UB-20 -- do not "fix" it in passing) and auto-diagonals (`d08e6ef`:
   with the switch on, EVERY game key waits 50 ms and a `java.util.Timer` makes ONE move, on its own
