@@ -61,6 +61,86 @@ public class EngineTest {
         }
     }
 
+    /** A parser for `set` whose level at `position` parses as usual but cannot have its savestates
+     *  built -- the one way a load fails after parseLevel succeeds (UB-15). As an Exception, the
+     *  level has no title, which SavestateManager's constructor dereferences (MO3 #12 and #14 were
+     *  such levels until jc-17 titled them "", 6d); as an Error, saving its state throws one, standing
+     *  in for a class that will not load (the jc-29 failure-mode review's replaced jar). Every other
+     *  level, and everything else about that one, is the file's own. */
+    private static final class NoSavestatesAt extends DatParser {
+        private final int position;
+        private final boolean anError;
+        NoSavestatesAt(File set, int position, boolean anError) throws IOException {
+            super(set);
+            this.position = position;
+            this.anError = anError;
+        }
+        @Override public Level parseLevel(int n, int rngSeed, Step step, Ruleset rules, Direction slide) throws IOException {
+            Level real = super.parseLevel(n, rngSeed, step, rules, slide);
+            if (n != position) return real;
+            return (Level) java.lang.reflect.Proxy.newProxyInstance(Level.class.getClassLoader(),
+                    new Class<?>[]{ Level.class }, (proxy, method, args) -> {
+                        if (!anError && method.getName().equals("getTitle")) return null;
+                        if (anError && method.getName().equals("save")) throw new LinkageError("planted by EngineTest 6c");
+                        try {
+                            return method.invoke(real, args);
+                        } catch (java.lang.reflect.InvocationTargetException e) {
+                            throw e.getCause();
+                        }
+                    });
+        }
+    }
+
+    /** One of the emulator's private fields, made accessible -- its settings (`paths`), which a
+     *  headless emulator never builds, or the open set's parser (`dat`). The one place these tests
+     *  reach into SuperCC by name. */
+    private static java.lang.reflect.Field field(String name) throws ReflectiveOperationException {
+        java.lang.reflect.Field f = SuperCC.class.getDeclaredField(name);
+        f.setAccessible(true);
+        return f;
+    }
+
+    /** Puts a parser into a headless emulator, as if its set had been opened through it. */
+    private static void installParser(SuperCC emu, DatParser parser) throws ReflectiveOperationException {
+        field("dat").set(emu, parser);
+    }
+
+    /** Settings that, at their first "always open in MS?" asking, swap the set an open has just read
+     *  for a NoSavestatesAt parser of the same file. An open makes its own parser, and that asking --
+     *  for the starting ruleset, after the file is read and before each level is loaded from it -- is
+     *  the one way in. Always answers no. Records which file it swapped, so a check can confirm it
+     *  was the one being opened (were the asking ever moved before the file is read, it would be the
+     *  previous set's). */
+    private static final class NoSavestatesOnOpen extends io.SuccPaths {
+        private final SuperCC emu;
+        private final int position;
+        private final boolean anError;
+        String swapped;
+        NoSavestatesOnOpen(File settings, SuperCC emu, int position, boolean anError) throws IOException {
+            super(settings);
+            this.emu = emu;
+            this.position = position;
+            this.anError = anError;
+        }
+        @Override public boolean getAlwaysOpenInMS() {
+            if (swapped == null) {
+                swapped = emu.getLevelsetPath();
+                try {
+                    installParser(emu, new NoSavestatesAt(new File(swapped), position, anError));
+                } catch (ReflectiveOperationException | IOException e) {
+                    throw new IllegalStateException("EngineTest 6c could not swap the parser", e);
+                }
+            }
+            return false;
+        }
+    }
+
+    /** The title the loaded savestates were built for, or "(no savestates)" -- which level they
+     *  belong to, since SavestateManager keeps its level's title. */
+    private static String savestatesTitle(SuperCC emu) throws IOException {
+        return emu.getSavestates() == null ? "(no savestates)" : new String(emu.getSavestates().getLevelTitle(), "Windows-1252");
+    }
+
     /** What r printed to stderr -- where the headless emulator reports its errors. */
     private static String captureStderr(Runnable r) throws IOException {
         java.io.PrintStream before = System.err;
@@ -76,9 +156,7 @@ public class EngineTest {
 
     /** Puts settings into a headless emulator, which never builds any of its own. */
     private static void installSettings(SuperCC emu, io.SuccPaths settings) throws ReflectiveOperationException {
-        java.lang.reflect.Field paths = SuperCC.class.getDeclaredField("paths");
-        paths.setAccessible(true);
-        paths.set(emu, settings);
+        field("paths").set(emu, settings);
     }
 
     /** Runs r: true if it threw an Error (an Exception counts as false, as does no throw). */
@@ -91,9 +169,7 @@ public class EngineTest {
     /** Whether a level set's file is open, loaded level or not (SuperCC.dat; getLevelsetPath()
      *  throws when none is). */
     private static boolean aSetIsOpen(SuperCC emu) throws ReflectiveOperationException {
-        java.lang.reflect.Field dat = SuperCC.class.getDeclaredField("dat");
-        dat.setAccessible(true);
-        return dat.get(emu) != null;
+        return field("dat").get(emu) != null;
     }
 
     /** A headless emulator whose settings file names these two custom tileset images (null: none
@@ -373,10 +449,11 @@ public class EngineTest {
          * SavestateManager threw on getTitle().getBytes()): load level 2, then the untitled level 1,
          * and level 1 ran against level 2's savestates; on a fresh open, isLevelLoaded() was true with
          * getSavestates() null, so every no-level guard in jc-17 was bypassed. jc-17 made the load all
-         * or nothing; the upstream baseline REVERTED that (UB-15), so a level whose savestates cannot
-         * be built is half-loaded again. No real level does that now that untitled levels load (6d),
-         * and the fixture here is a level whose record does not parse (DatBuilder.unreadable()),
-         * which fails before anything is assigned -- so these first checks hold on either code. */
+         * or nothing; the upstream baseline reverted that (UB-15, jc-21 to jc-29), and the fix layer
+         * put it back in jc-30 (MOD (Jeremy, fix layer, UB-15)). No real level fails that way now
+         * that untitled levels load (6d), so the first fixture here is a level whose record does not
+         * parse (DatBuilder.unreadable()), which fails before anything is assigned -- those checks
+         * hold on either code -- and the last checks of this section break a level AFTER it parses. */
         Path d6c = tempDir("unreadable");
         DatBuilder goodFirst = new DatBuilder().signature(DatBuilder.SIG_MS);
         goodFirst.level().title("Titled").password("ABCD").chips(0).timeLimit(100).tile(3, 5, Tile.CHIP_RIGHT).end();
@@ -465,6 +542,65 @@ public class EngineTest {
         Harness.check("an Error after level 1 failed normally escapes too", throwsAnError(() -> emu10.openLevelset(setB)));
         Harness.check("and still puts the open set back, its level loaded",
                       emu10.getLevelsetPath().equals(pathA) && emu10.getLevel() == levelA10);
+
+        /* A level that PARSES but whose savestates cannot be built (UB-15). jc-21 to jc-29 assigned
+         * the level first, so such a level was left "loaded" with no savestates, or the previous
+         * level's: past the menu guard, which asks only isLevelLoaded() (UB-11), and counted by the
+         * open as a level that loaded, since it tells one by identity (UB-14). From jc-30 nothing is
+         * assigned. The parser that breaks the level (NoSavestatesAt) goes in by reflection for a
+         * load, and through the settings for an open, which makes its own. */
+        File setT = new DatBuilder().signature(DatBuilder.SIG_MS)
+                .level().title("One").password("UVWX").chips(0).timeLimit(100).tile(3, 5, Tile.CHIP_RIGHT).end()
+                .level().title("Two").password("YZAB").chips(0).timeLimit(100).tile(3, 5, Tile.CHIP_RIGHT).end()
+                .writeTo(d6c, "twogood.dat").toFile();
+        File setL = new DatBuilder().signature(DatBuilder.SIG_MS)
+                .level().title("Lone").password("CDEF").chips(0).timeLimit(100).tile(3, 5, Tile.CHIP_RIGHT).end()
+                .writeTo(d6c, "lone.dat").toFile();
+        //  A load (what Go to..., Next, Restart and a solution's level all do).
+        SuperCC emu11 = new SuperCC(false);
+        emu11.openLevelset(setT);
+        Object one = emu11.getLevel();
+        Object oneStates = emu11.getSavestates();
+        installParser(emu11, new NoSavestatesAt(setT, 2, false));
+        String said11 = captureStderr(() -> emu11.loadLevel(2, 0, Step.EVEN, false, Ruleset.MS, Direction.UP));
+        //  (One check, not two: jc-29 kept level 1's savestates too, under the broken level 2 -- review.)
+        Harness.check("loading a level 2 whose savestates cannot be built keeps level 1, with its own savestates",
+                      emu11.getLevel() == one && emu11.getSavestates() == oneStates);
+        Harness.check("and reports it (\"Could not load level: ...\")", said11.contains("Could not load level: "));
+        installParser(emu11, new NoSavestatesAt(setT, 2, true));
+        Harness.check("an Error building them escapes the load",
+                      throwsAnError(() -> emu11.loadLevel(2, 0, Step.EVEN, false, Ruleset.MS, Direction.UP)));
+        Harness.check("and keeps level 1 and its savestates too", emu11.getLevel() == one && emu11.getSavestates() == oneStates);
+        //  An open: a fresh one, a set whose only level fails that way, and an Error.
+        SuperCC emu12 = new SuperCC(false);
+        NoSavestatesOnOpen hook12 = new NoSavestatesOnOpen(errSettings, emu12, 1, false);
+        installSettings(emu12, hook12);
+        String said12 = captureStderr(() -> emu12.openLevelset(setT));
+        Harness.eq("a fresh open whose level 1 cannot have savestates lands on level 2", titleOf(emu12), "Two");
+        Harness.eq("with level 2's own savestates", savestatesTitle(emu12), "Two");
+        Harness.check("and reports level 1 by position",
+                      said12.contains("Level 1 could not be loaded") && said12.contains("Opened at level 2."));
+        SuperCC emu13 = new SuperCC(false);
+        emu13.openLevelset(setT);
+        Object levelT = emu13.getLevel();
+        String pathT = emu13.getLevelsetPath();
+        NoSavestatesOnOpen hook13 = new NoSavestatesOnOpen(errSettings, emu13, 1, false);
+        installSettings(emu13, hook13);
+        String said13 = captureStderr(() -> emu13.openLevelset(setL));
+        Harness.check("a set whose only level cannot have savestates leaves the open set and its level",
+                      emu13.getLevel() == levelT && emu13.getLevelsetPath().equals(pathT));
+        Harness.check("and says no level in it could be loaded", said13.contains("No level in lone.dat could be loaded"));
+        SuperCC emu14 = new SuperCC(false);
+        emu14.openLevelset(setT);
+        Object levelT14 = emu14.getLevel();
+        NoSavestatesOnOpen hook14 = new NoSavestatesOnOpen(errSettings, emu14, 1, true);
+        installSettings(emu14, hook14);
+        Harness.check("an Error building level 1's savestates escapes the open", throwsAnError(() -> emu14.openLevelset(setL)));
+        Harness.check("and puts the open set back, its level loaded",
+                      emu14.getLevelsetPath().equals(pathT) && emu14.getLevel() == levelT14);
+        Harness.check("(each open above broke a level of the set it was opening, not the previous set's)",
+                      setT.getPath().equals(hook12.swapped) && setL.getPath().equals(hook13.swapped)
+                      && setL.getPath().equals(hook14.swapped));
 
         Harness.section("6d. an untitled level loads, with an empty title -- as in Tile World");
         /* jc-17 (MOD in LevelFactory.makeLevel): title is optional field 3, and a level without it

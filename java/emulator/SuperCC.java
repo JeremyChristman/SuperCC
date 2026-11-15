@@ -275,14 +275,9 @@ public class SuperCC {
          * levels unreachable in the GUI, and every save in such a pack an OPENFAIL in the corpus
          * harness. So the next level is tried, and the set opens at the first one that loads. Only a
          * set where NOTHING loads leaves the previous set open, which is the rule above for a file
-         * that does not read. A successful load always assigns a new Level object, so identity tells
-         * which happened.
-         *
-         * ⚠ While UB-15 is open (loadLevel assigns the level BEFORE it builds the savestates), a
-         * level whose savestates cannot be built is assigned too, so identity counts it as loaded and
-         * the set would open on it half-loaded. Nothing reaches that today: the one cause ever seen,
-         * a level with no title, loads since jc-17 (LevelFactory). UB-15's fix makes identity exact
-         * again (BASELINE-ISSUES.md UB-15).
+         * that does not read. A successful load always assigns a new Level object, and a failed one
+         * assigns nothing (tryLoadLevel builds the level and its savestates before it assigns either:
+         * UB-15), so identity tells which happened.
          *
          * Reported ONCE per open, not once per level: a set of 30 untitled levels was 30 modal
          * dialogs and ~45 KB of error log (measured by review), and a set with no levels at all
@@ -365,9 +360,7 @@ public class SuperCC {
     }
 
     /* MOD (Jeremy, fix layer, UB-14): loadLevel's body, returning its failure instead of reporting it,
-     * so openLevelset can try several levels and report ONCE. Callers of loadLevel see no change.
-     * (jc-17's version also built the level and its savestates before assigning either; that is
-     * UB-15's fix, still reverted, so the assignments below are upstream's.) */
+     * so openLevelset can try several levels and report ONCE. Callers of loadLevel see no change. */
     private synchronized Exception tryLoadLevel(int levelNumber, int rngSeed, Step step, boolean keepMoves, Ruleset rules, Direction initialSlide){
         /* MOD (Jeremy, jc-11): no level set open, nothing to load.
          *
@@ -390,8 +383,27 @@ public class SuperCC {
                 solution.load(this);
             }
             else {
-                level = dat.parseLevel(levelNumber, rngSeed, step, rules, initialSlide);
-                savestates = new SavestateManager(this, level);
+                /* MOD (Jeremy, fix layer, UB-15): build the level AND its savestates, then assign both
+                 * -- or neither. jc-17's fix (merged as "upstream merge", reverted for the upstream
+                 * baseline in jc-21), re-applied alone. SavestateManager's constructor can throw after
+                 * parseLevel has succeeded (a level with no title: it calls getTitle().getBytes(); MO3
+                 * #12 and #14 were two, until jc-17 gave such a level the title "" in LevelFactory).
+                 * Assigning `level` first left a level "loaded" with no savestates, or with the
+                 * PREVIOUS level's -- measured: load level 2, then an untitled level 1, and level 1 ran
+                 * against level 2's savestates. The menu guard (UB-11) asks isLevelLoaded(), so that
+                 * state slipped past it, and openLevelset (UB-14) tells a level that loaded from one
+                 * that did not by whether `level` changed, so it landed on such a level. Now a failed
+                 * load leaves the previous level exactly as it was, and the error is reported as
+                 * before -- an Error out of SavestateManager too (a jar replaced under a running
+                 * instance, measured by the jc-29 failure-mode review), which escapes with nothing
+                 * assigned. (Not the set's ruleset, though: DatParser.parseLevel records the one it
+                 * is asked for before it reads the level, so a failed F3 still leaves the set in the
+                 * other ruleset -- upstream's code, in every build; BASELINE-ISSUES.md, last
+                 * section.) */
+                Level newLevel = dat.parseLevel(levelNumber, rngSeed, step, rules, initialSlide);
+                SavestateManager newSavestates = new SavestateManager(this, newLevel);
+                level = newLevel;
+                savestates = newSavestates;
                 solution = new Solution(new char[] {}, 0, Step.EVEN, Solution.BASIC_MOVES, level.getRuleset(), Direction.UP);
                 if(hasGui) {
                     window.repaint(true);

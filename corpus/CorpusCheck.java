@@ -480,10 +480,12 @@ public class CorpusCheck {
      *  - the level object unchanged: parsing failed and the PREVIOUS level is still loaded, so
      *    anything reported now would describe the wrong level;
      *  - the savestate manager unchanged: the level parsed but SavestateManager's constructor threw
-     *    (a level with no title does this -- MO3 #12 and #14). Before jc-17 that left the new level
-     *    paired with the old level's savestates; since jc-17 loadLevel assigns both or neither, so
-     *    on a jc-17+ jar this shows up as the level unchanged instead. Both tests stay, because the
-     *    harness also replays older jars. The GUI reports either as "Could not load level".
+     *    (a level with no title did this -- MO3 #12 and #14 -- until jc-17 titled such a level "").
+     *    Before jc-17 that left the new level paired with the old level's savestates, and so did the
+     *    upstream baseline, jc-21 to jc-29 (UB-15); jc-17 to jc-20, and jc-30 on, assign both or
+     *    neither, so on those jars it shows up as the level unchanged instead. Both tests stay,
+     *    because the harness also replays the other jars. The GUI reports either as "Could not load
+     *    level".
      */
     private static String loadPosition(SuperCC emulator, int position, Solution solution) {
         Level levelBefore = emulator.getLevel();
