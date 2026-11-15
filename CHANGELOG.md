@@ -12,6 +12,32 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## jc-30 — 2026-11-14 (the fix layer: a level loads with its savestates, or not at all)
+
+The third of the no-level-loaded fixes goes back on the upstream baseline. It closes UB-15 in
+[`BASELINE-ISSUES.md`](BASELINE-ISSUES.md). No stored solution changes, and no real level reaches
+the case it fixes.
+
+### Fixed
+- **A level whose savestates cannot be built is no longer left half-loaded (`e08c6b5`, UB-15).**
+  `tryLoadLevel` builds the level and its savestates, then assigns both, so such a load leaves the
+  previous level exactly as it was, with its own savestates, and reports "Could not load level"; an
+  open counts it as a level that did not load and goes on to the next. An `Error` thrown while the
+  savestates are built leaves the previous level too. That closes what UB-15 reached since jc-28 and
+  jc-29: the menu guard's question (UB-11) again means a level with its savestates, and the open's
+  test of which level loaded (UB-14) is exact. jc-17's code, re-applied alone: `loadLevel` and
+  `tryLoadLevel` are jc-20's exactly, comments aside. Corpus against jc-29: 24,217 of 24,217
+  identical, `-CrossCheck` clean.
+
+### Changed (tests only)
+- `EngineTest` §6c gains 12 checks that break a level after it parses (a parser whose level has no
+  title, or throws an `Error` while its state is saved, put into a headless emulator by reflection,
+  or through the settings for an open): a load, a fresh open, an open of a set whose only level
+  fails that way, an `Error` in each of a load and an open, and that each open broke the set it was
+  opening. On jc-29's jar exactly the 8 that tell the two apart fail; 8 defects planted in `SuperCC`,
+  all caught. Suite 2,398 assertions, 41 pins. Coverage: every branch figure unchanged (target
+  57.1%); `emulator\**` lines 36.1%.
+
 ## jc-29 — 2026-11-14 (the fix layer: a set opens at its first level that loads)
 
 The second of the no-level-loaded fixes goes back on the upstream baseline. It closes UB-14 in

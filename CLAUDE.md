@@ -332,7 +332,7 @@ taken. JaCoCo is a test-time tool cached under `%LOCALAPPDATA%\jacoco\<version>\
 dependency**, never committed, never shipped. Output goes to `coverage-report\` (gitignored);
 `coverage.csv` is the evidence behind every percentage below.
 
-As of jc-29, with all 2,386 assertions passing (41 of them `upstreamBug` pins, §6) and 5 skipped —
+As of jc-30, with all 2,398 assertions passing (41 of them `upstreamBug` pins, §6) and 5 skipped —
 counts for a machine with 4 or more CPUs. `SeedSearchTest` §3 makes one pin per search thread, so a
 3-CPU run has one pass and pin fewer and a 2-CPU run two; at 1 CPU §3 and §2's pin are skipped
 (measured: 7 passes and 6 pins fewer, 2 skips more) — **measured on JDK 16.0.2** (16.0.2+7-67 on the desktop; Temurin 16.0.2+7, what CI pins, gives the
@@ -346,7 +346,7 @@ same figures):
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\Lynx\**` | 63.5% | 71.3% | 466/734 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 54.2% | 73.0% | 186/343 |
 | &nbsp;&nbsp;`io\**` (file formats) | 74.2% | 81.4% | 314/423 |
-| `emulator\**` | 33.8% | 35.9% | 159/470 |
+| `emulator\**` | 33.8% | 36.1% | 159/470 |
 | `tools\**` + `graphics\**` — *not a target* | 2.7% | 8.9% | 52/1941 |
 
 **Read this correctly.** Whole-project branch coverage is 30.5% (1847/6047), and that number is
@@ -604,7 +604,9 @@ Things that are load-bearing in `CorpusCheck` and `corpus.ps1`:
 - **`loadLevel` swallows its own exceptions**, so failure is detected by IDENTITY: the level object
   unchanged means the previous level is still loaded; the savestate manager unchanged means the
   level parsed but `SavestateManager`'s constructor threw (a level with no title did this — MO3
-  #12 and #14 — until jc-17 named such a level `""`, as Tile World does). Either is `LOADFAIL`.
+  #12 and #14 — until jc-17 named such a level `""`, as Tile World does; on a jar that assigns
+  both or neither, jc-17 to jc-20 and jc-30 on, that case shows as the level unchanged instead,
+  UB-15). Either is `LOADFAIL`.
   Reporting a stale level as a result is the failure to avoid. jc-17 to jc-20, and jc-29 on (the fix
   layer, UB-14), open a set at its first level that loads, and a set where NONE loads leaves no set
   open on a fresh emulator, so its saves read `OPENFAIL` (an NPE from `lastLevelNumber()`) instead.
@@ -741,9 +743,10 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
   `SuperCC.tick`'s recorder (`923d07c`: upstream writes a wait on ANY discarded tick, even one that
   also ran automatic ticks; no real level returns both bits, and `InputDiscardTest` §5 pins it
   through a wrapped level), Seed Search (`397c7bb`), the no-level-loaded guards (`c57f217`; the
-  menu guard, UB-11, is back since jc-28 -- see the next bullet -- and opening a set at its first
-  level that loads, UB-14, since jc-29; Cancel on Go to... and Set RNG Seed, a canceled file chooser
-  and the all-or-nothing level load, UB-12, UB-13 and UB-15, are still upstream's),
+  menu guard, UB-11, is back since jc-28 -- see the next bullet -- opening a set at its first
+  level that loads, UB-14, since jc-29, and the all-or-nothing level load, UB-15, since jc-30;
+  Cancel on Go to... and Set RNG Seed and a canceled file chooser, UB-12 and UB-13, are still
+  upstream's),
   custom tilesets (`5d3f0a3`: a saved tileset that cannot be drawn stops
   SuperCC from starting, UB-20 -- do not "fix" it in passing) and auto-diagonals (`d08e6ef`:
   with the switch on, EVERY game key waits 50 ms and a `java.util.Timer` makes ONE move, on its own
@@ -786,8 +789,10 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
   does not do its job, and on a guarded one that opens anything. ⚠ Three limits, all recorded: a
   listener added to an item AFTER the constructor is not guarded; a toggle or radio item in a
   guarded menu would still move its own mark while its action is skipped (none exists; make one
-  work without a level and exempt it); and the guard asks only `isLevelLoaded()`, so a level loaded
-  without its savestates (UB-15, open, unreachable today) would get past it. jc-28 alone left one
+  work without a level and exempt it); and the guard asks only `isLevelLoaded()`, which is enough
+  only because a level is never assigned without its savestates (`tryLoadLevel` builds both, then
+  assigns both: UB-15, fixed since jc-30 -- on jc-28 and jc-29 a half-loaded level would have gotten
+  past it). Keep it that way: never assign `level` before its savestates exist. jc-28 alone left one
   more gap, UB-30 (a set opened at launch whose level 1 failed was open with no level, and Go to...
   was guarded); jc-29's UB-14 fix closed it, since an open now either loads a level or puts the
   previous set back -- never exempt Go to... for anything like it, as Cancel would then fail on
