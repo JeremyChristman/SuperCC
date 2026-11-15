@@ -459,9 +459,12 @@ class MenuBar extends JMenuBar{
                  * chooser opens there -- see SuccPaths.getTWSPath().
                  * ⚠ saveNewFile() returns NULL when the save dialog is canceled, and getParent()
                  * is null for a file with no parent. The pre-jc-8 code dereferenced the first of
-                 * those unconditionally and crashed; both are checked here. */
+                 * those unconditionally and crashed; both are checked here.
+                 * MOD (Jeremy, fix layer, UB-13): no `assert tws != null` here (upstream's 72476bc
+                 * has one; jc-17 left it out, the upstream baseline put it in, jc-21 to jc-31): null
+                 * is Cancel, an ordinary answer handled just below, and with assertions on (java
+                 * -ea) the assert made canceling fail with an AssertionError. */
                 Path tws = saveNewFile(TWSWriter.write(level, solution, emulator.getSavestates()), emulator.getPaths().getTWSPath(), "tws");
-                assert tws != null;
                 if (tws != null && tws.getParent() != null) {
                     emulator.getPaths().setTWSPath(tws.getParent().toString());
                 }
@@ -833,19 +836,30 @@ class MenuBar extends JMenuBar{
     }
 
     /**
-     * MOD (Jeremy, jc-12): a file that simply is not there was reported by dumping a fifty-line JDK
-     * stack trace to stderr and putting NoSuchFileException's message -- which is the bare path,
-     * with no words around it -- in front of the user. That is the ordinary case of asking for a
-     * solution before one has been saved, not a defect worth a stack trace. It was found because
-     * jc-11's error log recorded it three times in two sessions on succsave\SokobanCCLP\65.
+     * MOD (Jeremy, jc-12): two fixes, both in the two lines this used to be.
      *
-     * ⚠ UPSTREAM BASELINE: jc-12 also made a CANCELED chooser a no-op here (openFile() returns
-     * null). Upstream's 72476bc wraps that null in Objects.requireNonNull instead, and the baseline
-     * keeps upstream's line, so canceling Solution > Open, the seed search or Load states throws
-     * NullPointerException on the event thread again (BASELINE-ISSUES.md UB-13).
+     * openFile() returns NULL when the user cancels the chooser; its other callers test for that
+     * (Open levelset and Open tws, quietly; View > Tileset > custom, which then shows an error --
+     * BASELINE-ISSUES.md UB-18). This one did not: it called .toPath() on
+     * the result, and a NullPointerException is not an IOException, so the catch below could not
+     * see it and it escaped into the event thread. Canceling Solution > Open, the seed search, or
+     * Load states threw.
+     *
+     * And a file that simply is not there was reported by dumping a fifty-line JDK stack trace to
+     * stderr and putting NoSuchFileException's message -- which is the bare path, with no words
+     * around it -- in front of the user. That is the ordinary case of asking for a solution before
+     * one has been saved, not a defect worth a stack trace. It was found because jc-11's error log
+     * recorded it three times in two sessions on succsave\SokobanCCLP\65: the log did its job.
+     *
+     * Callers all test the return for null already, so canceling is now simply a no-op.
+     *
+     * MOD (Jeremy, fix layer, UB-13): the canceled-chooser half was reverted for the upstream
+     * baseline in jc-21 -- upstream's 72476bc wraps the null in Objects.requireNonNull, so
+     * canceling threw NullPointerException again -- and is back, re-applied alone.
      */
     private byte[] openFileBytes(String path, String description, String... extensions) {
-        File file = Objects.requireNonNull(openFile(path, description, extensions));
+        File file = openFile(path, description, extensions);
+        if (file == null) return null;      // the user canceled: not an error, nothing to report
         try {
             return Files.readAllBytes(file.toPath());
         }

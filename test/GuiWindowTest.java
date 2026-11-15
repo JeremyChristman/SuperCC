@@ -56,7 +56,9 @@ import java.util.zip.ZipFile;
  *      second dialog fails the count rather than hanging the child).
  *   3. After a level set opens, the same repaint works.
  *   4. Canceling Go to... and Set RNG Seed (by the close box and by the Cancel button: the reply
- *      is null), and each box's other answers; and canceling a file chooser.
+ *      is null), and each box's other answers.
+ *   4b. Canceling every file chooser the menus open with a level loaded but View > Tileset >
+ *      custom's (5b, UB-18): the close box, Cancel; and for the four UB-13 concerns, a file chosen.
  *   5. A level that loads is not reported as failed when the repaint after it throws.
  *   Nothing reaches the error log before 3a, nothing after 3a until 5, whose trace is expected.
  *
@@ -68,8 +70,9 @@ import java.util.zip.ZipFile;
  * bar) is back from jc-28 (FORK.md, "The fix layer"), so 2's UB-11 pins are checks again; its two
  * pins on View > Tileset > custom (UB-18, from the custom-tileset step) stay. The fix behind 3a and
  * 5 (UB-14, opening a set at its first level that loads) is back from jc-29, so their pins are
- * checks again too, and the fix for canceling 4's two input boxes (UB-12) from jc-31; 4's file
- * chooser pin stays (UB-13).
+ * checks again too; so are those of 4 (UB-12, canceling the two input boxes) from jc-31, and of
+ * 4b (UB-13, canceling a file chooser) from jc-32. The no-level guards step (UB-11 to UB-15) is
+ * all back.
  *
  * Run with -Dsupercc.jar (run-tests.ps1 passes it); the child gets this JVM's own classpath.
  */
@@ -104,7 +107,12 @@ public class GuiWindowTest {
                 .writeTo(dir, "lynxprobe.dat").toFile();
 
         String java = Path.of(System.getProperty("java.home"), "bin", "java").toString();
-        ProcessBuilder pb = new ProcessBuilder(java, "-Djava.awt.headless=false",
+        // -ea:graphics.MenuBar: assertions on in MenuBar alone (its nested menu classes take the
+        // top-level class's status), for the whole child run -- every section, not only 4b -- so an
+        // assert there fires as under `java -ea` (upstream's `assert tws != null` made a canceled TWS
+        // save fail, UB-13; since jc-32 MenuBar has none), while no other class's assertions change
+        // what this test sees. A real launch runs with assertions off.
+        ProcessBuilder pb = new ProcessBuilder(java, "-Djava.awt.headless=false", "-ea:graphics.MenuBar",
                 "-Dsupercc.jar=" + System.getProperty("supercc.jar", ""),
                 "-cp", System.getProperty("java.class.path"), "GuiWindowTest$Probe", dat.getAbsolutePath(),
                 badDat.getAbsolutePath(), multiDat.getAbsolutePath(), emptyDat.getAbsolutePath(),
@@ -277,9 +285,7 @@ public class GuiWindowTest {
                 int i = next.get();
                 if (fc != null && i < files.length) {
                     next.incrementAndGet();
-                    log.add("chooser");
-                    fc.setSelectedFile(files[i]);
-                    fc.approveSelection();
+                    approve(fc, files[i], log);
                 } else {
                     log.add(fc != null ? "chooser (closed)" : "dialog");
                     win.dispose();
@@ -287,11 +293,23 @@ public class GuiWindowTest {
             }));
         }
 
+        /** One of section 4b's file choosers: its menu and item, the file it is answered with (null:
+         *  only the two cancels), and whether it saves. */
+        record Chooser(String menu, String item, File answer, boolean saves) { }
+
         /** One of section 4's input boxes: its Level menu item, the number that does its job, and
          *  the level it starts on. */
         record Box(String item, String number, int start) { }
 
-        /** How answerInputs answers an input box. */
+        /** Chooses `file` in a chooser and approves it, as a person picking the file would; records
+         *  "chooser". (answerChoosers and answerChooser both answer this way.) */
+        static void approve(javax.swing.JFileChooser fc, File file, List<String> log) {
+            log.add("chooser");
+            fc.setSelectedFile(file);
+            fc.approveSelection();
+        }
+
+        /** How answerInputs answers an input box, and answerChooser a file chooser. */
         enum Press { CLOSE_BOX, CANCEL, OK }
 
         /** One way to answer an input box: what to press, and for OK the text typed first. */
@@ -303,54 +321,87 @@ public class GuiWindowTest {
             }
         }
 
+        /** Sends a dialog the window-closing event its close box sends, so the dialog's own close
+         *  handler runs (a plain dispose skips it), and records `token`; a JDialog hides itself on
+         *  that event at once unless told not to, so one still showing is recorded as such and
+         *  disposed, and the click cannot hang. */
+        static void pressCloseBox(java.awt.Window win, List<String> log, String token) {
+            win.dispatchEvent(new java.awt.event.WindowEvent(win, java.awt.event.WindowEvent.WINDOW_CLOSING));
+            if (win.isShowing()) { log.add(token + ": its close box did not close it"); win.dispose(); }
+            else log.add(token);
+        }
+
+        /** Presses the one button in `c` whose text is the look-and-feel's label `uiKey`, as a person
+         *  would, and records `token`; with none or several, records that and disposes `win`, so the
+         *  click cannot hang. */
+        static void pressLabeled(java.awt.Window win, java.awt.Container c, String uiKey, List<String> log, String token) {
+            String label = javax.swing.UIManager.getString(uiKey, c.getLocale());
+            List<javax.swing.JButton> buttons = new ArrayList<>();
+            for (javax.swing.JButton b : findAll(c, javax.swing.JButton.class))
+                if (java.util.Objects.equals(label, b.getText())) buttons.add(b);
+            if (buttons.size() != 1) {
+                log.add(token + ": " + buttons.size() + " \"" + label + "\" buttons");
+                win.dispose();
+                return;
+            }
+            log.add(token);
+            buttons.get(0).doClick();
+        }
+
+        /** Records a dialog that is not the one being answered -- its message -- and disposes it. */
+        static void recordMessage(java.awt.Window win, List<String> log) {
+            javax.swing.JOptionPane pane = find(win, javax.swing.JOptionPane.class);
+            log.add("message: " + (pane == null ? "(not an option pane)" : pane.getMessage()));
+            win.dispose();
+        }
+
         /**
          * Answers each input box that appears (JOptionPane.showInputDialog) as a person would:
-         * CLOSE_BOX sends it the window-closing event its close box sends (JOptionPane's own
-         * handler then runs, which a plain dispose skips); CANCEL presses its Cancel button; OK
-         * types the answer's text into it and presses OK. Any other dialog is disposed and recorded
-         * as "message: <its text>". Records "input" for each input box answered, or what went
-         * wrong when one could not be answered -- a part missing, a button not found exactly once,
-         * or an exception -- and then disposes it, so the click cannot hang. Stop it with stop().
+         * CLOSE_BOX presses its close box; CANCEL presses its Cancel button; OK types the answer's
+         * text into it and presses OK. Any other dialog is disposed and recorded as "message: <its
+         * text>". Records "input" for each input box answered, or what went wrong when one could
+         * not be answered -- a part missing, a button not found exactly once, or an exception --
+         * and then disposes it, so the click cannot hang. Stop it with stop().
          */
         static Thread answerInputs(List<String> log, Answer answer) {
             return onEachNewDialog(win -> SwingUtilities.invokeLater(() -> {
                 try {
-                    answerInput(log, win, answer);
+                    javax.swing.JOptionPane pane = find(win, javax.swing.JOptionPane.class);
+                    if (pane == null || !pane.getWantsInput()) { recordMessage(win, log); return; }
+                    if (answer.press() == Press.CLOSE_BOX) { pressCloseBox(win, log, "input"); return; }
+                    javax.swing.JTextField field = find(pane, javax.swing.JTextField.class);
+                    if (field == null) { log.add("input: no text field"); win.dispose(); return; }
+                    if (answer.press() == Press.OK) field.setText(answer.typed());
+                    pressLabeled(win, pane, answer.press() == Press.CANCEL ? "OptionPane.cancelButtonText"
+                                                                           : "OptionPane.okButtonText", log, "input");
                 } catch (Throwable t) {
-                    log.add("an input box that could not be answered (" + t + ")");
+                    log.add("input: could not be answered (" + t + ")");
                     win.dispose();
                 }
             }));
         }
 
-        private static void answerInput(List<String> log, java.awt.Window win, Answer answer) {
-            javax.swing.JOptionPane pane = find(win, javax.swing.JOptionPane.class);
-            if (pane == null || !pane.getWantsInput()) {
-                log.add("message: " + (pane == null ? "(not an option pane)" : pane.getMessage()));
-                win.dispose();
-                return;
-            }
-            if (answer.press() == Press.CLOSE_BOX) {
-                win.dispatchEvent(new java.awt.event.WindowEvent(win, java.awt.event.WindowEvent.WINDOW_CLOSING));
-                // A JDialog hides itself on that event, at once, unless told not to.
-                if (win.isShowing()) { log.add("an input box its close box did not close"); win.dispose(); }
-                else log.add("input");
-                return;
-            }
-            String label = javax.swing.UIManager.getString(
-                    answer.press() == Press.CANCEL ? "OptionPane.cancelButtonText" : "OptionPane.okButtonText", pane.getLocale());
-            List<javax.swing.JButton> buttons = new ArrayList<>();
-            for (javax.swing.JButton b : findAll(pane, javax.swing.JButton.class))
-                if (java.util.Objects.equals(label, b.getText())) buttons.add(b);
-            javax.swing.JTextField field = find(pane, javax.swing.JTextField.class);
-            if (buttons.size() != 1 || field == null) {
-                log.add("an input box with " + (buttons.size() != 1 ? buttons.size() + " " + label + " buttons" : "no text field"));
-                win.dispose();
-                return;
-            }
-            log.add("input");
-            if (answer.press() == Press.OK) field.setText(answer.typed());
-            buttons.get(0).doClick();
+        /**
+         * Answers each file chooser that appears as a person would: CLOSE_BOX presses its close
+         * box; CANCEL presses its own Cancel button; OK selects {@code file} and approves it, as
+         * answerChoosers does. Any other dialog is disposed and recorded as "message: <its text>".
+         * Records "chooser" for each chooser answered, or what went wrong -- a button not found
+         * exactly once, or an exception -- and then disposes it, so the click cannot hang. Each
+         * dialog is looked at on the event thread, as answerInputs does. Stop it with stop().
+         */
+        static Thread answerChooser(List<String> log, Press press, File file) {
+            return onEachNewDialog(win -> SwingUtilities.invokeLater(() -> {
+                try {
+                    javax.swing.JFileChooser fc = find(win, javax.swing.JFileChooser.class);
+                    if (fc == null) { recordMessage(win, log); return; }
+                    if (press == Press.CLOSE_BOX) { pressCloseBox(win, log, "chooser"); return; }
+                    if (press == Press.OK) { approve(fc, file, log); return; }
+                    pressLabeled(win, fc, "FileChooser.cancelButtonText", log, "chooser");
+                } catch (Throwable t) {
+                    log.add("chooser: could not be answered (" + t + ")");
+                    win.dispose();
+                }
+            }));
         }
 
         /** The first component of the given type below c, depth first, or null. */
@@ -562,19 +613,54 @@ public class GuiWindowTest {
             return savestates == null ? "(no savestates)" : savestates.movesToString();
         }
 
+        /**
+         * Starts a check afresh (sections 4 and 4b): on the event thread, runs `before` (if any),
+         * loads level n afresh and makes two moves (Up, Down), with a closer running, so a load that
+         * fails fails the check here instead of its error box hanging the child; then checks that a
+         * new Level object for level n is loaded with the two moves and no error shown (jc-31 and
+         * jc-32 reviews).
+         */
+        static void startAfresh(SuperCC emu, graphics.Gui w, int n, String name, Runnable before) throws Exception {
+            int errorsBefore = dialogsClosed.get();
+            game.Level wasOpen = stateOf(emu).level();
+            Thread loadCloser = closeEveryDialog();
+            SwingUtilities.invokeAndWait(() -> {
+                if (before != null) before.run();
+                loadAfresh(emu, n);
+                press(w, KeyEvent.VK_UP, 0); release(w, KeyEvent.VK_UP);
+                press(w, KeyEvent.VK_DOWN, 0); release(w, KeyEvent.VK_DOWN);
+            });
+            stop(loadCloser);
+            int errors = dialogsClosed.get() - errorsBefore;
+            State now = stateOf(emu);
+            fact(name + ": starts on level " + n + ", afresh, with two moves made",
+                 errors == 0 && now.level() != null && now.level() != wasOpen && now.level().getLevelNumber() == n
+                 && now.moves().length() == 2,
+                 errors + " error box(es); " + (now.level() == null ? "no level" : "level " + now.level().getLevelNumber())
+                 + (now.level() == wasOpen ? ", the same Level object" : "") + ", moves \"" + now.moves() + "\"");
+        }
+
+        /** Every file below this folder (the child's own), by path, sorted. */
+        static java.util.SortedSet<String> filesHere() throws java.io.IOException {
+            try (java.util.stream.Stream<Path> all = Files.walk(Path.of("."))) {
+                return all.filter(Files::isRegularFile).map(p -> p.normalize().toString())
+                          .collect(java.util.stream.Collectors.toCollection(java.util.TreeSet::new));
+            }
+        }
+
         /** Loads level n afresh: its moves not kept, seed 0, an even step, an Up slide. (Here, not in
          *  run(), where a local named "game" hides the package.) */
         static void loadAfresh(SuperCC emu, int n) {
             emu.loadLevel(n, 0, game.Step.EVEN, false, game.Ruleset.CURRENT, game.Direction.UP);
         }
 
-        /** A level and its recorded moves (movesOf), read together. */
-        record State(game.Level level, String moves) { }
+        /** A level, its recorded moves (movesOf) and its savestates object, read together. */
+        record State(game.Level level, String moves, emulator.SavestateManager savestates) { }
 
-        /** The level loaded and its moves, read in one go on the event thread. */
+        /** The level loaded, its moves and its savestates, read in one go on the event thread. */
         static State stateOf(SuperCC emu) throws Exception {
             State[] state = { null };
-            SwingUtilities.invokeAndWait(() -> state[0] = new State(emu.getLevel(), movesOf(emu)));
+            SwingUtilities.invokeAndWait(() -> state[0] = new State(emu.getLevel(), movesOf(emu), emu.getSavestates()));
             return state[0];
         }
 
@@ -1018,23 +1104,8 @@ public class GuiWindowTest {
                 // Each box starts afresh (a new Level object) on a level of its own, so a fault in one
                 // box cannot fail the other box's checks (jc-31 review): Go to... on level 1, so the
                 // level 2 it is told to load is not the one open; Set RNG Seed on level 2, so a reseed
-                // that reloaded level 1 instead would show. A closer runs meanwhile, so a load that
-                // fails shows its error and the check below fails, rather than the box hanging the child.
-                int errorsBefore = dialogsClosed.get();
-                game.Level wasOpen = stateOf(emu).level();
-                Thread loadCloser = closeEveryDialog();
-                SwingUtilities.invokeAndWait(() -> {
-                    loadAfresh(emu, start);
-                    press(w, KeyEvent.VK_UP, 0); release(w, KeyEvent.VK_UP);
-                    press(w, KeyEvent.VK_DOWN, 0); release(w, KeyEvent.VK_DOWN);
-                });
-                stop(loadCloser);
-                int errors = dialogsClosed.get() - errorsBefore;
-                State first = stateOf(emu);
-                fact("Level > " + text + ": starts on level " + start + ", afresh, with two moves made",
-                     errors == 0 && first.level() != null && first.level() != wasOpen && first.level().getLevelNumber() == start && first.moves().length() == 2,
-                     errors + " error box(es); " + (first.level() == wasOpen ? "the same Level object; " : "") +
-                     (first.level() == null ? "no level" : "level " + first.level().getLevelNumber()) + ", moves \"" + first.moves() + "\"");
+                // that reloaded level 1 instead would show.
+                startAfresh(emu, w, start, "Level > " + text, null);
                 for (Answer answer : List.of(new Answer(Press.CLOSE_BOX, null), new Answer(Press.CANCEL, null),
                                              Answer.ok(""), Answer.ok("x"), Answer.ok(number))) {
                     // Each name names its box and answer, and stays the same whatever happens; what
@@ -1075,19 +1146,95 @@ public class GuiWindowTest {
             }
             fact("and the level is still loaded", emu.isLevelLoaded());
 
-            //    And a file chooser. ⚠ UPSTREAM BASELINE (from jc-21, UB-13): jc-12 made a canceled
-            //    chooser a no-op in MenuBar.openFileBytes; upstream's 72476bc wraps the null reply in
-            //    Objects.requireNonNull, and the baseline keeps upstream's line.
-            JMenuItem openRoute = item(w, "Solution", "Open");
-            fact("Solution > Open exists", openRoute != null);
-            if (openRoute != null) {
-                int shownOpen = dialogsClosed.get();
-                // closeEveryDialog, stopped and waited for, so a second dialog fails the count below
-                // rather than hanging the child, and the closer cannot reach section 5 (jc-31 review).
-                Thread closer = closeEveryDialog();
-                pin("Solution > Open, then Cancel", outcome(openRoute::doClick), "throws NullPointerException", "works");
-                stop(closer);
-                fact("and its file chooser really appeared and was canceled", dialogsClosed.get() == shownOpen + 1);
+            // 4b. Canceling a file chooser. jc-12 made a canceled chooser a no-op in
+            //     MenuBar.openFileBytes; upstream's 72476bc wraps the null reply in
+            //     Objects.requireNonNull, so from jc-21 to jc-31 canceling Solution > Open, Search
+            //     for seeds or Load states from disk threw NullPointerException (pinned there, Open
+            //     only: UB-13); and with assertions on, upstream's `assert tws != null` made canceling
+            //     TWS > Write solution to new tws fail with an AssertionError (the child runs with
+            //     -ea:graphics.MenuBar for that). MOD (Jeremy, fix layer, UB-13): both are gone again.
+            //     Every file chooser the menus open with a level loaded -- but View > Tileset >
+            //     custom's, whose Cancel is UB-18 (pinned in 5b) -- is answered as a person would
+            //     (answerChooser): its close box and its Cancel button, which must change nothing and
+            //     show nothing else; and for UB-13's four, a file too. For the three that open one, the
+            //     file is one that is not there, which must bring jc-12's own message ("There is no
+            //     file:" and the path) and nothing else; for the TWS save, a new file, which must be
+            //     written and its folder remembered for the next tws chooser (jc-10) -- both prove the
+            //     chooser's answer reaches the code. Each item starts afresh on level 1 with two moves
+            //     made and the TWS folder in a folder of its own, and the new file goes to another, so
+            //     a Cancel that moved the folder, or a save that did not remember it, shows (planted:
+            //     both survived while the folder was this one). "Changes nothing" is the same Level
+            //     object, moves, savestates object and TWS folder, no file added here, and no window
+            //     opened (jc-32 review).
+            File twsStart = new File("tws-start").getAbsoluteFile(), twsNew = new File("tws-new").getAbsoluteFile();
+            fact("the two TWS folders exist", (twsStart.isDirectory() || twsStart.mkdirs()) && (twsNew.isDirectory() || twsNew.mkdirs()));
+            File written = new File(twsNew, "written.tws");
+            List<Chooser> choosers = List.of(
+                new Chooser("Solution", "Open", new File("no-route.json").getAbsoluteFile(), false),
+                new Chooser("Solution", "Search for seeds", new File("no-route.json").getAbsoluteFile(), false),
+                new Chooser("Solution", "Load states from disk", new File("no-states.ser").getAbsoluteFile(), false),
+                new Chooser("TWS", "Write solution to new tws", written, true),
+                new Chooser("Solution", "Save as", null, true),
+                new Chooser("Solution", "Save all states to disk", null, true),
+                new Chooser("TWS", "Open tws", null, false),
+                new Chooser("Level", "Open levelset", null, false));
+            for (Chooser chooserItem : choosers) {
+                String where = chooserItem.menu() + " > " + chooserItem.item();
+                File chosen = chooserItem.answer();
+                boolean saves = chooserItem.saves();
+                JMenuItem it = item(w, chooserItem.menu(), chooserItem.item());
+                fact(where + " exists", it != null);
+                if (it == null) continue;
+                startAfresh(emu, w, 1, where, () -> emu.getPaths().setTWSPath(twsStart.getPath()));
+                String twsAtStart = emu.getPaths().getTWSPath();
+                fact(where + ": the TWS folder starts in tws-start",
+                     new File(twsAtStart).getCanonicalFile().equals(twsStart.getCanonicalFile()), "TWS folder \"" + twsAtStart + "\"");
+                List<Press> presses = chosen == null ? List.of(Press.CLOSE_BOX, Press.CANCEL)
+                                                     : List.of(Press.CLOSE_BOX, Press.CANCEL, Press.OK);
+                for (Press press : presses) {
+                    String how = press == Press.CLOSE_BOX ? "its close box" : press == Press.CANCEL ? "Cancel"
+                               : saves ? "a new file chosen" : "a file that is not there chosen";
+                    String name = where + ", then " + how;
+                    List<String> answered = java.util.Collections.synchronizedList(new ArrayList<>());
+                    State then = stateOf(emu);
+                    String twsBefore = emu.getPaths().getTWSPath();
+                    java.util.SortedSet<String> filesBefore = filesHere();
+                    Thread answerer = answerChooser(answered, press, chosen);
+                    String result = outcome(it::doClick);
+                    stop(answerer);
+                    int windowsOpened = closeToolWindows(w);
+                    fact(name + ": works", result.equals("works"), result);
+                    // Otherwise the checks below pass when the chooser never appears at all.
+                    boolean message = press == Press.OK && !saves;
+                    List<String> expected = message ? List.of("chooser", "message: There is no file:\n" + chosen)
+                                                    : List.of("chooser");
+                    fact(name + ": the chooser appeared, then " + (message ? "jc-12's message, and nothing else" : "nothing else"),
+                         answered.equals(expected), answered.toString());
+                    State now = stateOf(emu);
+                    String twsAfter = emu.getPaths().getTWSPath();
+                    java.util.SortedSet<String> added = new java.util.TreeSet<>(filesHere());
+                    added.removeAll(filesBefore);
+                    boolean levelKept = now.level() == then.level() && now.moves().equals(then.moves())
+                                        && now.savestates() == then.savestates();
+                    String found = (now.level() == then.level() ? "same level" : "another level") + "; moves \"" + then.moves()
+                                 + "\" then \"" + now.moves() + "\"; " + (now.savestates() == then.savestates() ? "same" : "other")
+                                 + " savestates; TWS folder \"" + twsBefore + "\" then \"" + twsAfter + "\"; files added " + added
+                                 + "; " + windowsOpened + " window(s) opened";
+                    if (press == Press.OK && saves) {
+                        boolean remembered = twsAfter != null
+                                && new File(twsAfter).getCanonicalFile().equals(written.getParentFile().getCanonicalFile());
+                        boolean onlyIt = added.size() == 1 && Path.of(added.first()).toAbsolutePath().normalize()
+                                                                  .equals(written.toPath().toAbsolutePath().normalize());
+                        fact(name + ": the file written, and nothing else, its folder remembered for the next tws chooser,"
+                                  + " and the level as it was",
+                             written.isFile() && written.length() > 0 && onlyIt && remembered && levelKept && windowsOpened == 0,
+                             "file " + (written.isFile() ? written.length() + " bytes" : "missing") + "; " + found);
+                        continue;
+                    }
+                    fact(name + ": everything as it was (level, moves, savestates, TWS folder, files; no window opened)",
+                         levelKept && java.util.Objects.equals(twsAfter, twsBefore) && added.isEmpty() && windowsOpened == 0,
+                         found);
+                }
             }
 
             Thread.sleep(200);
