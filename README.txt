@@ -1,5 +1,5 @@
 ==============================================================================
-  SuperCC  --  Jeremy Christman's fork                      build jc-30
+  SuperCC  --  Jeremy Christman's fork                      build jc-31
 ==============================================================================
 
   1. What this is
@@ -593,6 +593,19 @@ AlwaysOpenInMS  Whether every level set opens under the MS ruleset, no matter
 Releases from jc-2 on carry a jc-N tag in the repository. The title bar, when
 ShowBuildTag is on, shows the build tag compiled into the jar, which matches
 the tag for that release. Newest first.
+
+
+jc-31  --  Cancel works again on Go to... and Set RNG Seed
+------------------------------------------------------------
+
+  * PRESSING CANCEL (OR THE CLOSE BOX) ON LEVEL > GO TO... OR LEVEL > SET
+    RNG SEED NOW SIMPLY CLOSES THE BOX, as in jc-17 to jc-20. Since jc-21
+    it failed with an internal error, written to the error log; the
+    level itself was never changed.
+
+  * Nothing you play changes: this is in the menus only, and every one of
+    the 24,217 stored solutions replays exactly as on jc-30. This closes
+    UB-12 in BASELINE-ISSUES.md in the repository.
 
 
 jc-30  --  A level loads completely, or not at all

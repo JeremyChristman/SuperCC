@@ -248,7 +248,7 @@ test/LinkTest.java           every call between the fork's classes resolves IN T
 test/InputDiscardTest.java   which keys Level.tick reports as DISCARDED, and the WAIT the move list records
 test/SeedSearchTest.java     Seed Search through its REAL constructor, headless: stops at the top seed, threads, Pause
 test/FormClassTest.java      every form window's REAL constructor builds its components (14 of 15; Gui is the JFrame)
-test/GuiWindowTest.java      the MAIN window (Gui) built for real in a NON-headless child JVM; every menu control with no level open (PIN lines: UB-12..13, UB-16..19, UB-22..27)
+test/GuiWindowTest.java      the MAIN window (Gui) built for real in a NON-headless child JVM; every menu control with no level open (PIN lines: UB-13, UB-16..19, UB-22..27)
 ```
 
 **Testing a form-based window headless.** Its constructor builds every component
@@ -264,9 +264,12 @@ throws first. `GuiWindowTest` launches a child JVM with `-Djava.awt.headless=fal
 folder, builds the real window through `new SuperCC()`, and reads back PASS/FAIL lines; without a
 desktop it skips. On a desktop, a SuperCC window appears for a few seconds during the suite. After
 any `formclass.ps1 -Compile graphics\Gui.java`, this is the test that matters. Its helpers that
-close modal dialogs are started and stopped around each action, so neither can close a later one.
-Where a check COUNTS dialogs, use `closeEveryDialog()`, not `closeNextDialog()`: the second stops
-after one, so a second dialog hangs the child until the 90-second kill instead of failing the count.
+close or answer modal dialogs are started around each action and stopped with `stop()`, which
+waits for them, so none can close a later one. Where a check COUNTS dialogs, use
+`closeEveryDialog()`, never a closer that stops after one (jc-21 to jc-30 had one,
+`closeNextDialog`, removed in jc-31): a second dialog then hangs the child until the 90-second kill
+instead of failing the count. To answer an input box as a person would (its close box, its Cancel
+button, or OK with text typed), use `answerInputs`; file choosers, `answerChoosers`.
 
 `InputDiscardTest` is about the move list, which the corpus cannot see: a discarded key changes no
 final state, only what SuperCC records, and so what a saved `.json` or an exported `.tws` holds.
@@ -332,7 +335,7 @@ taken. JaCoCo is a test-time tool cached under `%LOCALAPPDATA%\jacoco\<version>\
 dependency**, never committed, never shipped. Output goes to `coverage-report\` (gitignored);
 `coverage.csv` is the evidence behind every percentage below.
 
-As of jc-30, with all 2,398 assertions passing (41 of them `upstreamBug` pins, §6) and 5 skipped —
+As of jc-31, with all 2,427 assertions passing (39 of them `upstreamBug` pins, §6) and 5 skipped —
 counts for a machine with 4 or more CPUs. `SeedSearchTest` §3 makes one pin per search thread, so a
 3-CPU run has one pass and pin fewer and a 2-CPU run two; at 1 CPU §3 and §2's pin are skipped
 (measured: 7 passes and 6 pins fewer, 2 skips more) — **measured on JDK 16.0.2** (16.0.2+7-67 on the desktop; Temurin 16.0.2+7, what CI pins, gives the
@@ -347,9 +350,9 @@ same figures):
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 54.2% | 73.0% | 186/343 |
 | &nbsp;&nbsp;`io\**` (file formats) | 74.2% | 81.4% | 314/423 |
 | `emulator\**` | 33.8% | 36.1% | 159/470 |
-| `tools\**` + `graphics\**` — *not a target* | 2.7% | 8.9% | 52/1941 |
+| `tools\**` + `graphics\**` — *not a target* | 2.7% | 8.9% | 52/1945 |
 
-**Read this correctly.** Whole-project branch coverage is 30.5% (1847/6047), and that number is
+**Read this correctly.** Whole-project branch coverage is 30.5% (1847/6051), and that number is
 meaningless: 15 form-based classes can be rebuilt here only by copying IntelliJ's output (ADR 0010), `tools\**`
 is 35 files of upstream code this fork does not modify, `graphics\**` is Swing with no headless test
 story, and the rest is vendored `org.json` / `com.intellij`. What this fork can break is the engine
@@ -744,9 +747,9 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
   also ran automatic ticks; no real level returns both bits, and `InputDiscardTest` §5 pins it
   through a wrapped level), Seed Search (`397c7bb`), the no-level-loaded guards (`c57f217`; the
   menu guard, UB-11, is back since jc-28 -- see the next bullet -- opening a set at its first
-  level that loads, UB-14, since jc-29, and the all-or-nothing level load, UB-15, since jc-30;
-  Cancel on Go to... and Set RNG Seed and a canceled file chooser, UB-12 and UB-13, are still
-  upstream's),
+  level that loads, UB-14, since jc-29, the all-or-nothing level load, UB-15, since jc-30, and
+  Cancel on Go to... and Set RNG Seed, UB-12, since jc-31; a canceled file chooser, UB-13, is
+  still upstream's),
   custom tilesets (`5d3f0a3`: a saved tileset that cannot be drawn stops
   SuperCC from starting, UB-20 -- do not "fix" it in passing) and auto-diagonals (`d08e6ef`:
   with the switch on, EVERY game key waits 50 ms and a `java.util.Timer` makes ONE move, on its own
@@ -795,8 +798,9 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
   past it). Keep it that way: never assign `level` before its savestates exist. jc-28 alone left one
   more gap, UB-30 (a set opened at launch whose level 1 failed was open with no level, and Go to...
   was guarded); jc-29's UB-14 fix closed it, since an open now either loads a level or puts the
-  previous set back -- never exempt Go to... for anything like it, as Cancel would then fail on
-  every launch (UB-12). The wrapper re-adds a
+  previous set back -- never exempt Go to... for anything like it: with no set open its box would
+  appear and a number typed into it would do nothing (`tryLoadLevel` returns at once with no file),
+  and on jc-21 to jc-30 Cancel there failed (UB-12). The wrapper re-adds a
   button's listeners oldest first, so they keep Swing's order (newest first); `GuiWindowTest` §3b
   checks it.
 - **`formclass/FormTransplant.java` imports `jdk.internal.org.objectweb.asm`.** That is the JDK's own

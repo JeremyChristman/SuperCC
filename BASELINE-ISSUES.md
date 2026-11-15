@@ -34,7 +34,7 @@ How to keep it:
 | UB-9 | Seed Search never shows a success at a negative seed as the example | anyone searching from a negative start | `397c7bb`, ships in jc-20 | open |
 | UB-10 | Seed Search's Pause flag is not `volatile` | nobody observed (theoretical) | `397c7bb`, ships in jc-20 | open |
 | UB-11 | With no level set open, most menu controls fail with an internal error | everyone, from launch until a set is opened | `c57f217`, ships in jc-21 | **FIXED in `d57d419` (jc-28)** |
-| UB-12 | Canceling Go to... or Set RNG Seed fails with an internal error | anyone who cancels either | `c57f217`, ships in jc-21 | open |
+| UB-12 | Canceling Go to... or Set RNG Seed fails with an internal error | anyone who cancels either | `c57f217`, ships in jc-21 | **FIXED in `cd5a644` (jc-31)** |
 | UB-13 | Canceling the file chooser of Solution › Open, Search for seeds or Load states fails | anyone who cancels one | `c57f217`, ships in jc-21 | open |
 | UB-14 | A set whose level 1 will not load opens badly: an error, then no level, or the previous set's level under the new file | none of the 331 sets in the collection | `c57f217`, ships in jc-21 | **FIXED in `48a3eca` (jc-29)** |
 | UB-15 | A level whose savestates cannot be built is left half-loaded | nobody today (no level reaches it) | `c57f217`, ships in jc-21 | **FIXED in `e08c6b5` (jc-30)** |
@@ -268,9 +268,10 @@ Paste solution depends on the clipboard), which also restores `ChooseTileSize`'s
 and both baselines. If step 5 (custom tilesets, below) is still reverted, re-apply it first: both
 steps rewrote View › Tileset's listener in `MenuBar`.
 FORK.md step 4 has the engineering record. **The menu guard (UB-11) is back since jc-28
-(`d57d419`), opening a set at its first level that loads (UB-14) since jc-29 (`48a3eca`), and the
-all-or-nothing level load (UB-15) since jc-30 (`e08c6b5`)**, so a whole `git revert` no longer
-applies: UB-12 and UB-13 go back fix by fix, by hand from `c57f217`'s diff.
+(`d57d419`), opening a set at its first level that loads (UB-14) since jc-29 (`48a3eca`), the
+all-or-nothing level load (UB-15) since jc-30 (`e08c6b5`), and Cancel on Go to... and Set RNG Seed
+(UB-12) since jc-31 (`cd5a644`)**, so a whole `git revert` no longer applies: UB-13, the last,
+goes back by hand from `c57f217`'s diff.
 
 "Fails with an internal error" below means a `NullPointerException` on the event thread: nothing
 visible happens except that it is written to the error log (`succ_error-<MACHINE>.log`).
@@ -338,13 +339,35 @@ has no reachable level).
 
 ### UB-12 — canceling Go to... or Set RNG Seed fails
 
-- **What a user sees:** pressing Cancel (or the close box) in either box fails with an internal
-  error, with a level open. (With none open, jc-21 to jc-27 failed on Go to... too; since jc-28's
-  menu guard, UB-11, neither box opens without a level.)
+**Status: FIXED in `cd5a644` (jc-31).** jc-17's two lines are back, re-applied alone: each box's
+reply is tested for `null` (Cancel, or the close box) as well as for empty, so canceling either
+does nothing, as in jc-17 to jc-20; with comments stripped, both lines are jc-20's exactly.
+`GuiWindowTest` §4 now starts each box afresh on a level of its own (Go to... on level 1,
+Set RNG Seed on level 2) with two moves made, then answers it five ways in a real window, as
+a person would: its close box (the window-closing event, so `JOptionPane`'s own handler runs),
+its Cancel button, and OK with nothing typed, with a letter, and with a number. Canceling must
+leave the level exactly as it was (the same `Level` object and the same moves: nothing reloaded,
+no move lost) with nothing else shown; OK with nothing typed must do nothing too (upstream's
+own behavior, kept); a letter must show its one message ("Please Enter a Whole Number"); and
+a number must do the box's job (Go to... loads level 2, not the level 1 that is open; Set RNG
+Seed reloads the same level with seed 7, its moves kept), which also proves the answers reach
+the box. On jc-30's jar `GuiWindowTest` fails exactly the 4 cancel checks (both ways, both boxes)
+and the child's exit check -- 5; 14 defects planted in `MenuBar` (upstream's test in either box,
+an empty reply no longer quiet, every reply returning, Cancel reloading the level, reseeding
+it or rewinding a move, an empty reply loading level 1, a letter dropped without its message,
+the fix comparing with `== ""`, Go to... ignoring the number typed, Set RNG Seed reloading
+another level or dropping the moves, a letter sent to a load that fails), all caught; corpus
+against jc-30: 24,217 of 24,217 identical.
+
+- **What a user saw (jc-21 to jc-30):** pressing Cancel (or the close box) in either box failed with
+  an internal error, with a level open; the level itself stayed as it was (measured on jc-30's jar).
+  (With none open, jc-21 to jc-27 failed on Go to... too; since jc-28's menu guard, UB-11, neither
+  box opens without a level.)
 - **Cause:** the reply to a canceled box is `null`, and upstream tests it for empty only.
 - **Fix:** test for `null` too (jc-17).
-- **Pinned by:** `GuiWindowTest` §4 (both, with a level open). (§2 pinned Go to... with none
-  open until jc-28.)
+- **Pinned by (jc-21 to jc-30):** `GuiWindowTest` §4 (both, with a level open, canceled by the close
+  box). (§2 pinned Go to... with none open until jc-28.) **Checked by (jc-31 on):** §4's five answers
+  to each box, above.
 
 ### UB-13 — canceling a file chooser fails
 
@@ -486,7 +509,8 @@ before UB-14's fix, and jc-17 had shipped the two together.
   open with none loaded.
 - **Fix:** UB-14's, which opens such a set at its first level that loads, so that state no longer
   arises. Not exempting Go to... instead: with no set open at all, its box would then appear on every
-  launch and Cancel would fail (UB-12).
+  launch and Cancel would fail (UB-12; fixed since jc-31, after which a number typed there with no
+  set open would still do nothing).
 - **Pinned by:** nothing — it is not upstream's answer (on jc-27 Go to... works), so an
   `upstreamBug` pin does not fit, and UB-14's fix makes the state unreachable. Raised by the jc-28
   review (sixth round), reproduced, and accepted until UB-14's fix.
@@ -871,3 +895,22 @@ are not lost.
   failed level half-loaded -- wrong both ways, and no real level gets there. Upstream's code; the
   fix, for a later step, is for `loadLevel` to say whether it loaded (or for each caller to use the
   identity test). Raised by the jc-30 review (third round); read in the code, not measured.
+- **Go to... and Set RNG Seed refuse a number with a space before or after it.** Each box hands
+  its reply to `Integer.parseInt` untrimmed, so `" 5"` or `"5 "` (a common result of pasting) shows
+  "Please Enter a Whole Number", and a reply of only spaces shows it too where an empty reply does
+  nothing. `Integer.parseInt` throws for all three (checked on JDK 16.0.2). Upstream's code, and
+  jc-17's: UB-12's fix tests only for `null` and empty, as jc-17 did. Raised by the jc-31 review;
+  verified, not run in a window.
+- **Go to... with the open level's own number replays the route under seed 0.** Go to... always
+  asks for seed 0, an even step and an Up slide with the moves kept (`loadLevel(n, 0, Step.EVEN,
+  true, ...)`), and `tryLoadLevel` takes the keep-moves path whenever the number is the open
+  level's, so the moves are replayed under those defaults, not the seed, step and slide they were
+  made under (set with Set RNG Seed, F1 or F4), and can end somewhere else, with no message. Typed
+  for any other level, Go to... loads it afresh. Upstream's code; UB-12's fix does not reach it.
+  Raised by the jc-31 review (third round); read in the code, not run.
+- **Go to... with a number past the set's last level (or below 0) reports an internal error.**
+  The number goes to `DatParser.parseLevel` unchecked (only 0 and one past the last level wrap),
+  so it fails with an `ArrayIndexOutOfBoundsException`: the message reads like "Could not load level:
+  Index 99 out of bounds for length 3", and its stack trace goes to the error log. The level open
+  stays as it was. Upstream's code. Raised by the jc-31 review (third round); the error-log entry
+  measured by a planted load of level 9999 in the jc-31 mutation runs, the message read in the code.

@@ -12,6 +12,36 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## jc-31 — 2026-11-15 (the fix layer: Cancel on Go to... and Set RNG Seed)
+
+The fourth of the no-level-loaded fixes goes back on the upstream baseline. It closes UB-12 in
+[`BASELINE-ISSUES.md`](BASELINE-ISSUES.md). The menus only: no stored solution changes.
+
+### Fixed
+- **Canceling Level › Go to... or Level › Set RNG Seed does nothing again (`cd5a644`, UB-12)**,
+  instead of failing with an internal error (a `NullPointerException` on the event thread, written
+  to the error log). Each box's reply is tested for `null` (Cancel, or the close box) as well as
+  for empty. jc-17's two lines, re-applied alone, and jc-20's exactly, comments aside. Corpus
+  against jc-30: 24,217 of 24,217 identical.
+
+### Changed (tests only)
+- `GuiWindowTest` §4 starts each box afresh on a level of its own (Go to... on level 1, Set RNG
+  Seed on level 2) with two moves made, then answers it five ways in a real window (its close
+  box, its Cancel button, OK with nothing typed, with a letter, with a number) and checks that
+  canceling leaves the level exactly as it was, its moves included, with nothing else shown,
+  that OK with nothing typed does nothing (as upstream always did), that a letter shows its one
+  message ("Please Enter a Whole Number"), and that a number does the box's job (the probe set
+  gains a second level, so Go to... must load the level typed, not the one open). Each of those
+  check names says which box and answer it is for and stays the same between a pass and a fail;
+  what was seen is printed before a failure. Its 2 UB-12 pins are checks again. The child's
+  three dialog answerers now share one polling loop (`onEachNewDialog`), and `closeNextDialog`,
+  which stopped after one dialog, is gone (the file-chooser check uses `closeEveryDialog`);
+  one check at the end counts any helper still running after it was stopped. Section 3's title
+  check now tells level 1 from the new level 2. On jc-30's jar exactly the 4 cancel checks
+  and the child's exit check fail; 14 defects planted in `MenuBar`, all caught. Suite 2,427
+  assertions, 39 pins. Coverage: every figure unchanged (target 57.1%); the non-target pool
+  gains the fix's 4 branches (52/1945), which run only in `GuiWindowTest`'s child JVM.
+
 ## jc-30 — 2026-11-14 (the fix layer: a level loads with its savestates, or not at all)
 
 The third of the no-level-loaded fixes goes back on the upstream baseline. It closes UB-15 in
