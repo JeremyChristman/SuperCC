@@ -345,7 +345,7 @@ taken. JaCoCo is a test-time tool cached under `%LOCALAPPDATA%\jacoco\<version>\
 dependency**, never committed, never shipped. Output goes to `coverage-report\` (gitignored);
 `coverage.csv` is the evidence behind every percentage below.
 
-As of jc-39, with all 2,664 assertions passing (22 of them `upstreamBug` pins, §6) and 4 skipped —
+As of jc-40, with all 2,664 assertions passing (21 of them `upstreamBug` pins, §6) and 4 skipped —
 counts for a machine with 4 or more CPUs. `SeedSearchTest` §3 makes one pin per search thread, so a
 3-CPU run has one pass and pin fewer and a 2-CPU run two; at 1 CPU §3 and §2's pin are skipped
 (measured: 7 passes and 6 pins fewer, 2 skips more) — **measured on JDK 16.0.2** (16.0.2+7-67 on the desktop; Temurin 16.0.2+7, what CI pins, gives the
@@ -359,10 +359,10 @@ same figures):
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\Lynx\**` | 63.5% | 71.3% | 466/734 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 54.2% | 73.0% | 186/343 |
 | &nbsp;&nbsp;`io\**` (file formats) | 75.5% | 82.6% | 345/457 |
-| `emulator\**` | 34.0% | 36.2% | 161/474 |
+| `emulator\**` | 34.2% | 36.2% | 163/476 |
 | `tools\**` + `graphics\**` — *not a target* | 5.1% | 10.2% | 103/2039 |
 
-**Read this correctly.** Whole-project branch coverage is 31.2% (1931/6183), and that number is
+**Read this correctly.** Whole-project branch coverage is 31.3% (1933/6185), and that number is
 meaningless: 15 form-based classes can be rebuilt here only by copying IntelliJ's output (ADR 0010), `tools\**`
 is 35 files of upstream code this fork does not modify, `graphics\**` is Swing with no headless test
 story, and the rest is vendored `org.json` / `com.intellij`. What this fork can break is the engine
@@ -754,8 +754,8 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
   time, FORK.md *The fix layer*; follow that procedure: a baseline commit that bundled several
   fixes comes back fix by fix, by hand, never as one whole `git revert`**),
   `SuperCC.tick`'s recorder (`923d07c`: upstream writes a wait on ANY discarded tick, even one that
-  also ran automatic ticks; no real level returns both bits, and `InputDiscardTest` §5 pins it
-  through a wrapped level), Seed Search (`397c7bb`), the no-level-loaded guards (`c57f217`; the
+  also ran automatic ticks; no real level returns both bits; back since jc-40, UB-6, so such a tick
+  keeps its key, and `InputDiscardTest` §5 checks it through a wrapped level), Seed Search (`397c7bb`), the no-level-loaded guards (`c57f217`; the
   menu guard, UB-11, is back since jc-28 -- see the next bullet -- opening a set at its first
   level that loads, UB-14, since jc-29, the all-or-nothing level load, UB-15, since jc-30, and
   Cancel on Go to... and Set RNG Seed, UB-12, since jc-31, and a canceled file chooser, UB-13,
@@ -769,11 +769,15 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
   (`d08e6ef`: with the switch on, EVERY game key waits 50 ms and a `java.util.Timer` makes ONE move, on its own
   thread, from the keys still held, so taps are lost and other input jumps ahead; UB-22 to UB-28). **Every problem a revert brings back goes
   into `BASELINE-ISSUES.md` in the same push** (Jeremy's standing request, 2026-11-08) — and a fix
-  closes its entry there rather than deleting it. ⚠ That makes "no tick returns both bits" load-bearing with nothing
-  guarding it: `LynxLevel.tick` CAN return `MASK_TICK_MULTI | discard`, and only the reasoning in
-  FORK.md step 2 keeps it from happening. **Any change to `LynxLevel.tick`, `selectChipMove` or
-  `moveChip` must be checked for both bits** — if a real tick ever returns both, upstream's
-  recorder saves that route ticks short. For the traps: jc-19 to jc-23 pressed a trap that starts
+  closes its entry there rather than deleting it. From jc-20 to jc-39 "no tick returns both bits"
+  was load-bearing with nothing guarding it: `LynxLevel.tick` CAN return `MASK_TICK_MULTI | discard`,
+  and only the reasoning in FORK.md step 2 kept it from happening. Since jc-40 (UB-6) the recorder
+  keeps the key on such a tick, so a route cannot save short that way; a change to
+  `LynxLevel.tick`, `selectChipMove` or `moveChip` that makes a real tick return both bits is still
+  a finding (the discard bit would be the mistaken one). `InputDiscardTest` §1's "no tick returned
+  both bits" checks see it only on their two fixtures, a force floor and ice; a change on another
+  path (a trap, a teleport, the exit) needs a check of its own, and `SuperCC.tick` is the only
+  reader of either bit today. For the traps: jc-19 to jc-23 pressed a trap that starts
   occupied before its trap index existed (5 levels would not open, 6 solved routes lost the exit
   and 2 unsolved routes ended elsewhere);
   **jc-24's Fix 1 builds the maps first, and the corpus against jc-23 moved exactly those 13 routes

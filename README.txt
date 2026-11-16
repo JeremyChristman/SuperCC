@@ -1,5 +1,5 @@
 ==============================================================================
-  SuperCC  --  Jeremy Christman's fork                      build jc-39
+  SuperCC  --  Jeremy Christman's fork                      build jc-40
 ==============================================================================
 
   1. What this is
@@ -613,6 +613,21 @@ AlwaysOpenInMS  Whether every level set opens under the MS ruleset, no matter
 Releases from jc-2 on carry a jc-N tag in the repository. The title bar, when
 ShowBuildTag is on, shows the build tag compiled into the jar, which matches
 the tag for that release. Newest first.
+
+
+jc-40  --  The move recorder keeps every key it used
+----------------------------------------------------
+
+  * A FIX FOR A PROBLEM NO LEVEL HAS SHOWN. If the Lynx engine ever
+    reported a key as both ignored and the start of a whole move,
+    SuperCC would save a one-tick wait where Chip made that move, and
+    the saved route would replay short. From jc-20 to jc-39 only the
+    fact that no level does this kept it from happening; now the key is
+    kept, as in jc-15 to jc-19.
+
+  * Nothing you play changes: every one of the 24,217 stored solutions
+    replays exactly as on jc-39, and records exactly the same moves.
+    This closes UB-6 in BASELINE-ISSUES.md in the repository.
 
 
 jc-39  --  Custom's file choosers open somewhere useful

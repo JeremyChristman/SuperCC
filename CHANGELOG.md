@@ -12,6 +12,24 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## jc-40 — 2026-11-16 (the fix layer: the move recorder keeps the key on a both-bits tick; the recorder step back)
+
+The recorder fix goes back on the upstream baseline. It closes UB-6 in
+[`BASELINE-ISSUES.md`](BASELINE-ISSUES.md), and with it the recorder step (`923d07c`). Latent: no
+stored solution changes, and none records differently.
+
+### Fixed
+- **A tick that reports both "discard" and "automatic ticks" keeps its key in the move list
+  (`1ec3b47`, UB-6).** jc-15's condition in `SuperCC.tick`, re-applied alone. Since jc-20 such a
+  tick was recorded as a wait -- one tick where the engine ran a whole move -- so the route would
+  save short. No real tick reports both bits, so nothing a user does changes. Corpus against jc-39:
+  24,217 of 24,217 identical; what SuperCC records on loading every stored solution, against jc-39: all 24,216 saves it replays record identically (the 24,217th, `CC1\133.json`, is a name the harness cannot place, on every jar).
+
+### Changed (tests only)
+- `InputDiscardTest` §5's pin is an exact check again: through a level wrapped to report both bits,
+  every key is kept (`rUUUUUUUu`; jc-39's jar records `r--UUUUUu` and fails exactly that check). 5
+  defects planted in `SuperCC.tick`, all caught. Suite 2,664 assertions, 21 pins, 4 skips. Coverage: target unchanged (57.5%, 1555/2704); `emulator\**` 34.2% (163/476: the new condition's two branches, both covered); re-baselined.
+
 ## jc-39 — 2026-11-16 (the fix layer: custom's file choosers open somewhere useful; the custom-tileset step all back)
 
 The last of the custom-tileset fixes goes back on the upstream baseline. It closes UB-31 in

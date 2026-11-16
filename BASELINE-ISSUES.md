@@ -28,7 +28,7 @@ How to keep it:
 | UB-3 | An empty trap with 2+ buttons, one held: open or shut depending on hash order | none seen in a real route | `79b0032`, jc-19 | **FIXED in `be0d0fb` (jc-25)** |
 | UB-4 | Lynx `isTrapOpen` throws on a position no button is wired to | code only; nothing in the game asks | `79b0032`, jc-19 | **FIXED in `dc3bb11` (jc-27)** |
 | UB-5 | Trap bits in a `.ser` savestate are numbered by hash order | anyone loading a `.ser` saved by another build | `79b0032`, jc-19 | **FIXED in `d974875` (jc-26)** |
-| UB-6 | A tick that reports both "discard" and "automatic ticks" is recorded as a wait, so the route saves short | nobody today: no real tick does that | `923d07c`, ships in jc-20 | open (latent) |
+| UB-6 | A tick that reports both "discard" and "automatic ticks" is recorded as a wait, so the route saves short | nobody today: no real tick does that | `923d07c`, ships in jc-20 | **FIXED in `1ec3b47` (jc-40)** |
 | UB-7 | Seed Search with a negative start: one thread does all the work | anyone typing a negative start | `397c7bb`, ships in jc-20 | open |
 | UB-8 | Seed Search's threads race at the start: "running" can drop mid-search, a Pause can be undone | anyone, mostly on short searches | `397c7bb`, ships in jc-20 | open |
 | UB-9 | Seed Search never shows a success at a negative seed as the example | anyone searching from a negative start | `397c7bb`, ships in jc-20 | open |
@@ -178,20 +178,35 @@ review so it has a row of its own rather than living inside UB-5.
 
 ## The move recorder (`923d07c`, ships in jc-20)
 
+Its one fix is back since jc-40 (`1ec3b47`, UB-6): the whole step is back.
+
 ### UB-6 — a tick reporting both bits is recorded as a wait
 
-- **What a user sees:** nothing today. If `Level.tick` ever reported a key as ignored *and* ran the
-  automatic ticks of a move, `SuperCC.tick` would record a one-tick wait where the engine ran a whole
-  move, and the saved route would replay short (FORK.md step 2 measured 3 ticks).
+**Status: FIXED in `1ec3b47` (jc-40). 🏁 With it, the recorder step (`923d07c`) is back.**
+jc-15's condition, re-applied alone in `SuperCC.tick`: a discarded tick is recorded as a wait only
+when it did not also report automatic ticks; with both bits, the key is kept (a capital, as the
+multi-tick loop leaves it). Apart from the comment's wording, `tick()` is jc-19's exactly.
+**Measured (2026-11-16, `InputDiscardTest` §5 on jc-39's jar):** through the wrapped level, jc-39
+records `r--UUUUUu` -- two one-tick waits where the engine ran a whole move -- and the fix
+`rUUUUUUUu`. §5 is an exact check again, and on jc-39's jar it is the only failure. 5 defects
+planted in `SuperCC.tick`, all caught (upstream's line; the caller's multi-tick flag in place of the
+engine's bit; a wait only when both bits are set; a wait on every tick without automatic ticks; the
+multi-tick loop leaving keys lowercase). Corpus against jc-39: 24,217 of 24,217 identical. What SuperCC records on loading every
+stored solution, against jc-39: all 24,216 saves it replays record identically (the 24,217th, `CC1\133.json`, is a name the harness cannot place, on every jar).
+
+- **What a user saw (jc-20 to jc-39):** nothing. If `Level.tick` had ever reported a key as ignored
+  *and* run the automatic ticks of a move, `SuperCC.tick` would have recorded a one-tick wait where
+  the engine ran a whole move, and the saved route would replay short (FORK.md step 2 measured 3
+  ticks).
 - **Measured:** no real tick does it: all 24,212 routes record exactly as on jc-19 (a census of the
   recorded move lists, whose control found step 2's 40 re-recorded Lynx routes), and step 2's fuzzing
-  saw it in none of 104,756 ticks. But `LynxLevel.tick` *can* return both bits, so this is load-bearing
-  reasoning with nothing guarding it — **check any change to `LynxLevel.tick`, `selectChipMove` or
-  `moveChip` for it** (CLAUDE.md §6).
-- **Fix:** keep the key when the automatic-tick bit is also set (jc-15's recorder fix):
-  `git revert 923d07c`.
-- **Pinned by:** `InputDiscardTest` §5, through a level wrapped to report both bits (upstream records
-  `r--UUUUUu`; the fix records `rUUUUUUUu`).
+  saw it in none of 104,756 ticks. But `LynxLevel.tick` *can* return both bits, so from jc-20 to
+  jc-39 this was load-bearing reasoning with nothing guarding it; since jc-40 the recorder keeps
+  the key either way.
+- **Fix:** keep the key when the automatic-tick bit is also set (jc-15's recorder fix), re-applied
+  by hand in jc-40 (`1ec3b47`).
+- **Checked by:** `InputDiscardTest` §5, through a level wrapped to report both bits (pinned at
+  upstream's `r--UUUUUu` from jc-20 to jc-39; an exact check of `rUUUUUUUu` since jc-40).
 
 ## Seed Search (`397c7bb`, ships in jc-20)
 
