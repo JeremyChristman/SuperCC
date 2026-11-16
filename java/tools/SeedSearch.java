@@ -74,7 +74,13 @@ public class SeedSearch {
         startStopButton.addActionListener((e) -> {
             int numThreads = threadSlider.getValue();
             int start = Integer.parseInt(startField.getText());
-            long numSeeds = Integer.MAX_VALUE - start;
+            /* MOD (Jeremy, fix layer, UB-7): (long) added. Upstream's overflow fix (40495dd) left this
+             * subtraction in int arithmetic, so a NEGATIVE start wrapped it: start -5 gave a negative
+             * pool, every thread but the last got an empty range, and the last one searched billions
+             * of seeds alone. (The RNG masks seeds to 31 bits, so a negative start only repeats
+             * positive seeds; it is still a number the field accepts.) SeedSearchTest §3 checks each
+             * thread's share. jc-16's, re-applied alone. */
+            long numSeeds = (long) Integer.MAX_VALUE - start;
             long seedPoolSize = (numSeeds + 1) / numThreads; //avoids overflow before reducing back in range
 
             if (running) {

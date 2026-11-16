@@ -35,7 +35,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  * RNG masks back onto the positive ones) for as long as the window stayed open. Measured on jc-15:
  * asked for the last 3,000 seeds, it had made 12.3 million attempts eight seconds later. The fix is
  * longs throughout. jc-16 to jc-19 added one more (long), for a negative start; the upstream baseline
- * reverted it (section 3, BASELINE-ISSUES.md UB-7).
+ * reverted it (jc-20 to jc-41), and the fix layer put it back in jc-42 (section 3, BASELINE-ISSUES.md
+ * UB-7).
  *
  * SeedSearch is FORM-BASED, so its .class is committed bytecode rebuilt by formclass.ps1, not by the
  * splice build (docs\adr\0010). Section 1 is the guard on that: a class rebuilt without IntelliJ's
@@ -183,6 +184,15 @@ public class SeedSearchTest {
         return stopped;
     }
 
+    /** True once every thread's current seed has moved past the start of its own range (§3). */
+    private static boolean everyThreadMoved(SeedSearch ss, long from, long pool, int threads) throws Exception {
+        long[] at = (long[]) field(ss, "threadCurrentSeed");
+        if (at == null || at.length < threads) return false;
+        for (int i = 0; i < threads; i++)
+            if (at[i] <= from + pool * i) return false;
+        return true;
+    }
+
     private static long count(SeedSearch ss, String name) throws Exception {
         return ((Number) field(ss, name)).longValue();
     }
@@ -283,12 +293,11 @@ public class SeedSearchTest {
          * int, so -5 wraps to a negative pool, every thread but the last gets an empty range, and the
          * last searches billions alone (3.76 billion at four threads).
          *
-         * ⚠ UPSTREAM BASELINE (from jc-20): that fix was REVERTED (FORK.md, "The upstream baseline";
-         * BASELINE-ISSUES.md UB-7), so each thread's outcome is pinned at upstream's: every thread
-         * but the last searched nothing, and the last searched from upstream's (very negative) start
-         * of its range. Upstream's split is computed below with upstream's own int arithmetic. To
-         * re-apply all four at once (the fix layer, FORK.md, takes them back one at a time instead):
-         * `git revert` the commit "Upstream baseline: revert the Seed Search fixes". */
+         * MOD (Jeremy, fix layer, UB-7): the fix was reverted for the upstream baseline (jc-20 to
+         * jc-41, when each thread's outcome was pinned at upstream's: every thread but the last
+         * searched nothing, the last from upstream's very negative start of its range) and is back
+         * from jc-42, so these are exact checks again. A failure names where the thread stopped and
+         * what its own range is, so it needs no guess at which split the jar made. */
         SeedSearch neg = open(emulator, win);
         if (neg != null) {
             long from = -5;
@@ -298,34 +307,30 @@ public class SeedSearchTest {
                 Harness.skip("one CPU: the slider allows one thread, so there is no split to see");
                 Harness.check("one thread: stopped", stopAll(20_000));
             } else {
-                Thread.sleep(400);
-                /* Not `running` and not the Pause button: on upstream's code both are unreliable (UB-8).
-                 * An empty-range thread's late cleanup can write running=false after the searching thread
-                 * set it true, and the button would then START a second batch instead of pausing. This
-                 * section is about the split, so it watches the threads themselves and stops them through
-                 * killFlag directly (section 2 covers `running`). */
-                Harness.check("threads are still searching after 400 ms", numAlive() > 0);
+                /* Not `running` and not the Pause button: both are unreliable while UB-8 is open (a
+                 * thread that starts late sets `running` and clears killFlag as it begins), and the
+                 * button could then START a second batch instead of pausing. This section is about the
+                 * split, so it watches the threads themselves and stops them through killFlag directly
+                 * (section 2 covers `running`). It waits until every thread has moved past the start
+                 * of its own range, or 20 seconds, not a fixed time: each thread's SuperCC is built
+                 * before it starts, so on a slow machine the last one can begin late (jc-42 review). */
+                long deadline = System.currentTimeMillis() + 20_000;
+                while (System.currentTimeMillis() < deadline && !everyThreadMoved(neg, from, pool, threads))
+                    Thread.sleep(50);
+                Harness.check("threads are still searching once each has begun", numAlive() > 0);
                 Harness.check("stopped: every thread ends", stopAll(20_000));
                 long[] at = (long[]) field(neg, "threadCurrentSeed");
-                // Upstream's split: Integer.MAX_VALUE - start in INT arithmetic, as SeedSearch writes it.
-                long upPool = ((long) (Integer.MAX_VALUE - (int) from) + 1) / threads;
-                long sum = 0, upSum = 0;
+                long sum = 0;
                 for (int i = 0; i < threads; i++) {
-                    long own = from + pool * i, upOwn = from + upPool * i;
+                    long own = from + pool * i;
                     String outcome = at[i] > own && at[i] < own + pool ? "searched part of its own range"
-                                   : at[i] == upOwn ? "searched nothing"
-                                   : at[i] > upOwn ? "searched from " + upOwn
-                                   : "stopped at " + at[i];
-                    String upstream = i < threads - 1 ? "searched nothing" : "searched from " + upOwn;
-                    Harness.upstreamBug("thread " + i + " started at " + own + " and searched part of its own range",
-                                        outcome, upstream, "searched part of its own range");
+                                   : "stopped at " + at[i] + "; its own range is " + own + " to " + (own + pool - 1);
+                    Harness.eq("thread " + i + " started at " + own + " and searched part of its own range",
+                               outcome, "searched part of its own range");
                     sum += at[i] - own;
-                    upSum += at[i] - upOwn;
                 }
                 long attempts = count(neg, "globalAttempts");
-                Harness.upstreamBug("the attempts are exactly what the threads covered",
-                                    attempts == sum ? "the correct split" : attempts == upSum ? "upstream's split" : "neither: " + attempts,
-                                    "upstream's split", "the correct split");
+                Harness.eq("the attempts are exactly what the threads covered", attempts, sum);
             }
         }
 
