@@ -12,6 +12,40 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## jc-34 — 2026-11-15 (the fix layer: a saved tileset that cannot be drawn says why, and startup finishes)
+
+The second of the custom-tileset fixes goes back on the upstream baseline. It closes UB-20 in
+[`BASELINE-ISSUES.md`](BASELINE-ISSUES.md). No stored solution changes.
+
+### Fixed
+- **A saved MS tileset that cannot be drawn falls back to the default with a message saying why,
+  and startup finishes (`9e6166a`, UB-20).** jc-18's `TileSheet.load` and
+  `SuperCC.throwErrorOnce`, re-applied alone: a tileset number this version does not have, or
+  custom whose pictures are missing or are not pictures, draws Tile World (CCEdit) instead, says
+  why once (naming the file), and leaves the choice saved. Since jc-22 startup threw there:
+  SuperCC came up in the default tileset with only the error log's notice, and the saved tile
+  size and TWS notation were not applied. One path is left for UB-21: a set named on the command
+  line is opened, and its tileset swapped, before startup reaches the tileset, so a number out of
+  range still stops startup partway there (pinned in `StartupTilesetTest` §2). The message is said
+  last, over the finished window, and a number out of range is told that the choice is kept too
+  (both beyond jc-18, from review). Corpus against jc-33: 24,217 of 24,217 identical.
+
+### Changed (tests only)
+- New `StartupTilesetTest` starts SuperCC as `main` does, in a child JVM per settings file, six
+  times (two controls, four tilesets that cannot be drawn), each with 32 x 32 tiles and the TWS
+  notation saved, and checks what the start applied; `EngineTest` §6g checks `TileSheet.load` at
+  its edges and `throwErrorOnce`, by reflection so the suite still compiles against jc-33's jar.
+  On jc-33's jar exactly those checks fail (20 and 12); 18 defects planted, all caught. Suite 2,591 assertions, 29 pins, 4 skips. Coverage:
+  target unchanged (57.1%, 1530/2678); `emulator\**` 34.0% (161/474) and the non-target pool 4.4% (87/1979), since `EngineTest` §6g reaches `throwErrorOnce` and `TileSheet.load`; re-baselined.
+
+### Corrected (docs)
+- UB-20 was described as "SuperCC does not start — no window" from jc-22 on (`BASELINE-ISSUES.md`,
+  README.txt sections 6 and 7, this file, `FORK.md`, `CLAUDE.md`), and UB-16 and UB-17 repeated it
+  for builds before jc-18 and for the other computer. That was wrong: the 2026-11-09 launches used
+  a script that waited only for a window titled "Error". Launched again with every visible window
+  captured, jc-33 (and jc-17's release, for UB-16) always comes up, in the default tileset, with
+  the error log's notice. Corrected everywhere; the tracker's UB-20 entry records how.
+
 ## jc-33 — 2026-11-15 (the fix layer: a custom tileset's pictures fail in words, and load before they are saved)
 
 The first of the custom-tileset fixes goes back on the upstream baseline. It closes UB-19 in
@@ -338,8 +372,9 @@ cannot be drawn.
   `SuperCC.initialiseTilesheet` are upstream's; `SuccPaths` stores the custom tileset as upstream <!-- aen-exempt: upstream method name -->
   does, in the fork's own settings structure:
   - **custom is saved as tileset number 5** (`TilesheetNum` / `LynxTilesheetNum`), which builds
-    before jc-18 cannot start with; the `CustomTileset` / `LynxCustomTileset` switches are gone
-    (UB-16);
+    before jc-18 do not have (they start in their default tileset with an internal error; this
+    said "cannot start with" until jc-34, corrected there); the `CustomTileset` /
+    `LynxCustomTileset` switches are gone (UB-16);
   - **its pictures are saved as full paths**, which the other computer does not have (UB-17), and
     read back with upstream's getter exactly: the pair whenever both keys exist, which in this
     fork's settings (absent keys seeded empty) is always, so "none chosen" reaches the image reader;
@@ -347,8 +382,11 @@ cannot be drawn.
     mark stays on custom (UB-18);
   - **a picture is saved before it is known to load**, and bad ones fail with internal errors or
     messages that name no file; the 32-million-pixel limit is gone (UB-19);
-  - **SuperCC does not start — no window — when the saved MS tileset cannot be drawn** (a number
-    this version does not have, or custom with its pictures missing); measured by launching (UB-20);
+  - **a saved MS tileset that cannot be drawn breaks startup partway** (a number this version does
+    not have, or custom with its pictures missing): SuperCC comes up in the default tileset with an
+    internal error, and the saved tile size and TWS notation are not applied (UB-20). Until jc-34
+    this line said "SuperCC does not start — no window": wrong, from a launch script that looked
+    only for an error box; corrected in jc-34;
   - **a Lynx tileset that cannot be drawn fails at every Lynx set opened**, keeping the previous
     tileset, and a failing custom tileset at a window resize leaves the drawing at the old size
     (UB-21).

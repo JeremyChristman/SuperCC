@@ -1,5 +1,5 @@
 ==============================================================================
-  SuperCC  --  Jeremy Christman's fork                      build jc-33
+  SuperCC  --  Jeremy Christman's fork                      build jc-34
 ==============================================================================
 
   1. What this is
@@ -421,13 +421,15 @@ TilesheetNum    Which tile graphics to use under the MS ruleset.
                 Default: 0
                 Set it in the program with View > Tileset, which writes this
                 line for you. A value that is not a number falls back to 0.
-                ⚠ Since jc-22 (upstream's code, on purpose): if this names a
-                tileset that cannot be drawn -- a number this version does
-                not have, or 5 with its pictures missing or unreadable --
-                SUPERCC DOES NOT START: no window appears. Set the line back
-                to 0 to 4 by hand. And 5 cannot be read by builds older than
-                jc-18 (they do not start either), so on a folder shared
-                between computers, keep them on the same build.
+                If this names a tileset that cannot be drawn -- a number
+                this version does not have, or 5 with its pictures missing
+                or not pictures -- SuperCC shows Tile World (CCEdit)
+                instead, says why, and leaves the line as it is (since
+                jc-34; jc-22 to jc-33 gave no reason and skipped the rest
+                of starting up). ⚠ Builds older than jc-18 have no 5: they
+                start in their default tileset with an internal error, so
+                on a folder shared between computers, keep them on the
+                same build.
 
 LynxTilesheetNum
                 The same, for the Lynx ruleset. SuperCC keeps a separate
@@ -595,6 +597,33 @@ ShowBuildTag is on, shows the build tag compiled into the jar, which matches
 the tag for that release. Newest first.
 
 
+jc-34  --  A saved tileset that cannot be drawn: SuperCC says why
+-----------------------------------------------------------------
+
+  * IF succ_settings.ini NAMES A TILESET THAT CANNOT BE DRAWN, SUPERCC
+    NOW SAYS WHY, as in jc-18 to jc-21 -- a tileset number this version
+    does not have, or custom with its pictures missing or not pictures.
+    It shows Tile World (CCEdit) instead, with a message giving the
+    reason (naming the file), keeps your choice in the settings file,
+    and finishes starting up as usual. Since jc-22 it came up in Tile
+    World (CCEdit) with only "SuperCC recorded an error", and skipped
+    the rest of starting up: your saved tile size and TWS notation were
+    not applied. One case waits for a later release: if a level set is
+    named on the command line (or dropped on SuperCC.jar), SuperCC opens
+    it before it reaches the tileset, and a tileset number it does not
+    have still stops it partway there, as before.
+
+  * A CORRECTION: until now these notes (jc-22's, and section 6 under
+    TilesheetNum) said SuperCC "DOES NOT START" in that case, with no
+    window. That was wrong: it was measured with a script that looked
+    only for an error box. The window always opened; what went wrong is
+    described above.
+
+  * Nothing you play changes: every one of the 24,217 stored solutions
+    replays exactly as on jc-33. This closes UB-20 in BASELINE-ISSUES.md
+    in the repository.
+
+
 jc-33  --  A custom tileset picture that cannot be used says why
 ------------------------------------------------------------------
 
@@ -603,7 +632,8 @@ jc-33  --  A custom tileset picture that cannot be used says why
     one, or one far too large is refused with a message naming the file,
     and the pictures you had before stay saved. Since jc-22 such a file
     was saved anyway and then failed with an internal error -- and if
-    custom was your saved tileset, SuperCC failed again at its next start.
+    custom was your saved tileset, SuperCC's next start broke partway
+    (jc-34 says why).
 
   * Nothing you play changes: every one of the 24,217 stored solutions
     replays exactly as on jc-32. This closes UB-19 in BASELINE-ISSUES.md
@@ -839,21 +869,23 @@ jc-22  --  Custom tilesets exactly as upstream wrote them, bugs and all
     does not change by itself -- all of this starts with choosing
     View > Tileset > custom, or with a settings file that names a
     tileset that cannot be drawn:
-      - IF THE SAVED TILESET CANNOT BE DRAWN, SUPERCC DOES NOT START:
-        no window appears. That happens when succ_settings.ini names a
-        tileset number this version does not have, or the custom
-        tileset with its pictures missing. Set TilesheetNum back to a
-        number from 0 to 4 by hand (section 6).
+      - IF THE SAVED TILESET CANNOT BE DRAWN, SUPERCC STARTS IN TILE
+        WORLD (CCEdit) WITH ONLY AN INTERNAL ERROR, and skips the rest
+        of starting up (your tile size and TWS notation). That happens
+        when succ_settings.ini names a tileset number this version does
+        not have, or the custom tileset with its pictures missing. Set
+        TilesheetNum back to a number from 0 to 4 by hand (section 6).
+        (Until jc-34 this said SuperCC "does not start": see jc-34.)
       - Choosing custom saves it as tileset number 5, which builds
-        older than jc-18 cannot start with, and saves its pictures as
-        full paths -- so on a folder shared between computers, a
-        custom tileset chosen on one is missing on the other, and
-        SuperCC then does not start there.
+        older than jc-18 do not have, and saves its pictures as full
+        paths -- so on a folder shared between computers, a custom
+        tileset chosen on one is missing on the other, and SuperCC
+        then starts there as above.
       - Canceling the first picture still asks for the second, then
         shows an error, and the menu's mark stays on custom.
       - A file that is not a picture is saved before SuperCC finds
         out, and then fails with an internal error; if custom was
-        already your tileset, the next start fails too. Other bad
+        already your tileset, the next start breaks as above. Other bad
         pictures fail with messages that may not name the file.
       - A Lynx tileset that cannot be drawn shows an error every time
         a Lynx level set is opened, and the previous tileset stays.

@@ -38,11 +38,11 @@ How to keep it:
 | UB-13 | Canceling the file chooser of Solution › Open, Search for seeds or Load states fails | anyone who cancels one | `c57f217`, ships in jc-21 | **FIXED in `7469c09` (jc-32)** |
 | UB-14 | A set whose level 1 will not load opens badly: an error, then no level, or the previous set's level under the new file | none of the 331 sets in the collection | `c57f217`, ships in jc-21 | **FIXED in `48a3eca` (jc-29)** |
 | UB-15 | A level whose savestates cannot be built is left half-loaded | nobody today (no level reaches it) | `c57f217`, ships in jc-21 | **FIXED in `e08c6b5` (jc-30)** |
-| UB-16 | Choosing a custom tileset saves it as tileset number 5, which builds before jc-18 cannot start with | anyone sharing the settings file with an older build | `5d3f0a3`, ships in jc-22 | open |
+| UB-16 | Choosing a custom tileset saves it as tileset number 5, which builds before jc-18 do not have (they start in their default tileset, with an internal error) | anyone sharing the settings file with an older build | `5d3f0a3`, ships in jc-22 | open |
 | UB-17 | Custom tileset pictures are saved as full paths, which the other computer does not have | anyone sharing the folder between computers | `5d3f0a3`, ships in jc-22 | open |
 | UB-18 | Canceling View › Tileset › custom asks for the second picture anyway, then shows an error, and leaves the mark on custom | anyone who cancels it | `5d3f0a3`, ships in jc-22 | open |
 | UB-19 | A custom picture is saved before it is known to load; a bad one fails with an internal error or an unclear message | anyone choosing a wrong file | `5d3f0a3`, ships in jc-22 | **FIXED in `cb55dbf` (jc-33)** |
-| UB-20 | SuperCC does not start (no window) when the saved MS tileset cannot be drawn | anyone with a bad TilesheetNum or missing custom pictures | `5d3f0a3`, ships in jc-22 | open |
+| UB-20 | A saved MS tileset that cannot be drawn breaks startup partway: the default tileset, no reason given, the saved tile size and TWS notation not applied (until jc-34 this row said "does not start (no window)": wrong, see the entry) | anyone with a bad TilesheetNum or missing custom pictures | `5d3f0a3`, ships in jc-22 | **FIXED in `9e6166a` (jc-34)** for a plain start (with a set on the command line it waits for UB-21) |
 | UB-21 | A Lynx tileset that cannot be drawn, or a failing custom tileset at a window resize, leaves the screen wrong | anyone with such a choice | `5d3f0a3`, ships in jc-22 | open |
 | UB-22 | With Auto diagonals on, a quick tap of any game key makes no move | anyone with Auto diagonals on (it is off by default) | `d08e6ef`, ships in jc-23 | open |
 | UB-23 | With Auto diagonals on, keys pressed within 50 ms make ONE move between them: a held key runs at about half speed, a wait pressed with two arrows is lost, three arrows go by table order | anyone with Auto diagonals on | `d08e6ef`, ships in jc-23 | open |
@@ -556,15 +556,18 @@ listener and `SuperCC.initialiseTilesheet` are upstream's, and `SuccPaths` store
 as upstream does, inside the fork's own settings structure. FORK.md step 5 has the engineering
 record. The fix layer takes these back one fix at a time, by hand from `5d3f0a3`'s diff (a whole
 `git revert` no longer applies: the no-level step's fixes rewrote View › Tileset's listener since),
-in dependency order: **UB-19 is back since jc-33 (`cb55dbf`)**; UB-20, UB-18, UB-21, UB-16 and UB-17
-follow, each in a release of its own. Nobody's tileset changes by itself: these all start with choosing a
+in dependency order: **UB-19 is back since jc-33 (`cb55dbf`), UB-20 since jc-34 (`9e6166a`)**;
+UB-18, UB-21, UB-16 and UB-17 follow, each in a release of its own. Nobody's tileset changes by itself: these all start with choosing a
 custom tileset, or with a settings file that names one that cannot be drawn.
 
 ### UB-16 — custom is saved as tileset number 5
 
 - **What a user sees:** View › Tileset › custom saves `TilesheetNum = 5` (or `LynxTilesheetNum = 5`).
   A build from before jc-18 has no tileset 5, so on a settings file shared between computers (this
-  one is, through Dropbox) such a build does not start, and its next settings write erases the
+  one is, through Dropbox) such a build starts in its default tileset with an internal error and
+  skips the rest of its startup, as in UB-20 (measured 2026-11-15 on jc-17's release: `Index 5 out
+  of bounds for length 5`, the main window up, the error log's notice; until jc-34 this said it
+  "does not start", the same misreading as UB-20's), and its next settings write erases the
   custom picture lines it does not know. A settings file written by jc-18 to jc-21 with custom on
   shows its built-in tileset instead (their `CustomTileset` switch is no longer read) — and the
   other way round, jc-22's next settings write drops those `CustomTileset` lines from the shared
@@ -579,7 +582,9 @@ custom tileset, or with a settings file that names one that cannot be drawn.
 
 - **What a user sees:** a custom tileset chosen on one computer names that computer's folders
   (`C:\Users\Jeremy\...` against `C:\Users\jerem\...`), so on the other computer its pictures are
-  missing — and then, with UB-20, SuperCC does not start there.
+  missing — and then, with UB-20, SuperCC starts there in the default tileset with an internal
+  error (jc-22 to jc-33; since jc-34 it says why). Until jc-34 this said SuperCC "does not start"
+  there: UB-20's misreading.
 - **Fix:** store a picture inside the Chip's Challenge folder relative to it, as Levelset and TWS
   are (jc-5's `toStoredPath`/`toUsablePath`; jc-18).
 - **Pinned by:** `SettingsTest` §13; `GuiWindowTest` §5b.
@@ -637,7 +642,7 @@ ones); corpus against jc-32: 24,217 of 24,217 identical.
 
 - **What a user saw (jc-22 to jc-32):** choosing a file that is not a picture saved it anyway, then
   failed with an internal error (`NullPointerException`) before the choice of tileset was saved. If
-  custom was already the saved tileset, the next start then failed (UB-20); if not, only the stored
+  custom was already the saved tileset, the next start then broke partway (UB-20); if not, only the stored
   picture paths were wrong. Other bad files failed with internal errors as well: a broken GIF
   (`IndexOutOfBoundsException`) and a picture whose header claims 50000 x 50000 pixels
   (`IllegalArgumentException`); one claiming about 46000 x 46000 made the loader try to decode about
@@ -656,22 +661,68 @@ ones); corpus against jc-32: 24,217 of 24,217 identical.
   a loaded picture left unlocked, the error shown for a file that is not a picture, and the
   earlier pictures still saved.
 
-### UB-20 — SuperCC does not start when the saved MS tileset cannot be drawn
+### UB-20 — a saved MS tileset that cannot be drawn breaks startup partway
 
-- **What a user sees:** if `succ_settings.ini` names an MS tileset this version does not have, or
-  custom whose pictures are missing or unreadable, no window appears at all: startup throws, and
-  the program keeps running unseen (on a double-click, simply nothing happens). Setting
-  `TilesheetNum` back to 0–4 by hand is the way out. Since jc-28 (UB-11's fix) custom chosen before
-  a level set is open is saved as the MS choice too, so it can lead here the same way as custom
-  chosen with an MS level open; jc-21 to jc-27 failed before saving that choice.
+**Status: FIXED in `9e6166a` (jc-34).** jc-18's fallback is back, re-applied alone: startup asks
+`TileSheet.load` for the saved MS number, with the default tileset, Tile World (CCEdit), to fall
+back to. A number this version does not have, or custom whose pictures cannot be used, draws the
+default instead and says why in one message -- UB-19's reason, naming the file, then "Showing
+Tile World (CCEdit) instead. Your choice is kept; pick a tileset in View > Tileset to change
+it." -- leaves the saved choice alone, and startup carries on: the saved tile size, the window's
+layout for it and the saved TWS notation are applied as on any start. `SuperCC.throwErrorOnce`
+says a message once a session; it matters once UB-21's fallbacks are back, which meet the same
+cause at every set opened. From the jc-34 review, beyond jc-18: the message is said last, over the
+finished window (jc-18 said it before the layout, over the window Gui builds at 20-pixel tiles),
+and a number out of range is told that the choice is kept too (jc-18 told only custom). Left out,
+and coming back with their own fixes: `loadForRuleset` and custom's own switch (UB-16; startup
+reads the number as upstream stores it, custom as 5), the ruleset swap and the window-size change
+(UB-21), and the View › Tileset mark (UB-18, UB-21; no build marks a tileset before a set is
+opened). **One startup path is still not fixed:** a set named on the command line is opened, and
+its tileset swapped (UB-21's code), before startup reaches the tileset, so with a number out of
+range startup still stops partway there, before this fallback runs; recorded and pinned under
+UB-21, whose fix ends it. Checked by a new `StartupTilesetTest`: real
+starts in a child JVM, each with its own settings file, 32 x 32 tiles and the TWS notation on, its
+dialogs read and closed -- two controls (a built-in tileset, and custom with pictures that load:
+no message, laid out as saved) and four that cannot be drawn (99, -1, custom with its pictures
+missing, custom naming a file that is not a picture: nothing thrown, the default drawn, one
+message saying why, the window laid out, the tile size and notation applied, the choice still
+saved; the message shown over the finished window), and in §2 three with a set on the command
+line (a control, and UB-21's two pins) -- and `EngineTest` §6g, `TileSheet.load` at its edges (every number this version has, 6
+and -1, custom with none chosen and with pictures that load, custom failing with custom as the
+fallback) and `throwErrorOnce`. On jc-33's jar `StartupTilesetTest` fails exactly the 25 checks
+it should and `EngineTest` the 13 new ones ("no TileSheet.load"); 18 defects planted in `TileSheet` and `SuperCC`, all caught (a number below zero, or the first past the end, taken as a tileset; a number out of range, or a tileset that fails, drawn with no word; the reason without the loader's own words; the tileset that failed named as the one drawn; the fallback's own failure hidden; the kept line emptied, or left off a number out of range as in jc-18; startup keeping the reason to itself, or saying it and then stopping as upstream did, or saying it before the layout as jc-18 did; "once" meaning never, every time, or once for every emulator in the JVM; the default drawn whatever was saved; the Lynx number read; MSCC as the fallback); corpus against jc-33:
+24,217 of 24,217 identical.
+
+- **Correction (2026-11-15, jc-34):** until jc-34 this entry, its summary row, README.txt,
+  CHANGELOG.md and CLAUDE.md said SuperCC "does not start" here: "no window appears at all ... the
+  program keeps running unseen". That was wrong. The 2026-11-09 launches used a script that waited
+  only for a window titled "Error", so its "NO WINDOW" meant no error box, not no main window.
+  Launched again on jc-33, and on jc-17's release for UB-16's case (every visible window of the
+  process listed and captured), the main window is up every time: `Gui` builds it, already drawn in the default tileset, before
+  startup reaches the tileset. The exceptions recorded below were right. UB-16 and UB-17 repeated
+  the claim and are corrected too.
+- **What a user saw (jc-22 to jc-33):** if `succ_settings.ini` names an MS tileset this version
+  does not have, or custom whose pictures are missing or cannot be used, SuperCC comes up in the
+  default tileset with nothing to say why but the error log's one notice ("SuperCC recorded an
+  error", naming the log file). Startup stopped at the tileset, so the rest of it never ran: the
+  saved tile size was not applied (with 32 x 32 tiles saved, the window stays 940 x 771, where a
+  normal start lays it out at 1324 x 1155), nor the saved TWS notation; with custom, the game panel
+  was left half set, named custom at the saved tile size while it drew the default's 20-pixel
+  pictures. Setting `TilesheetNum` back to 0–4 by hand is the way out. Since jc-28 (UB-11's fix)
+  custom chosen before a level set is open is saved as the MS choice too, so it can lead here the
+  same way as custom chosen with an MS level open; jc-21 to jc-27 failed before saving that choice.
 - **Measured (2026-11-09, launching the jc-22 candidate from a sandbox):** `TilesheetNum = 99` →
-  `ArrayIndexOutOfBoundsException` in `initialiseTilesheet`, no window; `TilesheetNum = 5` with the <!-- aen-exempt: upstream method name -->
-  pictures missing → `IIOException`, then a `NullPointerException` on the missing images, no window.
-  Opening a set from the command line first shows "Could not load relevant tilesheet", then the same.
-- **Fix:** jc-18's `TileSheet.loadForRuleset`/`load`: fall back to the ruleset's built-in choice,
-  or the default, and say why once a session (`SuperCC.throwErrorOnce`).
-- **Pinned by:** nothing — the start needs a window and a settings file of its own; measured by
-  launching.
+  `ArrayIndexOutOfBoundsException` in `initialiseTilesheet`; `TilesheetNum = 5` with the pictures <!-- aen-exempt: upstream method name -->
+  missing → `IIOException`, then a `NullPointerException` on the missing images ("no window" was
+  recorded too: see the correction above). Opening a set from the command line first shows "Could
+  not load relevant tilesheet", then the same. **Again (2026-11-15, jc-33):** the same exceptions
+  (custom's first is now UB-19's `IOException` naming the file); a visible main window every time,
+  with the error log's notice; 940 x 771 against a normal 1324 x 1155 with 32 x 32 tiles saved.
+- **Fix:** jc-18's `TileSheet.load` (and `Choice`) at startup: fall back to the default and say
+  why once a session (`SuperCC.throwErrorOnce`); `loadForRuleset` follows with UB-16.
+- **Pinned by (jc-22 to jc-33):** nothing -- the start needs a window and a settings file of its
+  own; measured by launching. **Checked by (jc-34 on):** `StartupTilesetTest` (new) and
+  `EngineTest` §6g.
 
 ### UB-21 — a tileset that cannot be drawn, met while running, leaves the screen wrong
 
@@ -679,14 +730,30 @@ ones); corpus against jc-32: 24,217 of 24,217 identical.
   relevant tilesheet" (naming nothing) — every time such a set is opened — and keeps the previous
   ruleset's tileset; a Lynx number this version does not have fails with an internal error instead.
   Changing the window size while a custom tileset fails leaves the game area drawn at the old size.
+  The swap runs at EVERY set opened, MS sets too (recorded 2026-11-15, jc-34): an MS number this
+  version does not have throws there, an internal error at every set opened, and custom that
+  fails says "Could not load relevant tilesheet" each time. Since jc-34 that is met after a start
+  that fell back (UB-20), whose message says the choice is kept. **And a set named on the command
+  line** (or dropped on the jar) is opened before startup reaches the tileset, so there a bad MS
+  number still throws in the swap and stops startup partway, before UB-20's fallback is reached --
+  UB-20's symptom, on this one path, until this fix; custom that fails says the swap's words
+  first, then UB-20's.
 - **Measured:** by reading upstream's `Gui.swapRulesetTilesheet` (catches only IOException,
   with that message) and `SmallGamePanel.setWindowSize` (swallows the IOException); the swap's
   dialog was seen in the command-line launch above. Since jc-33 (UB-19) a custom picture that
   fails is always an IOException, so at a window-size change it is now dropped silently, where
-  before it usually escaped as an internal error into the error log.
+  before it usually escaped as an internal error into the error log. The command-line start was
+  launched on the jc-34 candidate (2026-11-15): `TilesheetNum = 99` and a set → the swap's
+  `ArrayIndexOutOfBoundsException`, the window left at 940 x 771 with 32 x 32 tiles saved, no
+  message saying why; custom missing and a set → "Could not load relevant tilesheet", then
+  UB-20's message, and startup finishes.
 - **Fix:** both through jc-18's `loadForRuleset`, which falls back, says why once a session, and
-  moves the View › Tileset mark to what is drawn.
-- **Pinned by:** nothing (a running window and a broken settings file; measured as above).
+  moves the View › Tileset mark to what is drawn. `SuperCC.throwErrorOnce` (back since jc-34)
+  keeps its "once" in an unsynchronized set, as jc-18 did: check that the swap's and the resize's
+  calls run on the event thread when they come back (jc-34 review).
+- **Pinned by:** `StartupTilesetTest` §2 (since jc-34): a number out of range with a set on the
+  command line throws, and custom missing with one says the swap's words first. The swap after a
+  start and the window-size change: nothing (measured as above).
 
 ## Auto-diagonals (`d08e6ef`, ships in jc-23)
 
@@ -1022,3 +1089,16 @@ are not lost.
   where the comparison above it uses Windows-1252. Upstream's code; a filter admitting only the
   savestate classes would close it. Raised by the jc-32 review (third round); read in the code,
   not run.
+- **A Lynx set named on the command line is drawn in the MS tileset.** Startup opens a set named
+  on the command line first (its ruleset's tileset swapped in), then draws the MS tileset over it
+  -- startup reads only `TilesheetNum`. Launched 2026-11-15 with a Lynx-signature copy of CCLP1 on
+  the command line: what is drawn follows `TilesheetNum` (MSCC for 3, CCEdit for 0) whatever
+  `LynxTilesheetNum` says, on jc-20 (jc-18's tileset code) and the jc-34 candidate alike. Since
+  jc-34 a bad MS number there says so over the Lynx level, which is true but about a tileset not
+  in use. Upstream's startup order; raised by the jc-34 review (second round).
+- **A saved tile size of 0 (or less) stops startup partway.** `TileWidth = 0` reaches the image
+  scaling unchecked (`IllegalArgumentException: Width (0) and height (0) must be non-zero`), after
+  `Gui` has put the window up, so the rest of startup -- layout, notation -- never runs, and only
+  the error log's notice shows: UB-20's shape, from a different setting. Launched 2026-11-15:
+  jc-20, jc-33 and the jc-34 candidate alike. Upstream's; raised by the jc-34 review (second
+  round). Whether the tile-size dialog can save such a size was not checked.
