@@ -12,6 +12,27 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## jc-38 — 2026-11-16 (the fix layer: custom pictures work on both computers again)
+
+The sixth of the custom-tileset fixes goes back on the upstream baseline. It closes UB-17 in
+[`BASELINE-ISSUES.md`](BASELINE-ISSUES.md). No stored solution changes.
+
+### Fixed
+- **A custom tileset's pictures inside the Chip's Challenge folder are saved relative to it
+  (`0614b86`, UB-17)**, through jc-5's `toStoredPath`/`toUsablePath`, as Levelset and TWS are, so a
+  custom tileset chosen on one computer works on the other. Since jc-22 they were saved as full
+  paths. Pictures outside the folder stay absolute. From review, beyond jc-18: a picture inside the
+  folder that jc-22 to jc-37 saved absolute is put in the relative form at load, so the next start
+  on the computer that saved it fixes the file for both. Corpus against jc-37: 24,217 of 24,217 identical.
+
+### Changed (tests only)
+- `SettingsTest` §13's and `GuiWindowTest` §5b's UB-17 pins are checks again, with checks for a
+  picture outside the folder, a relative path read in this computer's folder, and a legacy
+  absolute value converted or left alone; §5b's UB-19 check reads the saved file through a fresh
+  load. On jc-37's jar exactly those fail (5, and 1 with the exit check); 7 defects planted, all
+  caught. Suite 2,660 assertions, 22 pins, 4 skips.
+  Coverage: target 57.5% (1555/2704) and `io\**` 75.5% (345/457): `SuccPaths`' new branches (the load-time conversion), reached by §13; re-baselined.
+
 ## jc-37 — 2026-11-16 (the fix layer: custom is a setting of its own again)
 
 The fifth of the custom-tileset fixes goes back on the upstream baseline. It closes UB-16 in

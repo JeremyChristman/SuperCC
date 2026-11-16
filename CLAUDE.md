@@ -248,7 +248,7 @@ test/LinkTest.java           every call between the fork's classes resolves IN T
 test/InputDiscardTest.java   which keys Level.tick reports as DISCARDED, and the WAIT the move list records
 test/SeedSearchTest.java     Seed Search through its REAL constructor, headless: stops at the top seed, threads, Pause
 test/FormClassTest.java      every form window's REAL constructor builds its components (14 of 15; Gui is the JFrame)
-test/GuiWindowTest.java      the MAIN window (Gui) built for real in a NON-headless child JVM; every menu control with no level open (PIN lines: UB-17, UB-22..27)
+test/GuiWindowTest.java      the MAIN window (Gui) built for real in a NON-headless child JVM; every menu control with no level open (PIN lines: UB-22..27)
 test/StartupTilesetTest.java SuperCC STARTED as main does, in child JVMs with settings of their own: a saved tileset that cannot be drawn (UB-20, UB-21)
 ```
 
@@ -345,7 +345,7 @@ taken. JaCoCo is a test-time tool cached under `%LOCALAPPDATA%\jacoco\<version>\
 dependency**, never committed, never shipped. Output goes to `coverage-report\` (gitignored);
 `coverage.csv` is the evidence behind every percentage below.
 
-As of jc-37, with all 2,653 assertions passing (24 of them `upstreamBug` pins, §6) and 4 skipped —
+As of jc-38, with all 2,660 assertions passing (22 of them `upstreamBug` pins, §6) and 4 skipped —
 counts for a machine with 4 or more CPUs. `SeedSearchTest` §3 makes one pin per search thread, so a
 3-CPU run has one pass and pin fewer and a 2-CPU run two; at 1 CPU §3 and §2's pin are skipped
 (measured: 7 passes and 6 pins fewer, 2 skips more) — **measured on JDK 16.0.2** (16.0.2+7-67 on the desktop; Temurin 16.0.2+7, what CI pins, gives the
@@ -353,16 +353,16 @@ same figures):
 
 | scope | branch | line | branches |
 |---|---|---|---|
-| **`game\**` + `io\**` — THE TARGET** | **57.4%** | 71.7% | 1546/2694 |
+| **`game\**` + `io\**` — THE TARGET** | **57.5%** | 71.8% | 1555/2704 |
 | &nbsp;&nbsp;`game\**` (the emulator) | 53.8% | 68.0% | 1210/2247 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\MS\**` | 47.7% | 62.6% | 558/1170 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\Lynx\**` | 63.5% | 71.3% | 466/734 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 54.2% | 73.0% | 186/343 |
-| &nbsp;&nbsp;`io\**` (file formats) | 75.2% | 82.2% | 336/447 |
+| &nbsp;&nbsp;`io\**` (file formats) | 75.5% | 82.6% | 345/457 |
 | `emulator\**` | 34.0% | 36.2% | 161/474 |
 | `tools\**` + `graphics\**` — *not a target* | 5.1% | 10.2% | 103/2037 |
 
-**Read this correctly.** Whole-project branch coverage is 31.1% (1922/6171), and that number is
+**Read this correctly.** Whole-project branch coverage is 31.2% (1931/6181), and that number is
 meaningless: 15 form-based classes can be rebuilt here only by copying IntelliJ's output (ADR 0010), `tools\**`
 is 35 files of upstream code this fork does not modify, `graphics\**` is Swing with no headless test
 story, and the rest is vendored `org.json` / `com.intellij`. What this fork can break is the engine
@@ -371,9 +371,9 @@ and the file formats, so that is what is scoped and measured.
 **The number is JDK-dependent, by construction — so measure the baseline on JDK 16.0.2.** Every
 spliced class is compiled by your `javac`, and `build-config.ps1` already notes that javac 17 does
 not emit identical bytecode to javac 16. That was once only the five `io\**` classes (`ErrorLog`,
-`LevelFactory`, `SuccPaths`, `TWSReader`, `TWSWriter`, 382 branches at jc-15, 410 now). Since the upstream
+`LevelFactory`, `SuccPaths`, `TWSReader`, `TWSWriter`, 382 branches at jc-15, 420 now). Since the upstream
 trap merge (2026-11-02) it is also `MSCreature`, `MSLevel` and `LynxLevel` (plus `Level` and
-`BrownButton`, which have none): another 1,162 branches — 1,572 of the target's 2,694 in all. Only the rest comes from the committed
+`BrownButton`, which have none): another 1,162 branches — 1,582 of the target's 2,704 in all. Only the rest comes from the committed
 baseline and is byte-identical on every machine. A figure that differs slightly on another JDK is not
 a bug, but it is not the baseline either: `docs/coverage-baseline.tsv` and the table above are
 measured on 16.0.2, what CI and the release workflow pin. A machine without it does not need an
@@ -381,7 +381,7 @@ install: jc-15's baseline was taken on the laptop (JDK 18) from Temurin 16.0.2+7
 uses, checked against Adoptium's published SHA-256 — unpacked to a scratch folder, with `JAVA_HOME`
 pointed at it for the one command. `build-config.ps1` lets `JAVA_HOME` win.
 
-**57.4% is a floor to build on, not a passing grade**, and the split says where the work is:
+**57.5% is a floor to build on, not a passing grade**, and the split says where the work is:
 
 - **Lynx is ahead now — MS 47.7%, Lynx 63.5% — and both took deliberate work.**
   Four Lynx files built that side (the move-preference table `LynxCreatureMoveTest`, the entry rules
@@ -765,8 +765,8 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
   now starts in the default with a message saying why -- Cancel on custom, UB-18, since jc-35,
   the swap and resize fallbacks, UB-21, since jc-36, and custom's own switch, UB-16, since jc-37 --
   where a 5 stored by jc-22 to jc-36 is read as the switch ON, the maintainer's decision, not
-  jc-18's; relative paths and the choosers' start folders, UB-17 and UB-31, are still upstream's --
-  do not "fix" them in passing; they follow one fix at a time) and auto-diagonals
+  jc-18's -- and relative picture paths, UB-17, since jc-38; the choosers' start folders, UB-31,
+  are still upstream's -- do not "fix" them in passing; they come back as their own fix) and auto-diagonals
   (`d08e6ef`: with the switch on, EVERY game key waits 50 ms and a `java.util.Timer` makes ONE move, on its own
   thread, from the keys still held, so taps are lost and other input jumps ahead; UB-22 to UB-28). **Every problem a revert brings back goes
   into `BASELINE-ISSUES.md` in the same push** (Jeremy's standing request, 2026-11-08) — and a fix
@@ -848,10 +848,11 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
 - **Stored paths are relative to the Chip's Challenge folder**, not absolute. The settings file is
   Dropbox-synced between two machines whose user directories differ (`C:\Users\Jeremy` and
   `C:\Users\jerem`); absolute paths made the last machine used win. `Path.startsWith` compares name
-  elements, not characters — never "simplify" it to a string prefix test. ⚠ One exception, on
-  purpose for now: the custom tileset's two pictures are stored ABSOLUTE, as upstream stores them
-  (the upstream baseline, UB-17). jc-18 to jc-21 stored them relative; that fix comes back as its own
-  step — do not route them through `toStoredPath()` in passing.
+  elements, not characters — never "simplify" it to a string prefix test. The custom
+  tileset's two pictures follow the same rule since jc-38 (UB-17; jc-22 to jc-37 stored them
+  absolute, as upstream does): both setters store through `toStoredPath()`, and the getter resolves
+  through `toUsablePath()`. A value already stored absolute is read as it is and never rewritten at
+  load (jc-5's rule).
 - **`getSuccPath()` is deliberately not converted to relative.** It is the one data-bearing path
   and its callers resolve it against the working directory.
 - **`AlwaysOpenInMS` is scoped to opening only.** F3 still switches ruleset, and loading a solution

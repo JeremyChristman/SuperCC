@@ -39,7 +39,7 @@ How to keep it:
 | UB-14 | A set whose level 1 will not load opens badly: an error, then no level, or the previous set's level under the new file | none of the 331 sets in the collection | `c57f217`, ships in jc-21 | **FIXED in `48a3eca` (jc-29)** |
 | UB-15 | A level whose savestates cannot be built is left half-loaded | nobody today (no level reaches it) | `c57f217`, ships in jc-21 | **FIXED in `e08c6b5` (jc-30)** |
 | UB-16 | Choosing a custom tileset saves it as tileset number 5, which builds before jc-18 do not have (they start in their default tileset, with an internal error) | anyone sharing the settings file with an older build | `5d3f0a3`, ships in jc-22 | **FIXED in `f6d73e7` (jc-37)**; a stored 5 is read as custom on |
-| UB-17 | Custom tileset pictures are saved as full paths, which the other computer does not have | anyone sharing the folder between computers | `5d3f0a3`, ships in jc-22 | open |
+| UB-17 | Custom tileset pictures are saved as full paths, which the other computer does not have | anyone sharing the folder between computers | `5d3f0a3`, ships in jc-22 | **FIXED in `0614b86` (jc-38)** |
 | UB-18 | Canceling View › Tileset › custom asks for the second picture anyway, then shows an error, and leaves the mark on custom | anyone who cancels it | `5d3f0a3`, ships in jc-22 | **FIXED in `bd2b915` (jc-35)** |
 | UB-19 | A custom picture is saved before it is known to load; a bad one fails with an internal error or an unclear message | anyone choosing a wrong file | `5d3f0a3`, ships in jc-22 | **FIXED in `cb55dbf` (jc-33)** |
 | UB-20 | A saved MS tileset that cannot be drawn breaks startup partway: the default tileset, no reason given, the saved tile size and TWS notation not applied (until jc-34 this row said "does not start (no window)": wrong, see the entry) | anyone with a bad TilesheetNum or missing custom pictures | `5d3f0a3`, ships in jc-22 | **FIXED in `9e6166a` (jc-34)** for a plain start, and with a set on the command line since jc-36 (UB-21) |
@@ -558,8 +558,8 @@ as upstream does, inside the fork's own settings structure. FORK.md step 5 has t
 record. The fix layer takes these back one fix at a time, by hand from `5d3f0a3`'s diff (a whole
 `git revert` no longer applies: the no-level step's fixes rewrote View › Tileset's listener since),
 in dependency order: **UB-19 is back since jc-33 (`cb55dbf`), UB-20 since jc-34 (`9e6166a`), UB-18
-since jc-35 (`bd2b915`), UB-21 since jc-36 (`e30ab77`), UB-16 since jc-37 (`f6d73e7`)**; UB-17 and
-UB-31 (found in jc-35) follow, each in a release of its own. Nobody's tileset changes by itself: these all start with choosing a
+since jc-35 (`bd2b915`), UB-21 since jc-36 (`e30ab77`), UB-16 since jc-37 (`f6d73e7`), UB-17
+since jc-38 (`0614b86`)**; UB-31 (found in jc-35) follows, the last of this step. Nobody's tileset changes by itself: these all start with choosing a
 custom tileset, or with a settings file that names one that cannot be drawn.
 
 ### UB-16 — custom is saved as tileset number 5
@@ -615,14 +615,39 @@ jar exactly those fail: `SettingsTest` 18, `EngineTest` 8, `StartupTilesetTest` 
 
 ### UB-17 — custom pictures are saved as full paths
 
-- **What a user sees:** a custom tileset chosen on one computer names that computer's folders
+**Status: FIXED in `0614b86` (jc-38).** jc-18's portable storage is back, re-applied alone: both
+setters (`setCustomTileset`, jc-18's, and upstream's `setCustomTilesetImages`, kept, so no setter
+stores a picture inside the folder absolute) store each picture through jc-5's `toStoredPath` --
+relative to the Chip's Challenge folder when it is inside it, absolute when it is not -- and
+`getCustomTilesetImages` resolves what is stored through `toUsablePath`, so a relative path written
+on one computer is a picture in the other computer's own folder; both setters store through one
+helper (`putCustomImages`, from review). A value already stored absolute (jc-22 to jc-37 wrote them
+so) still reads as it is, jc-5's rule for legacy Levelset and TWS values; and, beyond jc-18 (jc-38
+review), one INSIDE this computer's folder is put in the relative form at load
+(`relativizeStoredCustomImages`), so the next write -- every launch makes one -- saves it the way
+the other computer can read, without custom being chosen again (otherwise, unlike Levelset and
+TWS, it would stay absolute for good). It names the same file either way; a full path outside
+this folder -- the other computer's, or anywhere else -- is left exactly as it is. Checked by
+`SettingsTest` §13 (the pin a check: inside stored relative, read back as chosen; an outside
+picture absolute beside a relative one; a relative path read in this computer's folder; legacy absolute
+values read as they are, and at the next write the one inside this folder saved relative, the one
+outside left alone) and §13b (`setCustomTileset` stores
+relative), and `GuiWindowTest` §5b (the pin a check, the pictures read back as chosen; UB-19's
+"earlier pictures still saved" now reads them through the getter, whatever their stored form). On
+jc-37's jar exactly those fail: `SettingsTest` 5, `GuiWindowTest` 1 and its exit check; 7 defects
+planted in `SuccPaths`, all caught (the getter handing back what is stored, or resolving only the
+overlay; the setters storing the base or the overlay absolute again; no conversion at load, one
+for the base only, or one that makes a path outside the folder relative anyway); corpus against jc-37: 24,217 of 24,217 identical.
+
+- **What a user saw (jc-22 to jc-37):** a custom tileset chosen on one computer names that computer's folders
   (`C:\Users\Jeremy\...` against `C:\Users\jerem\...`), so on the other computer its pictures are
   missing — and then, with UB-20, SuperCC starts there in the default tileset with an internal
   error (jc-22 to jc-33; since jc-34 it says why). Until jc-34 this said SuperCC "does not start"
   there: UB-20's misreading.
 - **Fix:** store a picture inside the Chip's Challenge folder relative to it, as Levelset and TWS
   are (jc-5's `toStoredPath`/`toUsablePath`; jc-18).
-- **Pinned by:** `SettingsTest` §13; `GuiWindowTest` §5b.
+- **Pinned by (jc-22 to jc-37):** `SettingsTest` §13; `GuiWindowTest` §5b. **Checked by (jc-38 on):** the
+  same, as checks, and `SettingsTest` §13b.
 
 ### UB-18 — canceling custom asks again, then complains
 

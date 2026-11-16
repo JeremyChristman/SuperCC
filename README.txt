@@ -1,5 +1,5 @@
 ==============================================================================
-  SuperCC  --  Jeremy Christman's fork                      build jc-37
+  SuperCC  --  Jeremy Christman's fork                      build jc-38
 ==============================================================================
 
   1. What this is
@@ -480,14 +480,16 @@ CustomOverlayImage  above).
                 Default: empty.
                 SUPERCC WRITES THESE ITSELF: View > Tileset > custom asks for
                 the base image, then the overlay image, loads both, and only
-                then saves them -- as full paths. Canceling either chooser
-                just ends it.
-                A full path names one computer's folders, so if you share
-                this folder between computers, a custom tileset chosen on
-                one is missing on the other, which then shows its built-in
-                tileset instead and says why. (jc-18 to jc-21 stored them
-                relative to this folder; that comes back in a later
-                release.)
+                then saves them. Canceling either chooser just ends it.
+                A picture inside this folder is saved relative to it, as
+                Levelset and TWS are, so a custom tileset chosen on one
+                computer works on the other when this folder is shared. A
+                picture anywhere else is saved as a full path, which names
+                one computer's folders: on the other computer it is missing,
+                and SuperCC shows the built-in tileset instead and says why.
+                (jc-22 to jc-37 saved every picture as a full path. One of
+                those inside this folder is changed to the relative form the
+                next time SuperCC starts on the computer that saved it.)
                 There is one custom pair, shared by MS and Lynx: choosing
                 new images while a Lynx level is open changes the custom
                 tileset for MS too.
@@ -608,6 +610,24 @@ AlwaysOpenInMS  Whether every level set opens under the MS ruleset, no matter
 Releases from jc-2 on carry a jc-N tag in the repository. The title bar, when
 ShowBuildTag is on, shows the build tag compiled into the jar, which matches
 the tag for that release. Newest first.
+
+
+jc-38  --  Custom pictures work on both computers again
+--------------------------------------------------------
+
+  * A CUSTOM TILESET'S PICTURES INSIDE THE CHIP'S CHALLENGE FOLDER ARE
+    NOW SAVED RELATIVE TO IT, as Levelset and TWS are and as in jc-18 to
+    jc-21, so a custom tileset chosen on one computer also works on the
+    other when the folder is shared between them. Since jc-22 they were
+    saved as full paths, which name one computer's own folders. Pictures
+    outside the folder are still saved as full paths. A picture inside
+    the folder that jc-22 to jc-37 saved as a full path is changed to the
+    relative form the next time this version starts on the computer that
+    saved it -- no need to choose custom again.
+
+  * Nothing you play changes: every one of the 24,217 stored solutions
+    replays exactly as on jc-37. This closes UB-17 in BASELINE-ISSUES.md
+    in the repository.
 
 
 jc-37  --  Custom is a setting of its own again
