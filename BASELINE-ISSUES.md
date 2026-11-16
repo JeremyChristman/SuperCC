@@ -53,7 +53,7 @@ How to keep it:
 | UB-28 | `AutoDiagonals = 1` is OFF, and a value read as OFF is usually written back as it was, so the file can look ON | anyone editing the file by hand | `d08e6ef`, ships in jc-23 | open |
 | UB-29 | A `.ser` savestate saved by jc-19 to jc-25 can load a trap wrong in other builds (two or more traps) | anyone keeping such a file; none in the maintainer's collection | `79b0032` (jc-19), exposed by jc-26 | open, accepted |
 | UB-30 | A set opened at launch whose level 1 will not load: its other levels cannot be reached (Go to... is guarded while no level is loaded) | anyone opening such a set before any other; none of the 331 sets in the collection | `d57d419` (jc-28): UB-11's fix back before UB-14's | **FIXED in `48a3eca` (jc-29)**, with UB-14 |
-| UB-31 | With no custom pictures chosen yet, View › Tileset › custom's two choosers open in the user's default folder (Documents), not the Chip's Challenge folder, and the second does not open where the first picture was | anyone choosing a custom tileset for the first time | `5d3f0a3`, ships in jc-22 (missed by that revert's tracker entries; recorded in jc-35) | open |
+| UB-31 | With no custom pictures chosen yet, View › Tileset › custom's two choosers open in the user's default folder (Documents), not the Chip's Challenge folder, and the second does not open where the first picture was | anyone choosing a custom tileset for the first time | `5d3f0a3`, ships in jc-22 (missed by that revert's tracker entries; recorded in jc-35) | **FIXED in `ef27c8d` (jc-39)** |
 
 ---
 
@@ -559,7 +559,7 @@ record. The fix layer takes these back one fix at a time, by hand from `5d3f0a3`
 `git revert` no longer applies: the no-level step's fixes rewrote View › Tileset's listener since),
 in dependency order: **UB-19 is back since jc-33 (`cb55dbf`), UB-20 since jc-34 (`9e6166a`), UB-18
 since jc-35 (`bd2b915`), UB-21 since jc-36 (`e30ab77`), UB-16 since jc-37 (`f6d73e7`), UB-17
-since jc-38 (`0614b86`)**; UB-31 (found in jc-35) follows, the last of this step. Nobody's tileset changes by itself: these all start with choosing a
+since jc-38 (`0614b86`) and UB-31 (found in jc-35) since jc-39 (`ef27c8d`): the whole step is back**. Nobody's tileset changes by itself: these all start with choosing a
 custom tileset, or with a settings file that names one that cannot be drawn.
 
 ### UB-16 — custom is saved as tileset number 5
@@ -860,7 +860,24 @@ set (the same, and the inventory drawing from the board's new pictures). On jc-3
 
 ### UB-31 — custom's choosers start in the user's default folder
 
-- **What a user sees:** with no custom pictures chosen yet, View › Tileset › custom's two file
+**Status: FIXED in `ef27c8d` (jc-39). 🏁 With it, the whole custom-tileset step (`5d3f0a3`,
+UB-16 to UB-21 and UB-31) is back.** jc-18's start folders, re-applied alone in `MenuBar`'s custom
+listener: with no pictures chosen, the base picture's chooser opens in the Chip's Challenge folder
+(the working folder) and the overlay's where the base picture was just chosen; with pictures
+saved, each opens at its own picture, as upstream does. **Measured (2026-11-16, GuiWindowTest on
+jc-38's jar):** with none chosen, both choosers opened in the user's Documents folder -- Java's
+default folder for the user -- where the code reading said they would. Checked by
+`GuiWindowTest` §2 (a new helper, `answerChoosersNoting`, notes the folder each chooser opens in
+before approving: with none chosen, the first in the Chip's Challenge folder and the second in
+the base picture's own folder -- a subfolder, so the two cannot be confused) and §5b (with
+pictures saved in two different folders, each chooser opens where its own picture is: upstream's
+behavior too, guarded here). On jc-38's jar exactly the two §2 checks fail, with the child's exit
+check; 5 defects planted in `MenuBar`, all caught (either chooser opening at "" again, as
+upstream; the overlay's opening in the Chip's Challenge folder rather than the base picture's;
+with pictures saved, the overlay's opening at the base picture, or the base's in the Chip's
+Challenge folder); corpus against jc-38: 24,217 of 24,217 identical.
+
+- **What a user saw (jc-22 to jc-38):** with no custom pictures chosen yet, View › Tileset › custom's two file
   choosers open in Java's default folder for the user (Documents, on Windows), not the Chip's
   Challenge folder, and the second does not open where the first picture was. Once pictures are
   saved, each chooser opens at its picture, as in jc-18.
@@ -869,9 +886,9 @@ set (the same, and the inventory drawing from the board's new pictures). On jc-3
   when none are, the overlay's chooser at the base picture's folder); the revert took them out,
   but no entry recorded it. Upstream passes "" to `MenuBar.openFile` when none are chosen, whose
   `new File("")` has no parent, so `JFileChooser.setCurrentDirectory(null)` -- the user's default
-  folder. Read in the code; to be measured with its fix.
+  folder. Read in the code then; measured with its fix (above).
 - **Fix:** jc-18's start folders (`MenuBar`'s custom listener, three lines).
-- **Pinned by:** nothing yet; its fix should check where each chooser opens.
+- **Pinned by (jc-22 to jc-38):** nothing. **Checked by (jc-39 on):** `GuiWindowTest` §2 and §5b.
 
 ## Auto-diagonals (`d08e6ef`, ships in jc-23)
 
@@ -1233,3 +1250,10 @@ are not lost.
   not applied, and the View › Tileset mark is not corrected. jc-18 did not change them (its MenuBar listener matches today's but for
   UB-11's markers, and the jc-22 revert did not touch `ChooseTileSize`), so this is upstream's and
   jc-18's alike; read in the code, raised by the jc-36 review.
+- **With a fresh settings file, Level › Open levelset's chooser opens in the user's Documents
+  folder.** It is handed the stored Levelset folder, "" until a set has been opened, and
+  `MenuBar.openFile` turns "" into `JFileChooser.setCurrentDirectory(null)` -- Java's default
+  folder for the user -- the same path UB-31 measured for custom's choosers. Upstream's, and every
+  fork build's alike (no fix was reverted here); read in the code, raised by the jc-39 review. The
+  root of both is `openFile`'s handling of "", which UB-31's fix works around in custom's listener
+  only, as jc-18 did.

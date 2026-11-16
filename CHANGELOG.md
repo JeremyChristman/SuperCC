@@ -12,6 +12,24 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## jc-39 — 2026-11-16 (the fix layer: custom's file choosers open somewhere useful; the custom-tileset step all back)
+
+The last of the custom-tileset fixes goes back on the upstream baseline. It closes UB-31 in
+[`BASELINE-ISSUES.md`](BASELINE-ISSUES.md), and with it the whole step (`5d3f0a3`: UB-16 to UB-21
+and UB-31). The menus only: no stored solution changes.
+
+### Fixed
+- **With no custom pictures chosen, View › Tileset › custom's first chooser opens in the Chip's
+  Challenge folder and the second where the first picture was just chosen (`ef27c8d`, UB-31).**
+  jc-18's start folders, re-applied alone. Since jc-22 both opened in the user's Documents folder
+  (measured on jc-38). With pictures saved, each still opens at its own picture. Corpus against
+  jc-38: 24,217 of 24,217 identical.
+
+### Changed (tests only)
+- `GuiWindowTest` gains `answerChoosersNoting`; §2 checks where each chooser opens with none
+  chosen, and §5b with pictures saved in two folders. On jc-38's jar exactly the two §2 checks fail,
+  with the exit check; 5 defects planted, all caught. Suite 2,664 assertions, 22 pins, 4 skips. Coverage: target unchanged (57.5%, 1555/2704); the non-target pool 5.1% (103/2039: `MenuBar`'s two new branches, reached only in `GuiWindowTest`'s child JVM); re-baselined.
+
 ## jc-38 — 2026-11-16 (the fix layer: custom pictures work on both computers again)
 
 The sixth of the custom-tileset fixes goes back on the upstream baseline. It closes UB-17 in

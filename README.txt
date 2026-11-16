@@ -1,5 +1,5 @@
 ==============================================================================
-  SuperCC  --  Jeremy Christman's fork                      build jc-38
+  SuperCC  --  Jeremy Christman's fork                      build jc-39
 ==============================================================================
 
   1. What this is
@@ -480,7 +480,10 @@ CustomOverlayImage  above).
                 Default: empty.
                 SUPERCC WRITES THESE ITSELF: View > Tileset > custom asks for
                 the base image, then the overlay image, loads both, and only
-                then saves them. Canceling either chooser just ends it.
+                then saves them. Canceling either chooser just ends it. The
+                first chooser opens at the saved base image, or in this
+                folder if there is none yet; the second at the saved
+                overlay image, or where you just picked the base image.
                 A picture inside this folder is saved relative to it, as
                 Levelset and TWS are, so a custom tileset chosen on one
                 computer works on the other when this folder is shared. A
@@ -610,6 +613,26 @@ AlwaysOpenInMS  Whether every level set opens under the MS ruleset, no matter
 Releases from jc-2 on carry a jc-N tag in the repository. The title bar, when
 ShowBuildTag is on, shows the build tag compiled into the jar, which matches
 the tag for that release. Newest first.
+
+
+jc-39  --  Custom's file choosers open somewhere useful
+--------------------------------------------------------
+
+  * THE FIRST TIME YOU CHOOSE VIEW > TILESET > CUSTOM, ITS FIRST FILE
+    CHOOSER NOW OPENS IN THE CHIP'S CHALLENGE FOLDER, and the second
+    where you just picked the first picture, as in jc-18 to jc-21.
+    Since jc-22 both opened in your Documents folder. Once pictures are
+    saved, each chooser opens at its own picture, as before.
+
+  * WITH THIS, EVERY CUSTOM-TILESET FIX FROM jc-18 IS BACK (jc-33 to
+    jc-39): pictures are checked before they are saved, a tileset that
+    cannot be drawn falls back and says why, Cancel just cancels, custom
+    is a setting of its own, its pictures work on both computers, and
+    its choosers open in sensible places.
+
+  * Nothing you play changes: this is in the menus only, and every one
+    of the 24,217 stored solutions replays exactly as on jc-38. This
+    closes UB-31 in BASELINE-ISSUES.md in the repository.
 
 
 jc-38  --  Custom pictures work on both computers again

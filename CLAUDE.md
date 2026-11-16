@@ -345,7 +345,7 @@ taken. JaCoCo is a test-time tool cached under `%LOCALAPPDATA%\jacoco\<version>\
 dependency**, never committed, never shipped. Output goes to `coverage-report\` (gitignored);
 `coverage.csv` is the evidence behind every percentage below.
 
-As of jc-38, with all 2,660 assertions passing (22 of them `upstreamBug` pins, §6) and 4 skipped —
+As of jc-39, with all 2,664 assertions passing (22 of them `upstreamBug` pins, §6) and 4 skipped —
 counts for a machine with 4 or more CPUs. `SeedSearchTest` §3 makes one pin per search thread, so a
 3-CPU run has one pass and pin fewer and a 2-CPU run two; at 1 CPU §3 and §2's pin are skipped
 (measured: 7 passes and 6 pins fewer, 2 skips more) — **measured on JDK 16.0.2** (16.0.2+7-67 on the desktop; Temurin 16.0.2+7, what CI pins, gives the
@@ -360,9 +360,9 @@ same figures):
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 54.2% | 73.0% | 186/343 |
 | &nbsp;&nbsp;`io\**` (file formats) | 75.5% | 82.6% | 345/457 |
 | `emulator\**` | 34.0% | 36.2% | 161/474 |
-| `tools\**` + `graphics\**` — *not a target* | 5.1% | 10.2% | 103/2037 |
+| `tools\**` + `graphics\**` — *not a target* | 5.1% | 10.2% | 103/2039 |
 
-**Read this correctly.** Whole-project branch coverage is 31.2% (1931/6181), and that number is
+**Read this correctly.** Whole-project branch coverage is 31.2% (1931/6183), and that number is
 meaningless: 15 form-based classes can be rebuilt here only by copying IntelliJ's output (ADR 0010), `tools\**`
 is 35 files of upstream code this fork does not modify, `graphics\**` is Swing with no headless test
 story, and the rest is vendored `org.json` / `com.intellij`. What this fork can break is the engine
@@ -760,13 +760,12 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
   level that loads, UB-14, since jc-29, the all-or-nothing level load, UB-15, since jc-30, and
   Cancel on Go to... and Set RNG Seed, UB-12, since jc-31, and a canceled file chooser, UB-13,
   since jc-32: the whole step is back),
-  custom tilesets (`5d3f0a3`: the hardened picture loader and load-before-save, UB-19, are back
-  since jc-33, the startup fallback, UB-20, since jc-34 -- a saved tileset that cannot be drawn
-  now starts in the default with a message saying why -- Cancel on custom, UB-18, since jc-35,
-  the swap and resize fallbacks, UB-21, since jc-36, and custom's own switch, UB-16, since jc-37 --
-  where a 5 stored by jc-22 to jc-36 is read as the switch ON, the maintainer's decision, not
-  jc-18's -- and relative picture paths, UB-17, since jc-38; the choosers' start folders, UB-31,
-  are still upstream's -- do not "fix" them in passing; they come back as their own fix) and auto-diagonals
+  custom tilesets (`5d3f0a3`: the whole step is back, jc-33 to jc-39 -- the hardened picture
+  loader and load-before-save, UB-19; the startup fallback, UB-20; Cancel, UB-18; the swap and
+  resize fallbacks, UB-21; custom's own switch, UB-16, where a 5 stored by jc-22 to jc-36 is read as
+  the switch ON, the maintainer's decision, not jc-18's; relative picture paths, UB-17, with a full
+  path inside the folder converted at load, beyond jc-18; and the choosers' start folders, UB-31,
+  which the revert took out without an entry) and auto-diagonals
   (`d08e6ef`: with the switch on, EVERY game key waits 50 ms and a `java.util.Timer` makes ONE move, on its own
   thread, from the keys still held, so taps are lost and other input jumps ahead; UB-22 to UB-28). **Every problem a revert brings back goes
   into `BASELINE-ISSUES.md` in the same push** (Jeremy's standing request, 2026-11-08) — and a fix
