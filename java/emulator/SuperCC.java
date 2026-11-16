@@ -612,13 +612,14 @@ public class SuperCC {
          * tileset, so SuperCC looked as if it had started, but the rest of startup never ran -- the
          * saved tile size, the window's layout for it, the saved TWS notation -- the panel was left
          * half set (custom: named custom at the saved size, drawing the default's pictures), and
-         * nothing said why but the error log's one notice. jc-18's fallback, re-applied alone: it
-         * reads the MS number as upstream stores it (custom as 5, UB-16). */
+         * nothing said why but the error log's one notice. jc-18's fallback, re-applied alone.
+         * MOD (Jeremy, fix layer, UB-16): through loadForRuleset since jc-37, which reads custom's own
+         * switch, and falls back for custom to the MS tileset's built-in choice. */
         TileSheet tileSheet = Gui.DEFAULT_TILESHEET;
         BufferedImage[] tilesetImages = null;
         String problem = null;
         try {
-            TileSheet.Choice choice = TileSheet.load(this, paths.getMSTilesetNum(), Gui.DEFAULT_TILESHEET, width, height);
+            TileSheet.Choice choice = TileSheet.loadForRuleset(this, paths, false, Gui.DEFAULT_TILESHEET, width, height);
             tileSheet = choice.sheet();
             tilesetImages = choice.images();
             problem = choice.problem();   // said at the end, over the finished window

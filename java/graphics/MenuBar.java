@@ -536,10 +536,9 @@ class MenuBar extends JMenuBar{
                     }
                     try {
                         BufferedImage[] tilesetImages;
+                        String basePath = null, overlayPath = null;   // custom's two pictures, once chosen
                         if (tileSheet == TileSheet.CUSTOM) {
                             SuccPaths paths = emulator.getPaths();
-                            String basePath;
-                            String overlayPath;
                             String[] customImages = paths.getCustomTilesetImages();
                             if (customImages != null) {
                                 basePath = customImages[0];
@@ -561,13 +560,12 @@ class MenuBar extends JMenuBar{
                             basePath = baseImage.getAbsolutePath();
                             overlayPath = overlayImage.getAbsolutePath();
                             /* MOD (Jeremy, fix layer, UB-19): both pictures are LOADED before their
-                             * paths are saved. Upstream saved first, so a file that is not a picture
-                             * was saved too, then failed -- and, once custom was the saved tileset,
-                             * failed again at every launch. jc-18's order, re-applied alone (jc-18
-                             * also changed how the choice is stored, UB-16, UB-17; its Cancel is
-                             * back, UB-18, above). */
+                             * paths are saved (below, once drawn). Upstream saved first, so a file
+                             * that is not a picture was saved too, then failed -- and, once custom
+                             * was the saved tileset, failed again at every launch. jc-18's order,
+                             * re-applied alone (its Cancel is back, UB-18, above; how the choice is
+                             * stored, UB-16, below; relative paths are UB-17's). */
                             tilesetImages = TileSheet.loadCustom(baseImage, overlayImage, tileWidth, tileHeight);
-                            paths.setCustomTilesetImages(basePath, overlayPath);
                         } else {
                             tilesetImages = tileSheet.getTileSheets(emulator,tileWidth, tileHeight);
                         }
@@ -577,10 +575,17 @@ class MenuBar extends JMenuBar{
                         window.repaint(true);
 
                         // MOD (Jeremy, fix layer, UB-11): no level open -> the MS tileset (see above).
-                        if (!emulator.isLevelLoaded() || emulator.getLevel().getRuleset() == Ruleset.MS)
-                            emulator.getPaths().setMSTilesetNum(tileSheet.ordinal());
+                        boolean lynx = emulator.isLevelLoaded() && emulator.getLevel().getRuleset() != Ruleset.MS;
+                        /* MOD (Jeremy, fix layer, UB-16): custom is saved as the ruleset's custom
+                         * switch, with its two pictures in the same write, and TilesheetNum keeps the
+                         * built-in choice beside it, which every build can read; a built-in tileset
+                         * is saved as its number with the switch off, in one write. Upstream saved
+                         * custom as tileset number 5, which builds before jc-18 do not have.
+                         * jc-18's, re-applied alone (SuccPaths.getCustomTileset says more). */
+                        if (tileSheet == TileSheet.CUSTOM)
+                            emulator.getPaths().setCustomTileset(lynx, basePath, overlayPath);
                         else
-                            emulator.getPaths().setLynxTilesetNum(tileSheet.ordinal());
+                            emulator.getPaths().setBuiltInTileset(lynx, tileSheet.ordinal());
                     } catch (IOException exc) {
                         emulator.throwError(exc.getMessage());
                     } finally {

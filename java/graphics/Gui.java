@@ -151,13 +151,13 @@ public class Gui extends JFrame{
              * directly, so such a number threw at every set opened -- and, from the command line,
              * before startup's own fallback ran -- and when the pictures failed it kept the previous
              * ruleset's tileset under "Could not load relevant tilesheet", naming nothing. jc-18's
-             * fallback, re-applied alone: it reads the number as upstream stores it (custom as 5);
-             * jc-18's loadForRuleset, which reads custom's own switch, comes back with UB-16. Its
-             * three callers -- opening a set, the Level menu's ruleset switch, a solution load --
-             * all run on the event thread. The message is said last, over the swapped window, as
-             * startup says its own (jc-34 review). */
-            int number = ruleset == Ruleset.MS ? paths.getMSTilesetNum() : paths.getLynxTilesetNum();
-            TileSheet.Choice choice = TileSheet.load(emulator, number, DEFAULT_TILESHEET,
+             * fallback, re-applied alone. Its three callers -- opening a set, the Level menu's
+             * ruleset switch, a solution load -- all run on the event thread. The message is said
+             * last, over the swapped window, as startup says its own (jc-34 review).
+             * MOD (Jeremy, fix layer, UB-16): through loadForRuleset since jc-37, which reads the
+             * ruleset's custom switch and, for custom that fails, falls back to that ruleset's
+             * built-in choice. */
+            TileSheet.Choice choice = TileSheet.loadForRuleset(emulator, paths, ruleset != Ruleset.MS, DEFAULT_TILESHEET,
                     paths.getTileSizes()[0], paths.getTileSizes()[1]);
             TileSheet tileSheet = choice.sheet();
             BufferedImage[] tilesetImages = choice.images();

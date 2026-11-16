@@ -235,7 +235,52 @@ public class EngineTest {
     /** tilesetLoad, comparably: "<sheet> | <the problem's first line, or (no problem)> | images
      *  <count>", or what happened instead. */
     private static String tilesetChoice(SuperCC emu, int number, graphics.TileSheet fallback) {
-        Object choice = tilesetLoad(emu, number, fallback);
+        return describeChoice(tilesetLoad(emu, number, fallback));
+    }
+
+    /** TileSheet.loadForRuleset(emu, emu's settings, lynx, fallback, 10, 10) by reflection (6g, UB-16),
+     *  described as tilesetChoice describes load's answer; "no TileSheet.loadForRuleset" on a jar
+     *  from before UB-16's fix. */
+    private static String rulesetChoice(SuperCC emu, boolean lynx, graphics.TileSheet fallback) {
+        Object choice;
+        try {
+            choice = graphics.TileSheet.class.getMethod("loadForRuleset", SuperCC.class, io.SuccPaths.class, boolean.class,
+                    graphics.TileSheet.class, int.class, int.class).invoke(null, emu, emu.getPaths(), lynx, fallback, 10, 10);
+        } catch (NoSuchMethodException e) {
+            return "no TileSheet.loadForRuleset";
+        } catch (java.lang.reflect.InvocationTargetException e) {
+            Throwable t = e.getCause();
+            return "throws " + t.getClass().getSimpleName() + ": " + String.valueOf(t.getMessage()).split("\n")[0];
+        } catch (ReflectiveOperationException e) {
+            return "cannot call TileSheet.loadForRuleset: " + e;
+        }
+        return describeChoice(choice);
+    }
+
+    /** SuccPaths.setBuiltInTileset(lynx, n) or setCustomTileset(lynx, base, overlay) by reflection
+     *  (6g, UB-16): "done", or "no <name>" on a jar from before UB-16's fix. */
+    private static String pathsCall(io.SuccPaths p, String name, boolean lynx, Object... rest) {
+        Class<?>[] types = new Class<?>[rest.length + 1];
+        Object[] args = new Object[rest.length + 1];
+        types[0] = boolean.class;
+        args[0] = lynx;
+        for (int i = 0; i < rest.length; i++) {
+            types[i + 1] = rest[i] instanceof Integer ? int.class : rest[i].getClass();
+            args[i + 1] = rest[i];
+        }
+        try {
+            io.SuccPaths.class.getMethod(name, types).invoke(p, args);
+            return "done";
+        } catch (NoSuchMethodException e) {
+            return "no " + name;
+        } catch (ReflectiveOperationException e) {
+            return "cannot call " + name + ": " + e;
+        }
+    }
+
+    /** A TileSheet.Choice, comparably: "<sheet> | <the problem's first line, or (no problem)> |
+     *  images <count>"; a String (what happened instead) as it is. */
+    private static String describeChoice(Object choice) {
         if (choice instanceof String) return (String) choice;
         try {
             Object problem = part(choice, "problem");
@@ -917,6 +962,48 @@ public class EngineTest {
             }).replace("\r", "").replace("[SuperCC Error] ", "").replace("\n", " ").trim();
         }
         Harness.eq("throwErrorOnce says each message once, in order", onceOutcome, "first second third first");
+
+        /* MOD (Jeremy, fix layer, UB-16): loadForRuleset, what a ruleset's settings say to draw --
+         * custom as a switch of its own, and the number beside it always a built-in tileset: the one
+         * a build before jc-18 shows from the same file. jc-18's checks, with its message now naming
+         * the setting, and a 5 stored by jc-22 to jc-36 read as the switch (the maintainer's
+         * decision, 2026-11-16, not jc-18's: jc-18 refused it). By reflection, like the rest of 6g. */
+        SuperCC ruled = withCustom(base, overlay);   // the two pictures named; both switches off
+        io.SuccPaths rp = ruled.getPaths();
+        graphics.TileSheet dflt = graphics.TileSheet.CCEDIT_TW;
+        graphics.TileSheet other = graphics.TileSheet.TW;   // a fallback that is not tileset 0, so "drew 0" cannot pass as "fell back"
+        String builtIns = "0, 1, 2, 3, 4";
+        Harness.eq("loadForRuleset, a fresh file: MS draws built-in tileset 0, with nothing to say",
+                rulesetChoice(ruled, false, other), graphics.TileSheet.values()[0].name() + " | (no problem) | images 2");
+        String turnedOn = pathsCall(rp, "setBuiltInTileset", false, graphics.TileSheet.MSCC.ordinal()) + ", "
+                + pathsCall(rp, "setCustomTileset", false, base.getAbsolutePath(), overlay.getAbsolutePath());
+        Harness.eq("MS's custom switch on, beside built-in MSCC: MS draws the pictures",
+                turnedOn + "; " + rulesetChoice(ruled, false, dflt), "done, done; CUSTOM | (no problem) | images 2");
+        Harness.eq("and Lynx still draws its own built-in tileset", rulesetChoice(ruled, true, other),
+                graphics.TileSheet.values()[0].name() + " | (no problem) | images 2");
+        Path movedBase = d6f.resolve("ruleset-moved-away.png");
+        Files.move(base.toPath(), movedBase);
+        String gone = rulesetChoice(ruled, false, dflt);
+        Files.move(movedBase, base.toPath());
+        Harness.eq("custom whose picture is gone falls back to the ruleset's BUILT-IN choice, MSCC -- what an older build shows -- not the default",
+                gone, "MSCC | The custom tileset could not be loaded: | images 2");
+        Harness.eq("a number that is not a built-in tileset: the fallback, and the message names the setting",
+                pathsCall(rp, "setBuiltInTileset", false, 99) + "; " + rulesetChoice(ruled, false, dflt),
+                "done; CCEDIT_TW | TilesheetNum = 99 in succ_settings.ini is not a built-in tileset of this version (" + builtIns + "). | images 2");
+        Harness.eq("and for Lynx, its own setting",
+                pathsCall(rp, "setBuiltInTileset", true, 99) + "; " + rulesetChoice(ruled, true, dflt),
+                "done; CCEDIT_TW | LynxTilesheetNum = 99 in succ_settings.ini is not a built-in tileset of this version (" + builtIns + "). | images 2");
+        int custom5 = graphics.TileSheet.CUSTOM.ordinal();
+        Harness.eq("a " + custom5 + " set while running, with the switch off, is refused like any number out of range (it would disagree with the switch)",
+                pathsCall(rp, "setBuiltInTileset", false, custom5) + "; " + rulesetChoice(ruled, false, dflt),
+                "done; CCEDIT_TW | TilesheetNum = " + custom5 + " in succ_settings.ini is not a built-in tileset of this version (" + builtIns + "). | images 2");
+        File stored5 = Harness.tempDir("scc-engine-five-").resolve(io.SuccPaths.SETTINGS_FILE_NAME).toFile();
+        Files.writeString(stored5.toPath(), "[Graphics]\nTilesheetNum = " + custom5 + "\nCustomBaseImage = " + base.getAbsolutePath()
+                + "\nCustomOverlayImage = " + overlay.getAbsolutePath() + "\n");
+        SuperCC fromFive = new SuperCC(false);
+        installSettings(fromFive, io.SuccPaths.load(stored5));
+        Harness.eq("but a stored TilesheetNum = " + custom5 + " (custom, as jc-22 to jc-36 saved it) draws custom: it is read as the switch",
+                rulesetChoice(fromFive, false, dflt), "CUSTOM | (no problem) | images 2");
 
         Harness.section("7. the full collection fingerprint (local only)");
         /* Synthesized fixtures catch format and edge-case regressions. They cannot speak for the

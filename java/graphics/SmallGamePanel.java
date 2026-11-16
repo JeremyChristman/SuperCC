@@ -47,12 +47,20 @@ public class SmallGamePanel extends GamePanel {
          * throws here, but custom can: its pictures moved, deleted, or missing on the other machine.
          * It now falls back to the default, the reason is said once a session, and the View >
          * Tileset mark follows what is drawn -- here, so every caller gets it, View > Game window
-         * size > custom too. jc-18's, re-applied alone: jc-18 fell back to the ruleset's built-in
-         * choice for custom, through loadForRuleset and custom's own switch, which come back with
-         * UB-16. Both callers (the Game window size menu, ChooseWindowSize) run on the event thread. */
+         * size > custom too. jc-18's, re-applied alone. Both callers (the Game window size menu,
+         * ChooseWindowSize) run on the event thread.
+         * MOD (Jeremy, fix layer, UB-16): custom goes through loadForRuleset since jc-37, so a custom
+         * tileset that fails here falls back to the ruleset's built-in choice -- what an older build
+         * shows from the same file -- as at startup and the swap, rather than to the default. */
         try {
             TileSheet current = getTileSheet() != null ? getTileSheet() : Gui.DEFAULT_TILESHEET;
-            TileSheet.Choice choice = TileSheet.load(emulator, current.ordinal(), Gui.DEFAULT_TILESHEET, tileWidth, tileHeight);
+            TileSheet.Choice choice;
+            if (current == TileSheet.CUSTOM && emulator != null && emulator.getPaths() != null) {
+                boolean lynx = emulator.isLevelLoaded() && emulator.getLevel().getRuleset() != Ruleset.MS;
+                choice = TileSheet.loadForRuleset(emulator, emulator.getPaths(), lynx, Gui.DEFAULT_TILESHEET, tileWidth, tileHeight);
+            } else {
+                choice = TileSheet.load(emulator, current.ordinal(), Gui.DEFAULT_TILESHEET, tileWidth, tileHeight);
+            }
             super.initialise(emulator, choice.images(), choice.sheet(), tileWidth, tileHeight);  // aen-exempt: upstream method name
             /* MOD (Jeremy, fix layer, UB-21; jc-36 review, beyond jc-18): the inventory panel takes
              * its own reference to the board's tile pictures when it is set up, and the line above

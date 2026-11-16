@@ -98,6 +98,9 @@ public class SuccPaths {
         // Upstream d78f6f3: the two images of View > Tileset > custom. Empty = none chosen yet.
         d.put("Graphics:CustomBaseImage", "");
         d.put("Graphics:CustomOverlayImage", "");
+        // MOD (Jeremy, fix layer, UB-16): whether each ruleset draws them -- see getCustomTileset().
+        d.put("Graphics:CustomTileset", "false");
+        d.put("Graphics:LynxCustomTileset", "false");
         d.put("Graphics:ShowBuildTag", "false");   // MOD (Jeremy, jc-8): OFF unless asked for
         /* MOD (Jeremy, jc-14): the two halves of the title after "SuperCC" are switchable too.
          * The shipped defaults are pack OFF and level name ON -- see getShowLevelPack() and
@@ -151,6 +154,9 @@ public class SuccPaths {
                                      "CustomBaseImage", "CustomOverlayImage"}) {
             append(sb, map, g, "Graphics:" + g);
         }
+        // MOD (Jeremy, fix layer, UB-16): switches, so through optedIn() like the ones below.
+        sb.append("CustomTileset = ").append(optedIn(map.get("Graphics:CustomTileset"))).append('\n');
+        sb.append("LynxCustomTileset = ").append(optedIn(map.get("Graphics:LynxCustomTileset"))).append('\n');
         // Rendered through the same predicate the getter uses, so the file can never disagree with
         // what getShowBuildTag() will read back out of it.
         sb.append("ShowBuildTag = ").append(showBuildTagOf(map.get("Graphics:ShowBuildTag"))).append('\n');
@@ -614,6 +620,65 @@ public class SuccPaths {
         settingsMap.put("Graphics:CustomOverlayImage", overlayImage);
         updateSettingsFile();
     }
+
+    /* MOD (Jeremy, fix layer, UB-16): whether a ruleset draws the CUSTOM tileset, as a switch of its
+     * own -- NOT as tileset number 5 in TilesheetNum, which is how upstream stores it. A build
+     * before jc-18 has five tilesets; reading 5 there throws ArrayIndexOutOfBoundsException at
+     * startup and at every level set opened (measured on jc-17's release, 2026-11-15: it starts in
+     * its default tileset with an internal error), and its next settings write erases the custom
+     * keys it does not know. This file is shared by two machines and going back a build is the
+     * usual answer to a bad one, so TilesheetNum keeps the last BUILT-IN choice, which every build
+     * can read, and custom sits beside it: an older build draws that tileset, and simply forgets
+     * custom. jc-18's, re-applied alone. A 5 stored by jc-22 to jc-36 is read as this switch on
+     * (migrateUpstreamCustomNumber). */
+    public boolean getCustomTileset(boolean lynx) {
+        return optedIn(settingsMap.get(lynx ? "Graphics:LynxCustomTileset" : "Graphics:CustomTileset"));
+    }
+
+    /** MOD (Jeremy, fix layer, UB-16): upstream's setCustomTilesetImages with the ruleset's custom
+     *  switch turned on in the SAME write: choosing custom saves three values that only mean
+     *  something together, and this file is rewritten whole and synced, so two writes would be two
+     *  chances for the other machine to see one without the other. The ruleset's TilesheetNum is
+     *  left as it is (getCustomTileset says why). The paths are stored as given -- absolute, as
+     *  upstream stores them, until UB-17. jc-18's, re-applied alone. */
+    public void setCustomTileset(boolean lynx, String baseImage, String overlayImage) {
+        settingsMap.put("Graphics:CustomBaseImage", baseImage);
+        settingsMap.put("Graphics:CustomOverlayImage", overlayImage);
+        settingsMap.put(lynx ? "Graphics:LynxCustomTileset" : "Graphics:CustomTileset", "true");
+        updateSettingsFile();
+    }
+
+    /** MOD (Jeremy, fix layer, UB-16): a built-in tileset chosen in View > Tileset: its number, and
+     *  custom OFF for that ruleset, in one write. (setMSTilesetNum alone keeps its old meaning: the
+     *  number, nothing else.) jc-18's, re-applied alone. */
+    public void setBuiltInTileset(boolean lynx, int tilesetNum) {
+        settingsMap.put(lynx ? "Graphics:LynxTilesheetNum" : "Graphics:TilesheetNum", String.valueOf(tilesetNum));
+        settingsMap.put(lynx ? "Graphics:LynxCustomTileset" : "Graphics:CustomTileset", "false");
+        updateSettingsFile();
+    }
+
+    /** Upstream's number for the custom tileset -- graphics.TileSheet.CUSTOM.ordinal(), which this
+     *  file reader must not depend on (SettingsTest checks the two agree). */
+    private static final int UPSTREAM_CUSTOM_NUMBER = 5;
+
+    /* MOD (Jeremy, fix layer, UB-16; the maintainer's decision, 2026-11-16, not jc-18's): a
+     * TilesheetNum or LynxTilesheetNum of 5 is how jc-22 to jc-36 -- upstream's code, released --
+     * saved a chosen custom tileset. It is read as that ruleset's custom switch ON, with the stock
+     * built-in number (the default's) as the choice beside it, so whoever chose custom on those
+     * builds keeps it. jc-18 refused a stored 5 like any number out of range, but no jc-18 to
+     * jc-21 file holds one; a released build's files do. Done once, at load, in memory: the next
+     * settings write -- every launch makes one -- saves the file in this form. */
+    private void migrateUpstreamCustomNumber() {
+        for (boolean lynx : new boolean[] {false, true}) {
+            String number = lynx ? "Graphics:LynxTilesheetNum" : "Graphics:TilesheetNum";
+            int stored;
+            try { stored = Integer.parseInt(settingsMap.get(number).trim()); }
+            catch (NumberFormatException | NullPointerException notANumber) { continue; }
+            if (stored != UPSTREAM_CUSTOM_NUMBER) continue;
+            settingsMap.put(lynx ? "Graphics:LynxCustomTileset" : "Graphics:CustomTileset", "true");
+            settingsMap.put(number, DEFAULTS.get(number));
+        }
+    }
     public void setShowBuildTag(boolean showBuildTag) { // MOD (Jeremy): see getShowBuildTag()
         settingsMap.put("Graphics:ShowBuildTag", String.valueOf(showBuildTag));
         updateSettingsFile();
@@ -636,6 +701,7 @@ public class SuccPaths {
                     + " (" + settingsFile.length() + " bytes). It looks damaged rather than empty.");
         }
         seedDefaults();
+        migrateUpstreamCustomNumber();   // MOD (Jeremy, fix layer, UB-16)
     }
 
     /* MOD (Jeremy): in-memory instance used when settings.ini exists but cannot be read. */

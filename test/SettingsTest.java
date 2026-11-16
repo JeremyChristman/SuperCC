@@ -38,6 +38,51 @@ public class SettingsTest {
         return Harness.tempDir("jc8-" + name + "-");
     }
 
+    /** A settings file's lines, CRs dropped (section 13b compares WHOLE lines). */
+    private static java.util.List<String> lines(File f) throws IOException {
+        return java.util.Arrays.asList(Files.readString(f.toPath(), StandardCharsets.UTF_8).replace("\r", "").split("\n"));
+    }
+
+    /** A ruleset's custom switch, by reflection (13b): "on", "off", or "no getCustomTileset" on a jar
+     *  from before UB-16's fix (jc-22 to jc-36). */
+    private static String customSwitch(SuccPaths p, boolean lynx) {
+        try {
+            return (Boolean) SuccPaths.class.getMethod("getCustomTileset", boolean.class).invoke(p, lynx) ? "on" : "off";
+        } catch (NoSuchMethodException e) {
+            return "no getCustomTileset";
+        } catch (ReflectiveOperationException e) {
+            return "cannot call getCustomTileset: " + e;
+        }
+    }
+
+    /** setCustomTileset(lynx, base, overlay) or setBuiltInTileset(lynx, n), by reflection (13b):
+     *  "done", or "no <name>" on a jar from before UB-16's fix. */
+    private static String call(SuccPaths p, String name, boolean lynx, Object... rest) {
+        Class<?>[] types = new Class<?>[rest.length + 1];
+        Object[] args = new Object[rest.length + 1];
+        types[0] = boolean.class;
+        args[0] = lynx;
+        for (int i = 0; i < rest.length; i++) {
+            types[i + 1] = rest[i] instanceof Integer ? int.class : rest[i].getClass();
+            args[i + 1] = rest[i];
+        }
+        try {
+            SuccPaths.class.getMethod(name, types).invoke(p, args);
+            return "done";
+        } catch (NoSuchMethodException e) {
+            return "no " + name;
+        } catch (ReflectiveOperationException e) {
+            return "cannot call " + name + ": " + e;
+        }
+    }
+
+    /** A file whose LynxTilesheetNum is `five` and TilesheetNum 2, as read: "<Lynx switch> <Lynx
+     *  number>, MS <MS switch> <MS number>" (13b). */
+    private static String lynxMigrated(int five) throws IOException {
+        SuccPaths p = SuccPaths.load(settingsWith(freshDir("ct-lynx-five"), "[Graphics]", "TilesheetNum = 2", "LynxTilesheetNum = " + five));
+        return customSwitch(p, true) + " " + p.getLynxTilesetNum() + ", MS " + customSwitch(p, false) + " " + p.getMSTilesetNum();
+    }
+
     /** getCustomTilesetImages()'s answer in words a pin can compare (section 13). */
     private static String chosen(String[] images) {
         if (images == null) return "null";
@@ -330,8 +375,7 @@ public class SettingsTest {
          * (upstream's getter returned null only for an ABSENT key, and this fork's settings structure
          * seeds every absent key with "", so on jc-22 to jc-32 it returned the pair, empty or not;
          * those three were pinned there). How the paths are stored is still pinned at upstream's
-         * (UB-17). The switches no longer exist, so their checks went with them (GuiWindowTest
-         * pins how choosing custom is saved). To re-apply all of them at once (the fix layer, FORK.md,
+         * (UB-17). Custom's own switch is back from jc-37 (UB-16), with its checks in 13b. To re-apply all of them at once (the fix layer, FORK.md,
          * takes them back one fix at a time instead): `git revert` the commit "Upstream baseline:
          * revert the custom-tileset fixes"; it holds this change too. */
         Path d13 = freshDir("customtiles");
@@ -366,6 +410,79 @@ public class SettingsTest {
         String up13 = Files.readString(f13c.toPath(), StandardCharsets.UTF_8);
         check("and gains both keys, empty, on its next write",
               up13.contains("CustomBaseImage = \n") && up13.contains("CustomOverlayImage = \n"));
+
+        Harness.section("13b. custom as a switch of its own, beside a built-in TilesheetNum (UB-16)");
+        /* MOD (Jeremy, fix layer, UB-16): upstream saves a chosen custom tileset as tileset number 5,
+         * which builds before jc-18 do not have. jc-18 kept custom as a switch per ruleset
+         * (CustomTileset, LynxCustomTileset) and TilesheetNum the last BUILT-IN choice, which every
+         * build can read -- back since jc-37, with jc-18's checks. And, the maintainer's decision
+         * (2026-11-16), not jc-18's: a 5 stored by jc-22 to jc-36 is read as that ruleset's switch on,
+         * with the stock built-in number beside it, and saved that way at the next write. The new
+         * methods are reached by reflection, so this file still compiles against jc-36's jar, where
+         * these checks then fail as "no getCustomTileset". */
+        Path d13s = freshDir("customswitch");
+        File f13s = d13s.resolve(SuccPaths.SETTINGS_FILE_NAME).toFile();
+        SuccPaths p13s = SuccPaths.load(f13s);
+        java.util.List<String> stock13s = lines(f13s);
+        check("the stock file has both switches, off, as whole lines",
+              stock13s.contains("CustomTileset = false") && stock13s.contains("LynxCustomTileset = false"));
+        String text13s = Files.readString(f13s.toPath(), StandardCharsets.UTF_8);
+        check("under [Graphics], where the getter looks",
+              text13s.indexOf("\nCustomTileset = ") > text13s.indexOf("[Graphics]") && text13s.indexOf("\nCustomTileset = ") < text13s.indexOf("[Emulation]"));
+        Harness.eq("a fresh file: custom off for both rulesets", customSwitch(p13s, false) + " " + customSwitch(p13s, true), "off off");
+        Harness.eq("choosing a built-in tileset for MS saves its number, custom off",
+              call(p13s, "setBuiltInTileset", false, 3) + "; " + customSwitch(SuccPaths.load(f13s), false) + " " + SuccPaths.load(f13s).getMSTilesetNum(),
+              "done; off 3");
+        Path cBase13 = d13s.resolve("base.png"), cOver13 = d13s.resolve("overlay.png");
+        Harness.eq("choosing custom for MS turns its switch on, the pictures saved with it",
+              call(p13s, "setCustomTileset", false, cBase13.toString(), cOver13.toString()) + "; " + customSwitch(SuccPaths.load(f13s), false)
+              + " " + java.util.Arrays.toString(SuccPaths.load(f13s).getCustomTilesetImages()),
+              "done; on " + java.util.Arrays.toString(new String[] {cBase13.toString(), cOver13.toString()}));
+        Harness.eq("and leaves TilesheetNum the built-in choice, and Lynx alone",
+              SuccPaths.load(f13s).getMSTilesetNum() + " " + customSwitch(SuccPaths.load(f13s), true), "3 off");
+        Harness.eq("choosing custom under Lynx turns the Lynx switch on",
+              call(p13s, "setCustomTileset", true, cBase13.toString(), cOver13.toString()) + "; " + customSwitch(SuccPaths.load(f13s), true), "done; on");
+        // WHOLE lines, not substrings: "TilesheetNum = 0" is inside "LynxTilesheetNum = 0" (jc-18 review).
+        java.util.List<String> both13s = lines(f13s);
+        check("with custom on for both, TilesheetNum and LynxTilesheetNum are still built-in numbers, never 5",
+              both13s.contains("TilesheetNum = 3") && both13s.contains("LynxTilesheetNum = 0")
+              && both13s.contains("CustomTileset = true") && both13s.contains("LynxCustomTileset = true"));
+        Harness.eq("choosing a built-in tileset for MS then turns MS custom off, in one write, Lynx left on",
+              call(p13s, "setBuiltInTileset", false, 2) + "; " + customSwitch(SuccPaths.load(f13s), false) + " "
+              + SuccPaths.load(f13s).getMSTilesetNum() + " " + customSwitch(SuccPaths.load(f13s), true), "done; off 2 on");
+        Harness.eq("an unrecognized switch value reads OFF",
+              customSwitch(SuccPaths.load(settingsWith(freshDir("ct-yes"), "[Graphics]", "CustomTileset = yes")), false), "off");
+        Harness.eq("and a switch under the wrong section is another key",
+              customSwitch(SuccPaths.load(settingsWith(freshDir("ct-wrong"), "[Paths]", "CustomTileset = true")), false), "off");
+        // Written back through the getter's own predicate (CLAUDE.md section 5), so the file can
+        // never say ON while the program reads OFF.
+        File f13y = settingsWith(freshDir("ct-yes-rw"), "[Graphics]", "CustomTileset = yes", "LynxCustomTileset = on");
+        SuccPaths.load(f13y).setTileSizes(new int[] {20, 20});   // any write
+        java.util.List<String> written13y = lines(f13y);
+        check("and both switches are written back as what they read, false (" + written13y.stream()
+              .filter(l -> l.contains("CustomTileset")).collect(java.util.stream.Collectors.joining("; ")) + ")",
+              written13y.contains("CustomTileset = false") && written13y.contains("LynxCustomTileset = false"));
+        // The migration: a 5 as jc-22 to jc-36 stored it.
+        int five = graphics.TileSheet.CUSTOM.ordinal();
+        File f13m = settingsWith(freshDir("ct-five"), "[Graphics]", "TilesheetNum = " + five, "LynxTilesheetNum = 1",
+              "CustomBaseImage = " + cBase13, "CustomOverlayImage = " + cOver13);
+        SuccPaths p13m = SuccPaths.load(f13m);
+        Harness.eq("a stored TilesheetNum = " + five + " (custom, as jc-22 to jc-36 saved it) reads as MS custom ON, with the stock built-in number beside it",
+              customSwitch(p13m, false) + " " + p13m.getMSTilesetNum(), "on 0");
+        Harness.eq("and leaves Lynx, and the pictures, alone",
+              customSwitch(p13m, true) + " " + p13m.getLynxTilesetNum() + " " + java.util.Arrays.toString(p13m.getCustomTilesetImages()),
+              "off 1 " + java.util.Arrays.toString(new String[] {cBase13.toString(), cOver13.toString()}));
+        p13m.setTileSizes(new int[] {20, 20});   // any write
+        java.util.List<String> after13m = lines(f13m);
+        check("and its next write saves it so: TilesheetNum = 0 and CustomTileset = true, no 5 left (" + after13m + ")",
+              after13m.contains("TilesheetNum = 0") && after13m.contains("CustomTileset = true") && !after13m.contains("TilesheetNum = " + five));
+        Harness.eq("a stored LynxTilesheetNum = " + five + " reads as Lynx custom ON, with the stock built-in number",
+              lynxMigrated(five), "on 0, MS off 2");
+        Harness.eq("a stored 5 wins over CustomTileset = false beside it (only a hand edit makes that pair)",
+              customSwitch(SuccPaths.load(settingsWith(freshDir("ct-five-off"), "[Graphics]", "TilesheetNum = " + five, "CustomTileset = false")), false), "on");
+        Harness.eq("any other number is left as it is, custom off",
+              customSwitch(SuccPaths.load(settingsWith(freshDir("ct-four"), "[Graphics]", "TilesheetNum = 4")), false) + " "
+              + SuccPaths.load(settingsWith(freshDir("ct-four2"), "[Graphics]", "TilesheetNum = 4")).getMSTilesetNum(), "off 4");
 
         Harness.section("14. AutoDiagonals (upstream 5f928e0), in [Controls]");
         /* Exactly as upstream wrote it (the upstream baseline, FORK.md): read with

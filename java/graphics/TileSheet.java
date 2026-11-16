@@ -72,7 +72,7 @@ public enum TileSheet {
      * mistake, and jc-17's Black and White fix is the proof it gets noticed. jc-18's loader (merged
      * as "upstream merge", reverted for the upstream baseline in jc-22), re-applied alone; its
      * fallbacks came back with UB-20 (Choice, load, below: startup) and UB-21 (the swap, a
-     * resize); loadForRuleset comes with UB-16. */
+     * resize) and UB-16 (loadForRuleset, reading custom's own switch). */
     public BufferedImage[] getTileSheets(SuperCC emulator, int tileWidth, int tileHeight) throws IOException {
         URL localUrlTiles;
         URL localUrlOverlay;
@@ -106,9 +106,9 @@ public enum TileSheet {
      *  the reason -- when that number is not a tileset or its images cannot be loaded, so a saved
      *  tileset that cannot be drawn no longer stops startup partway. The settings are left
      *  alone: the pictures may come back, or exist on the other machine. Only the fallback itself
-     *  failing (a broken jar) still throws. jc-18's, re-applied alone; it reads the number as
-     *  upstream stores it (custom as 5, UB-16), and jc-18's loadForRuleset, which reads custom's own
-     *  switch, comes back with UB-16. Both of its messages end in KEPT (jc-34 review: jc-18 told
+     *  failing (a broken jar) still throws. jc-18's, re-applied alone. Since jc-37 (UB-16) the
+     *  settings are read through loadForRuleset, below, which calls this with a number it has
+     *  checked (or custom's); a resize calls it with the tileset drawn. Both of its messages end in KEPT (jc-34 review: jc-18 told
      *  only the custom case, though a number out of range is kept just the same, and said again at
      *  every start until it is changed). */
     public static Choice load(SuperCC emulator, int settingsNumber, TileSheet fallback, int tileWidth, int tileHeight) throws IOException {
@@ -127,6 +127,41 @@ public enum TileSheet {
                     "The " + wanted.name + " tileset could not be loaded:\n" + e.getMessage()
                     + "\n\nShowing " + fallback.name + " instead." + KEPT);
         }
+    }
+
+    /* MOD (Jeremy, fix layer, UB-16): what a ruleset's settings say to draw, as images -- the one
+     * place the SETTINGS are read as a tileset: startup, the per-ruleset swap and a window-size
+     * change of a custom tileset. (View > Tile size reloads the tileset drawn through getTileSheets
+     * directly, with no fallback: upstream's, and jc-18's alike -- BASELINE-ISSUES.md, "NOT
+     * introduced".)
+     *
+     * Custom is a switch (SuccPaths.getCustomTileset says why it is never a number), and the number
+     * beside it is always a BUILT-IN tileset: the one a build before jc-18 shows from the same file.
+     * So:
+     *   - switch on: custom, and if its pictures fail, THAT built-in tileset -- what the older build
+     *     would show -- rather than the default;
+     *   - switch off: the number, which must name a built-in tileset. A 5 here is refused like any
+     *     other number out of range, not taken as custom: it would disagree with the switch. (A 5
+     *     stored by jc-22 to jc-36 never gets here: SuccPaths reads it as the switch, at load.)
+     * Every failure draws a fallback and says why; the settings are left alone, because the pictures
+     * may come back or exist on the other machine. Only a built-in tileset that cannot load (a
+     * broken jar) still throws. jc-18's, re-applied alone, but its message for a number that is
+     * not a built-in tileset names the setting it came from (jc-34 and jc-36 reviews: "Tileset
+     * number 99" alone did not say whether to fix TilesheetNum or LynxTilesheetNum). */
+    public static Choice loadForRuleset(SuperCC emulator, SuccPaths paths, boolean lynx, TileSheet fallback,
+                                        int tileWidth, int tileHeight) throws IOException {
+        int n = lynx ? paths.getLynxTilesetNum() : paths.getMSTilesetNum();
+        TileSheet[] all = values();
+        boolean builtIn = n >= 0 && n < all.length && all[n] != CUSTOM;
+        if (paths.getCustomTileset(lynx)) return load(emulator, CUSTOM.ordinal(), builtIn ? all[n] : fallback, tileWidth, tileHeight);
+        if (!builtIn) {
+            return new Choice(fallback, fallback.getTileSheets(emulator, tileWidth, tileHeight),
+                    (lynx ? "LynxTilesheetNum" : "TilesheetNum") + " = " + n + " in succ_settings.ini is not a built-in tileset of this version ("
+                    + java.util.Arrays.stream(all).filter(t -> t != CUSTOM).map(t -> String.valueOf(t.ordinal()))
+                          .collect(java.util.stream.Collectors.joining(", "))
+                    + ").\n\nShowing " + fallback.name + " instead." + KEPT);
+        }
+        return load(emulator, n, fallback, tileWidth, tileHeight);
     }
 
     /** MOD (Jeremy, fix layer, UB-20): how load's messages end -- the saved choice is left as it is. */

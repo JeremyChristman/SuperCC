@@ -135,20 +135,27 @@ public class StartupTilesetTest {
         Harness.eq("a custom tileset whose pictures load: no message", custom.messages.toString(), "[]");
         Harness.eq("a custom tileset whose pictures load: laid out, tile size and notation as saved",
                 custom.get("size") + " " + custom.get("tiles") + " " + custom.get("notation"), normal + " 32x32 true");
+        // MOD (Jeremy, fix layer, UB-16): its TilesheetNum = 5 -- how jc-22 to jc-36 saved custom -- is
+        // read as custom's own switch, and this start's settings write saves it that way: the stock
+        // built-in number, the switch on.
+        Harness.eq("a custom tileset saved as tileset number 5: read as custom's switch, and saved so", custom.get("saved"),
+                "TilesheetNum = 0 | CustomTileset = true");
 
         String fallback = "CCEDIT_TW", shown = "Tile World (CCEdit)";
         String kept = "Your choice is kept; pick a tileset in View > Tileset to change it.";
+        String builtIns = "0, 1, 2, 3, 4";
         String missingCustom = "[Graphics]\nTilesheetNum = 5\nCustomBaseImage = {dir}" + File.separator
                 + "gone-base.png\nCustomOverlayImage = {dir}" + File.separator + "gone-overlay.png\n";
+        // The number cases' message names the setting (UB-16's loadForRuleset, since jc-37).
         Object[][] cases = {
-            { "number 99", "[Graphics]\nTilesheetNum = 99\n", "TilesheetNum = 99",
-              "Tileset number 99 in succ_settings.ini is not one this version has.\n\nShowing " + shown + " instead. " + kept },
-            { "number -1", "[Graphics]\nTilesheetNum = -1\n", "TilesheetNum = -1",
-              "Tileset number -1 in succ_settings.ini is not one this version has.\n\nShowing " + shown + " instead. " + kept },
-            { "custom, its pictures missing", missingCustom, "TilesheetNum = 5",
+            { "number 99", "[Graphics]\nTilesheetNum = 99\n", "TilesheetNum = 99 | CustomTileset = false",
+              "TilesheetNum = 99 in succ_settings.ini is not a built-in tileset of this version (" + builtIns + ").\n\nShowing " + shown + " instead. " + kept },
+            { "number -1", "[Graphics]\nTilesheetNum = -1\n", "TilesheetNum = -1 | CustomTileset = false",
+              "TilesheetNum = -1 in succ_settings.ini is not a built-in tileset of this version (" + builtIns + ").\n\nShowing " + shown + " instead. " + kept },
+            { "custom, its pictures missing", missingCustom, "TilesheetNum = 0 | CustomTileset = true",
               "The custom tileset could not be loaded:\nCustom tileset image not found:\n" },
             { "custom, a file that is not a picture", "[Graphics]\nTilesheetNum = 5\nCustomBaseImage = " + notes
-              + "\nCustomOverlayImage = " + overlay + "\n", "TilesheetNum = 5",
+              + "\nCustomOverlayImage = " + overlay + "\n", "TilesheetNum = 0 | CustomTileset = true",
               "The custom tileset could not be loaded:\nNot an image SuperCC can read:\n" } };
         for (Object[] c : cases) {
             String what = (String) c[0], expected = (String) c[3];
@@ -169,6 +176,18 @@ public class StartupTilesetTest {
             Harness.check(what + ": the child ended by itself", s.ended && s.get("end").equals("reached"));
         }
 
+        // MOD (Jeremy, fix layer, UB-16): custom saved as its own switch, beside a built-in MSCC, its
+        // pictures missing: it falls back to that BUILT-IN choice -- what a build before jc-18 shows
+        // from the same file -- not to the default.
+        Start beside = start("custom-switch-beside-mscc", missingCustom.replace("TilesheetNum = 5", "TilesheetNum = 3\nCustomTileset = true"));
+        Harness.eq("custom's switch on beside built-in MSCC, its pictures missing: MSCC drawn, laid out as saved",
+                beside.get("threw") + " " + beside.get("drawn") + " " + beside.get("size") + " " + beside.get("tiles") + " " + beside.get("notation"),
+                "nothing MSCC " + normal + " 32x32 true");
+        Harness.check("and one message, naming the picture and MSCC (" + beside.firstMessage() + ")",
+                beside.messages.size() == 1 && beside.messages.get(0).startsWith("The custom tileset could not be loaded:\nCustom tileset image not found:\n")
+                && beside.messages.get(0).contains("gone-base.png") && beside.messages.get(0).endsWith("Showing MSCC instead. " + kept));
+        Harness.eq("and the choice is kept as it was", beside.get("saved"), "TilesheetNum = 3 | CustomTileset = true");
+
         Harness.section("2. ... with a level set on the command line: opening it swaps the tileset first (UB-21)");
         /* SuperCC.initialise opens a set named on the command line (ArgumentParser) BEFORE it reaches  // aen-exempt: upstream method name
          * the tileset, and opening a set runs Gui.swapRulesetTilesheet. Upstream's swap (jc-22 to
@@ -178,7 +197,7 @@ public class StartupTilesetTest {
          * and custom that failed said the swap's words first, then UB-20's. MOD (Jeremy, fix layer,
          * UB-21): the swap falls back as startup does, so startup finishes, and the reason is said
          * ONCE: by the swap, startup's identical message being one already said this session. */
-        String kept99 = "Tileset number 99 in succ_settings.ini is not one this version has.\n\nShowing " + shown + " instead. " + kept;
+        String kept99 = "TilesheetNum = 99 in succ_settings.ini is not a built-in tileset of this version (" + builtIns + ").\n\nShowing " + shown + " instead. " + kept;
         Path setDir = Harness.tempDir("scc-startup-set-");
         DatBuilder b = new DatBuilder().signature(DatBuilder.SIG_MS);
         b.level().title("Startup").chips(0).timeLimit(60).tile(1, 1, game.Tile.CHIP).end();
@@ -266,10 +285,13 @@ public class StartupTilesetTest {
             report("title", seen[4]);
             for (String m : new ArrayList<>(messages)) report("message", m);
             for (String b : new ArrayList<>(behind)) report("behind", b);
-            String saved = "(none)";
-            for (String line : Files.readAllLines(Path.of(io.SuccPaths.SETTINGS_FILE_NAME), StandardCharsets.UTF_8))
-                if (line.startsWith("TilesheetNum")) saved = line.trim();
-            report("saved", saved);
+            // The MS number and, since jc-37 (UB-16), the switch beside it: "(none)" for a line not written.
+            String savedNumber = "(none)", savedSwitch = "(none)";
+            for (String line : Files.readAllLines(Path.of(io.SuccPaths.SETTINGS_FILE_NAME), StandardCharsets.UTF_8)) {
+                if (line.startsWith("TilesheetNum")) savedNumber = line.trim();
+                if (line.startsWith("CustomTileset")) savedSwitch = line.trim();
+            }
+            report("saved", savedNumber + " | " + savedSwitch);
             if (g != null) SwingUtilities.invokeAndWait(g::dispose);
             report("end", "reached");
             System.exit(0);

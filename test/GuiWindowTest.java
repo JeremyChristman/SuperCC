@@ -527,6 +527,43 @@ public class GuiWindowTest {
             } while (true);
         }
 
+        /** A ruleset's custom switch, by reflection (UB-16, since jc-37): "on", "off", or "no
+         *  getCustomTileset" on a jar from before it. */
+        static String customSwitch(SuperCC emu, boolean lynx) {
+            try {
+                return (Boolean) io.SuccPaths.class.getMethod("getCustomTileset", boolean.class).invoke(emu.getPaths(), lynx) ? "on" : "off";
+            } catch (NoSuchMethodException e) {
+                return "no getCustomTileset";
+            } catch (ReflectiveOperationException e) {
+                return "cannot call getCustomTileset: " + e;
+            }
+        }
+
+        /** Custom ON for a ruleset with these two pictures, in the form this jar saves it:
+         *  setCustomTileset (UB-16, since jc-37), or, on a jar from before it, upstream's -- the
+         *  pictures and tileset number 5. So a check that needs custom on means the same on both. */
+        static void chooseCustom(SuperCC emu, boolean lynx, String base, String overlay) throws Exception {
+            try {
+                io.SuccPaths.class.getMethod("setCustomTileset", boolean.class, String.class, String.class)
+                        .invoke(emu.getPaths(), lynx, base, overlay);
+            } catch (NoSuchMethodException upstream) {
+                emu.getPaths().setCustomTilesetImages(base, overlay);
+                if (lynx) emu.getPaths().setLynxTilesetNum(graphics.TileSheet.CUSTOM.ordinal());
+                else emu.getPaths().setMSTilesetNum(graphics.TileSheet.CUSTOM.ordinal());
+            }
+        }
+
+        /** A built-in tileset for a ruleset, custom OFF: setBuiltInTileset (UB-16), or the number alone
+         *  on a jar from before it. */
+        static void chooseBuiltIn(SuperCC emu, boolean lynx, int number) throws Exception {
+            try {
+                io.SuccPaths.class.getMethod("setBuiltInTileset", boolean.class, int.class).invoke(emu.getPaths(), lynx, number);
+            } catch (NoSuchMethodException upstream) {
+                if (lynx) emu.getPaths().setLynxTilesetNum(number);
+                else emu.getPaths().setMSTilesetNum(number);
+            }
+        }
+
         /** A field of {@code o}, declared in its class or any superclass (GamePanel's flags). */
         static Object field(Object o, String name) throws Exception {
             for (Class<?> k = o.getClass(); k != null; k = k.getSuperclass()) {
@@ -907,7 +944,9 @@ public class GuiWindowTest {
             String[] noImages = emu.getPaths().getCustomTilesetImages();
             fact("and saved no custom image, nor chose custom",
                  (noImages == null || (noImages[0].isEmpty() && noImages[1].isEmpty()))
-                 && emu.getPaths().getMSTilesetNum() != graphics.TileSheet.CUSTOM.ordinal());
+                 && emu.getPaths().getMSTilesetNum() != graphics.TileSheet.CUSTOM.ordinal()
+                 && !customSwitch(emu, false).equals("on") && !customSwitch(emu, true).equals("on"),
+                 customSwitch(emu, false) + " " + customSwitch(emu, true));
 
             //    And custom with two real pictures CHOSEN, still with no level open (answerChoosers
             //    approves each chooser with a file, as a person would). It is drawn and saved as the
@@ -932,12 +971,13 @@ public class GuiWindowTest {
             stop(pick);
             fact("and both of its choosers were answered (" + picked + ")",
                  picked.size() >= 2 && picked.get(0).equals("chooser") && picked.get(1).equals("chooser"));
-            // "Saved as the MS choice" is read through upstream's form of it, custom as tileset
-            // number 5 (UB-16); when UB-16's fix comes back, this reads its switch instead.
-            fact("and it is drawn, and saved as the MS choice, the Lynx one left alone",
-                 w.getGamePanel().getTileSheet() == graphics.TileSheet.CUSTOM
-                 && emu.getPaths().getMSTilesetNum() == graphics.TileSheet.CUSTOM.ordinal()
-                 && emu.getPaths().getLynxTilesetNum() == 0);
+            // MOD (Jeremy, fix layer, UB-16): saved as the MS custom switch, TilesheetNum still the
+            // built-in choice beside it (the walk's last, Black and White); jc-22 to jc-36 saved it
+            // as tileset number 5.
+            String savedNoLevel = "drawn " + w.getGamePanel().getTileSheet() + ", MS " + customSwitch(emu, false) + " "
+                    + emu.getPaths().getMSTilesetNum() + ", Lynx " + customSwitch(emu, true) + " " + emu.getPaths().getLynxTilesetNum();
+            fact("and it is drawn, and saved as the MS choice -- custom's own switch, TilesheetNum still built-in -- the Lynx one left alone",
+                 savedNoLevel.equals("drawn CUSTOM, MS on " + bw.ordinal() + ", Lynx off 0"), savedNoLevel);
             //    Then a built-in tileset again, still with no level open. Custom is the saved MS
             //    choice now, so every set opened from here on would be drawn with these pictures, and
             //    section 5b's own custom pick could pass on this one's saved choice (its "drawn" and
@@ -1351,9 +1391,10 @@ public class GuiWindowTest {
             //     the paths relative to this folder (the Chip's Challenge folder), and loaded both
             //     pictures before saving them. ⚠ UPSTREAM BASELINE (from jc-22): all reverted
             //     (UB-16, UB-17, UB-19) -- upstream stores custom as tileset number 5, the paths
-            //     absolute, and saves a picture before it knows the picture loads. The first two are
-            //     pinned at upstream's, read from the settings file this window writes; the load before
-            //     the save is back from jc-33 (UB-19, below).
+            //     absolute, and saves a picture before it knows the picture loads. The load before the
+            //     save is back from jc-33 (UB-19, below), and custom as a switch of its own from jc-37
+            //     (UB-16, checked here, read from the settings file this window writes; jc-22 to jc-36
+            //     pinned tileset number 5); how the paths are stored is still pinned (UB-17).
             List<String> answered = java.util.Collections.synchronizedList(new ArrayList<>());
             Thread chooser = answerChoosers(answered, cBase, cOver);
             noThrow("View > Tileset > custom, two pictures chosen, with a level open", customMark::doClick);
@@ -1363,10 +1404,10 @@ public class GuiWindowTest {
             fact("the custom tileset is drawn", w.getGamePanel().getTileSheet() == graphics.TileSheet.CUSTOM);
             Thread.sleep(200);
             List<String> ini = java.util.Arrays.asList(Files.readString(Path.of(io.SuccPaths.SETTINGS_FILE_NAME)).split("\\R"));
-            pin("choosing custom keeps TilesheetNum a built-in number, with custom a switch of its own",
-                ini.contains("TilesheetNum = 5") ? "custom saved as tileset number 5"
-                    : ini.contains("CustomTileset = true") ? "custom saved as its own switch" : "neither",
-                "custom saved as tileset number 5", "custom saved as its own switch");
+            // WHOLE lines: "TilesheetNum = 5" is inside "LynxTilesheetNum = 5".
+            fact("choosing custom keeps TilesheetNum a built-in number, with custom a switch of its own",
+                 !ini.contains("TilesheetNum = " + graphics.TileSheet.CUSTOM.ordinal()) && ini.contains("CustomTileset = true"),
+                 ini.stream().filter(l -> l.contains("Tileset") || l.contains("Tilesheet")).collect(java.util.stream.Collectors.joining("; ")));
             pin("and its pictures, inside the Chip's Challenge folder, are saved relative to it",
                 ini.contains("CustomBaseImage = cbase.png") ? "relative"
                     : ini.contains("CustomBaseImage = " + cBase.getPath()) ? "absolute" : "neither",
@@ -1427,7 +1468,8 @@ public class GuiWindowTest {
             stop(t99);
             fact("a Lynx set opened with LynxTilesheetNum = 99: works", open99.equals("works"), open99);
             fact("and the default tileset is drawn, the radio mark on it", onScreen.get().equals(onDefault), onScreen.get());
-            fact("and the reason is said", said99.equals(List.of("message: Tileset number 99 in succ_settings.ini is not one this version has.\n\nShowing "
+            // MOD (Jeremy, fix layer, UB-16): the message names the setting (loadForRuleset, since jc-37).
+            fact("and the reason is said, naming the setting", said99.equals(List.of("message: LynxTilesheetNum = 99 in succ_settings.ini is not a built-in tileset of this version (0, 1, 2, 3, 4).\n\nShowing "
                  + graphics.TileSheet.getNames()[graphics.Gui.DEFAULT_TILESHEET.ordinal()] + " instead." + keptLine)), said99.toString());
             fact("and the choice is kept", emu.getPaths().getLynxTilesetNum() == 99, String.valueOf(emu.getPaths().getLynxTilesetNum()));
             // The same cause met again: an MS set (its own tileset drawn), then the Lynx set again.
@@ -1443,9 +1485,10 @@ public class GuiWindowTest {
                  openAgain.equals("works") && onScreen.get().equals(onDefault) && saidAgain.isEmpty(), openAgain + "; " + onScreen.get() + "; " + saidAgain);
 
             // Custom as the Lynx tileset, its pictures missing, at a Lynx set opened.
+            // Its built-in choice the default, so either build falls back to the same tileset here.
             File gone = new File("swap-gone-base.png").getAbsoluteFile();
-            emu.getPaths().setCustomTilesetImages(gone.getPath(), new File("swap-gone-overlay.png").getAbsolutePath());
-            emu.getPaths().setLynxTilesetNum(graphics.TileSheet.CUSTOM.ordinal());
+            chooseBuiltIn(emu, true, graphics.Gui.DEFAULT_TILESHEET.ordinal());
+            chooseCustom(emu, true, gone.getPath(), new File("swap-gone-overlay.png").getAbsolutePath());
             Thread quietMs2 = closeEveryDialog();
             noThrow("an MS set opened first", () -> emu.openLevelset(msFile));
             stop(quietMs2);
@@ -1479,10 +1522,14 @@ public class GuiWindowTest {
             String resized = outcome(() -> panel.setWindowSize(panel.getWindowSizeX(), panel.getWindowSizeY()));
             stop(tResize);
             fact("its base picture moved away, then the window size set: works", resized.equals("works"), resized);
-            fact("and the default tileset is drawn, the radio mark on it", onScreen.get().equals(onDefault), onScreen.get());
-            fact("and the reason is said, naming the moved picture",
+            // MOD (Jeremy, fix layer, UB-16): custom that fails falls back to the ruleset's BUILT-IN
+            // choice -- Black and White here, the one beside the switch, what an older build shows --
+            // not to the default (jc-36, through load, fell back to the default).
+            fact("and the MS built-in choice beside the switch, " + bw + ", is drawn, the radio mark on it", onScreen.get().equals(onBw), onScreen.get());
+            fact("and the reason is said, naming the moved picture and the tileset shown",
                  saidResize.size() == 1 && saidResize.get(0).startsWith("message: The custom tileset could not be loaded:\nCustom tileset image not found:\n")
-                 && saidResize.get(0).contains("resize-base.png") && saidResize.get(0).endsWith(keptLine), saidResize.toString());
+                 && saidResize.get(0).contains("resize-base.png") && saidResize.get(0).endsWith("Showing " + graphics.TileSheet.getNames()[bw.ordinal()]
+                 + " instead." + keptLine), saidResize.toString());
             fact("and the inventory draws from the board's new pictures, not the failed tileset's (jc-36 review)",
                  field(w.getInventoryPanel(), "tileImage") == field(w.getGamePanel(), "tileImage"));
 
@@ -1491,12 +1538,14 @@ public class GuiWindowTest {
             Thread quietRestore = closeEveryDialog();
             noThrow("and a built-in tileset chosen again", bwMark::doClick);
             stop(quietRestore);
-            emu.getPaths().setLynxTilesetNum(lynxBefore);
+            chooseBuiltIn(emu, true, lynxBefore);   // Lynx custom off again too
             if (picturesBefore != null) emu.getPaths().setCustomTilesetImages(picturesBefore[0], picturesBefore[1]);
             else emu.getPaths().setCustomTilesetImages("", "");   // read back as none chosen (UB-19)
             fact("and the settings put back for section 6", emu.getPaths().getLynxTilesetNum() == lynxBefore
+                 && !customSwitch(emu, true).equals("on") && !customSwitch(emu, false).equals("on")
                  && onScreen.get().equals(onBw) && java.util.Arrays.equals(emu.getPaths().getCustomTilesetImages(), picturesBefore),
-                 emu.getPaths().getLynxTilesetNum() + " " + onScreen.get() + " " + java.util.Arrays.toString(emu.getPaths().getCustomTilesetImages()));
+                 emu.getPaths().getLynxTilesetNum() + " " + customSwitch(emu, false) + "/" + customSwitch(emu, true) + " " + onScreen.get() + " "
+                 + java.util.Arrays.toString(emu.getPaths().getCustomTilesetImages()));
 
             // 6. Auto-diagonals (upstream 5f928e0, fb8fe25, da35e33, 8c95b3e), exactly as upstream
             //    wrote them (the upstream baseline, FORK.md). Upstream's key listener sends EVERY game
