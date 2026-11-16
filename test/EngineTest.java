@@ -185,13 +185,26 @@ public class EngineTest {
     }
 
     /** What loading the custom tileset did, comparably: "loads", "IOException: " and the FIRST line
-     *  of its message (the lines after it hold temp paths), or "throws " and the class (UB-18..19). */
+     *  of its message (the lines after it hold temp paths), or "throws " and the class (UB-19). */
     private static String customOutcome(SuperCC emu) {
         try {
             graphics.TileSheet.CUSTOM.getTileSheets(emu, 10, 10);
             return "loads";
         } catch (IOException e) {
             return "IOException: " + (e.getMessage() == null ? "(no message)" : e.getMessage().split("\n")[0]);
+        } catch (Throwable t) {
+            return "throws " + t.getClass().getSimpleName();
+        }
+    }
+
+    /** The whole message of loading the custom tileset's failure, to check what it names; "loads", or
+     *  "throws " and the class, when there is none. */
+    private static String customMessage(SuperCC emu) {
+        try {
+            graphics.TileSheet.CUSTOM.getTileSheets(emu, 10, 10);
+            return "loads";
+        } catch (IOException e) {
+            return String.valueOf(e.getMessage());
         } catch (Throwable t) {
             return "throws " + t.getClass().getSimpleName();
         }
@@ -668,15 +681,14 @@ public class EngineTest {
          * window -- naming the reason once a session.
          *
          * ⚠ UPSTREAM BASELINE (from jc-22): all of that was REVERTED (FORK.md, "The upstream
-         * baseline"; BASELINE-ISSUES.md UB-16 to UB-21). Upstream loads with ImageIO.read, so each
-         * failure below is pinned at what upstream's loader does, by the first line of its message
-         * (the lines after it hold temp paths) or the class it throws. The fallbacks lived in
-         * methods upstream does not have; what upstream does instead at startup and at a swap was
-         * measured by launching the program (BASELINE-ISSUES.md UB-20, UB-21). The settings are
-         * written as a FILE here, which both codes read, so this section runs on either. To
-         * re-apply all of them at once (the fix layer, FORK.md, takes them back one fix at a time
-         * instead): `git revert` the commit "Upstream baseline: revert the custom-tileset fixes"; it
-         * holds this change too. */
+         * baseline"; BASELINE-ISSUES.md UB-16 to UB-21), and comes back one fix at a time (FORK.md,
+         * "The fix layer"). MOD (Jeremy, fix layer, UB-19): the loader is back from jc-33, so every
+         * failure below is an IOException again, checked by the first line of its message (the
+         * lines after it hold temp paths) and, where there is one, that it names the file. (On
+         * jc-22 to jc-32 each was pinned at what upstream's ImageIO.read did.) The fallbacks live in
+         * methods upstream does not have (UB-20, UB-21); what upstream does instead at startup and at
+         * a swap was measured by launching the program. The settings are written as a FILE here,
+         * which both codes read, so this section runs on either. */
         Path d6f = tempDir("custom-tiles");
         File base = d6f.resolve("base.png").toFile(), overlay = d6f.resolve("overlay.png").toFile();
         javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(7 * 4, 16 * 4, java.awt.image.BufferedImage.TYPE_INT_ARGB), "png", base);
@@ -688,39 +700,118 @@ public class EngineTest {
         Harness.check("two real images load, scaled to 7 x 16 tiles of the asked size",
                 custom.length == 2 && custom[0].getWidth() == 70 && custom[0].getHeight() == 192
                 && custom[1].getWidth() == 70 && custom[1].getHeight() == 192);
-        Harness.upstreamBug("a missing image is an IOException naming the file",
-                customOutcome(withCustom(base, d6f.resolve("gone.png").toFile())),
-                "IOException: Can't get input stream from URL!", "IOException: Custom tileset image not found:");
-        Harness.upstreamBug("a file that is not an image is an IOException that says so",
-                customOutcome(withCustom(notImage, overlay)),
-                "throws NullPointerException", "IOException: Not an image SuperCC can read:");
-        Harness.upstreamBug("custom with no settings loaded says that, not that no images were chosen",
-                customOutcome(null),
-                "throws NullPointerException", "IOException: The custom tileset's images are named in succ_settings.ini, which is not loaded here.");
-        // Upstream's getter returns the pair whenever both keys exist, and this fork's settings seed
-        // them "": the empty paths reach ImageIO as the working folder, which is no picture.
-        SuperCC noImages = withCustom(null, null);
-        Harness.upstreamBug("custom with settings but no images chosen says so, rather than \"null\"",
-                customOutcome(noImages),
-                "throws NullPointerException", "IOException: No images have been chosen for the custom tileset.");
+        // The picture must be closed once read: jc-18's first loader leaked a handle on every image it
+        // read (closing ImageIO's stream did not close the one it wrapped), which on Windows LOCKS the
+        // file, so the user could not move or replace their own tileset while SuperCC ran. A move of
+        // a picture just loaded is what caught it then, and checks the file read in place now.
+        Path movedAway = d6f.resolve("moved-away.png");
+        boolean moved;
+        try { Files.move(base.toPath(), movedAway); Files.move(movedAway, base.toPath()); moved = true; }
+        catch (IOException e) { moved = false; }
+        Harness.check("a picture just loaded is not left locked: it can be moved, and back", moved && base.isFile());
+        // ImageIO caches a stream in a temp file by default, and a cache folder it cannot use failed
+        // the load -- reported as the picture's fault. The loader reads a picture file in place, with
+        // no cache (jc-33 reviews). ImageIO's cache folder is set to one that is then deleted, and the
+        // one found here is put back afterward (it is the whole JVM's).
+        Path cacheDir = Files.createDirectories(d6f.resolve("imageio-cache"));
+        File cacheBefore = javax.imageio.ImageIO.getCacheDirectory();
+        String withCacheGone, builtInWithCacheGone;
+        try {
+            javax.imageio.ImageIO.setCacheDirectory(cacheDir.toFile());
+            Files.delete(cacheDir);
+            withCacheGone = customOutcome(withCustom(base, overlay));
+            // And a built-in sheet, read from the jar, which goes the other way (jc-33 review).
+            try { graphics.TileSheet.TW.getTileSheets(null, 10, 10); builtInWithCacheGone = "loads"; }
+            catch (Throwable t) { builtInWithCacheGone = "throws " + t; }
+        } finally {
+            javax.imageio.ImageIO.setCacheDirectory(cacheBefore);
+        }
+        Harness.eq("a picture loads even when ImageIO's temp-file cache folder is gone", withCacheGone, "loads");
+        Harness.eq("and so does a built-in tileset", builtInWithCacheGone, "loads");
+        SuperCC missing = withCustom(base, d6f.resolve("gone.png").toFile());
+        Harness.eq("a missing image is an IOException that says so", customOutcome(missing),
+                "IOException: Custom tileset image not found:");
+        Harness.check("and its message names the missing file", customMessage(missing).contains("gone.png"));
+        // A folder named where a picture should be (a hand-edited settings file): there, so not
+        // "not found" -- just not a picture file (jc-33 review).
+        Harness.eq("a folder where a picture should be is an IOException that says it is not a file",
+                customOutcome(withCustom(d6f.toFile(), overlay)), "IOException: Custom tileset image is not a file:");
+        // A name Windows cannot have (a hand-edited settings file): never looked for, so not "not
+        // found" either (jc-33 review). Elsewhere < and > are legal in a name, so it runs on Windows,
+        // this program's platform, only.
+        if (System.getProperty("os.name", "").startsWith("Windows"))
+            Harness.eq("a path that cannot be a path is an IOException that says so",
+                    customOutcome(withCustom(new File(d6f.toFile(), "bad<1>.png"), overlay)), "IOException: Custom tileset image is not a valid path:");
+        else
+            Harness.skip("a path that cannot be a path: < and > are legal in a name off Windows");
+        // A picture the loader cannot open -- unreadable, or gone after customImage looked -- is said in
+        // words, naming it, not as the system's bare message (jc-33 review). Asked of the loader itself,
+        // past customImage's own check, as a race would reach it.
+        String unopened;
+        try { graphics.TileSheet.loadTilesetImage(d6f.resolve("never-there.png").toUri().toURL(), 10, 10); unopened = "loads"; }
+        catch (IOException e) { unopened = String.valueOf(e.getMessage()); }
+        catch (Throwable t) { unopened = "throws " + t.getClass().getSimpleName(); }
+        Harness.eq("a picture the loader cannot open is an IOException that says so", unopened.split("\n")[0], "Could not open the picture:");
+        Harness.check("and that message names the picture, once (the system's reason follows without it)",
+                unopened.indexOf("never-there.png") >= 0 && unopened.indexOf("never-there.png") == unopened.lastIndexOf("never-there.png"));
+        SuperCC text = withCustom(notImage, overlay);
+        Harness.eq("a file that is not an image is an IOException that says so", customOutcome(text),
+                "IOException: Not an image SuperCC can read:");
+        Harness.check("and that message names the file", customMessage(text).contains("notes.png"));
+        Harness.eq("custom with no settings loaded says that, not that no images were chosen", customOutcome(null),
+                "IOException: The custom tileset's images are named in succ_settings.ini, which is not loaded here.");
+        // The fork's settings seed both keys "": an empty path is "none chosen" (SuccPaths), where
+        // upstream's getter returned the pair and the empty paths reached ImageIO as the working folder.
+        Harness.eq("custom with settings but no images chosen says so, rather than \"null\"", customOutcome(withCustom(null, null)),
+                "IOException: No images have been chosen for the custom tileset.");
 
         // A GIF that ends (trailer 0x3B) right after its screen descriptor, named .png (ImageIO sniffs
-        // content, not the name): jc-18's review found its reader throwing IndexOutOfBoundsException.
+        // content, not the name): jc-18's review found its reader throwing IndexOutOfBoundsException,
+        // a RuntimeException that skipped every fallback until the loader turned them all into words.
         java.io.File gif = d6f.resolve("truncated.png").toFile();
         Files.write(gif.toPath(), new byte[] {'G', 'I', 'F', '8', '9', 'a', 10, 0, 10, 0, 0, 0, 0, 0x3B});
-        Harness.upstreamBug("a GIF with no image in it is an IOException that says so",
-                customOutcome(withCustom(gif, overlay)),
-                "throws IndexOutOfBoundsException", "IOException: Not an image SuperCC can read:");
+        SuperCC gifEmu = withCustom(gif, overlay);
+        Harness.eq("a GIF with no image in it is an IOException that says so", customOutcome(gifEmu),
+                "IOException: Not an image SuperCC can read:");
+        Harness.check("and the GIF's message names the file", customMessage(gifEmu).contains("truncated.png"));
+        // A real PNG cut short, as a half-downloaded file is: its header reads, then the image data
+        // ends. ImageIO's own IIOException for it ("Error reading PNG image data") named no file --
+        // jc-18 let it through, and the jc-33 review found it; it is the file's problem in words now.
+        java.awt.image.BufferedImage noise = new java.awt.image.BufferedImage(64, 64, java.awt.image.BufferedImage.TYPE_INT_RGB);
+        java.util.Random noiseRandom = new java.util.Random(33);
+        for (int y = 0; y < 64; y++) for (int x = 0; x < 64; x++) noise.setRGB(x, y, noiseRandom.nextInt());
+        java.io.ByteArrayOutputStream pngBytes = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(noise, "png", pngBytes);
+        byte[] wholePng = pngBytes.toByteArray();
+        File cutShort = d6f.resolve("cut-short.png").toFile();
+        Files.write(cutShort.toPath(), java.util.Arrays.copyOf(wholePng, wholePng.length * 3 / 5));
+        SuperCC cutEmu = withCustom(cutShort, overlay);
+        Harness.eq("a picture cut short is an IOException that says so", customOutcome(cutEmu),
+                "IOException: Not an image SuperCC can read:");
+        Harness.check("and the cut-short picture's message names the file", customMessage(cutEmu).contains("cut-short.png"));
         // Well-formed PNGs (real CRCs, a deflated IDAT; the review's construction) whose headers claim
         // more pixels than a tileset image may have. 50000 x 50000 makes ImageIO throw
         // IllegalArgumentException; 46000 x 46000 stays under ImageIO's own overflow check and asks for
-        // about 8 GB, so on upstream's loader -- which decodes first -- it is NOT run (UB-19).
+        // about 8 GB. Both are refused from the header, before anything is decoded -- and the 46000
+        // case is run only once the 50000 one has been refused that way, since a loader that decodes
+        // first (upstream's, on jc-22 to jc-32) would try to allocate the 8 GB.
         java.io.File huge = d6f.resolve("huge.png").toFile();
-        Files.write(huge.toPath(), pngClaiming(50000, 50000));
-        Harness.upstreamBug("an image whose header claims 50000 x 50000 is refused, unread, in words",
-                customOutcome(withCustom(huge, overlay)),
-                "throws IllegalArgumentException", "IOException: Too large for a tileset image:");
-        Harness.skip("an image whose header claims 46000 x 46000: upstream's loader would try to decode about 8 GB (UB-19), not run");
+        boolean refusesFromHeader = true;
+        for (int side : new int[] {50000, 46000}) {
+            if (!refusesFromHeader) {
+                Harness.skip("an image whose header claims " + side + " x " + side + ": the loader did not refuse 50000 x 50000"
+                             + " from its header, so it might decode this one (about 8 GB); not run");
+                continue;
+            }
+            Files.write(huge.toPath(), pngClaiming(side, side));
+            SuperCC hugeEmu = withCustom(huge, overlay);
+            String hugeOutcome = customOutcome(hugeEmu);
+            Harness.eq("an image whose header claims " + side + " x " + side + " is refused, unread, in words", hugeOutcome,
+                    "IOException: Too large for a tileset image:");
+            String hugeMsg = customMessage(hugeEmu);
+            Harness.check("and the " + side + " message names the file and its size", hugeMsg.contains("huge.png") && hugeMsg.contains(side + " x " + side));
+            refusesFromHeader = hugeOutcome.equals("IOException: Too large for a tileset image:");
+        }
 
         Harness.section("7. the full collection fingerprint (local only)");
         /* Synthesized fixtures catch format and edge-case regressions. They cannot speak for the

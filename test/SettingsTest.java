@@ -325,10 +325,12 @@ public class SettingsTest {
          * built-in TilesheetNum, where upstream stores it as tileset number 5.
          *
          * ⚠ UPSTREAM BASELINE (from jc-22): all REVERTED (FORK.md, "The upstream baseline";
-         * BASELINE-ISSUES.md UB-16, UB-17, UB-19). Upstream's getter returns null only for an ABSENT
-         * key, and this fork's settings structure seeds every absent key with "", so on this code it
-         * returns the pair, empty or not: those checks, and how the paths are stored, are pinned at
-         * upstream's. The switches no longer exist, so their checks went with them (GuiWindowTest
+         * BASELINE-ISSUES.md UB-16, UB-17, UB-19), and coming back one fix at a time (FORK.md, "The
+         * fix layer"). MOD (Jeremy, fix layer, UB-19): empty reads as "none chosen" again from jc-33
+         * (upstream's getter returned null only for an ABSENT key, and this fork's settings structure
+         * seeds every absent key with "", so on jc-22 to jc-32 it returned the pair, empty or not;
+         * those three were pinned there). How the paths are stored is still pinned at upstream's
+         * (UB-17). The switches no longer exist, so their checks went with them (GuiWindowTest
          * pins how choosing custom is saved). To re-apply all of them at once (the fix layer, FORK.md,
          * takes them back one fix at a time instead): `git revert` the commit "Upstream baseline:
          * revert the custom-tileset fixes"; it holds this change too. */
@@ -341,7 +343,7 @@ public class SettingsTest {
         check("and under [Graphics], where the getter looks",
               stock13.indexOf("CustomBaseImage") > stock13.indexOf("[Graphics]")
               && stock13.indexOf("CustomBaseImage") < stock13.indexOf("[Emulation]"));
-        Harness.upstreamBug("none chosen reads as null", chosen(p13.getCustomTilesetImages()), "a pair of empty paths", "null");
+        Harness.eq("none chosen reads as null", chosen(p13.getCustomTilesetImages()), "null");
         Path inBase = d13.resolve("tilesets").resolve("base.png"), inOverlay = d13.resolve("tilesets").resolve("overlay.png");
         p13.setCustomTilesetImages(inBase.toString(), inOverlay.toString());
         String file13 = Files.readString(f13.toPath(), StandardCharsets.UTF_8);
@@ -353,14 +355,13 @@ public class SettingsTest {
         check("and read back, after a reload, as the paths chosen",
               reread13 != null && reread13[0].equals(inBase.toString()) && reread13[1].equals(inOverlay.toString()));
         Path d13b = freshDir("customtiles-half");
-        Harness.upstreamBug("only one of the two given reads as null (both are needed)",
+        Harness.eq("only one of the two given reads as null (both are needed)",
               chosen(SuccPaths.load(settingsWith(d13b, "[Graphics]", "CustomBaseImage = a.png", "CustomOverlayImage = ")).getCustomTilesetImages()),
-              "a pair, one of them empty", "null");
+              "null");
         Path d13c = freshDir("customtiles-old");
         File f13c = settingsWith(d13c, "[Graphics]", "TilesheetNum = 2");
         SuccPaths p13c = SuccPaths.load(f13c);
-        Harness.upstreamBug("a file from before jc-18 (no keys) reads as none chosen", chosen(p13c.getCustomTilesetImages()),
-              "a pair of empty paths", "null");
+        Harness.eq("a file from before jc-18 (no keys) reads as none chosen", chosen(p13c.getCustomTilesetImages()), "null");
         p13c.setMSTilesetNum(3);
         String up13 = Files.readString(f13c.toPath(), StandardCharsets.UTF_8);
         check("and gains both keys, empty, on its next write",

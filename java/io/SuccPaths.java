@@ -13,7 +13,6 @@ import java.nio.file.StandardOpenOption;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -547,19 +546,20 @@ public class SuccPaths {
         return Paths.get(getSuccPath(), levelsetName, Integer.toString(levelNumber), levelName+".scc").toString();
     }
 
-    /* Upstream d78f6f3's getter, its logic exactly: the two stored paths (upstream stores them
-     * absolute), or null only when a key is ABSENT. In this fork's settings structure
-     * seedDefaults() gives every absent key a value ("" here), so this returns the pair, empty or
-     * not -- the upstream baseline, FORK.md; jc-18 to jc-21 read empty as "none chosen" and stored
-     * the paths relative (UB-17, UB-19). */
+    /* Upstream d78f6f3: the base and overlay images of the custom tileset as stored (upstream stores
+     * them absolute; UB-17), or null when either has not been chosen.
+     *
+     * MOD (Jeremy, fix layer, UB-19): an EMPTY path is "not chosen". Upstream caught a
+     * NullPointerException to mean "not set", so it returned null only for an ABSENT key; this
+     * fork's settings structure seeds every absent key "" (seedDefaults), so upstream's getter
+     * returned the pair whenever the keys existed -- always -- and an empty path reached the image
+     * reader as the working folder, which is no picture: an internal error where "no images have
+     * been chosen" was meant. jc-18's test, re-applied alone; its relative storage is UB-17's. */
     public String[] getCustomTilesetImages() {
-        try {
-            return new String[]{Objects.requireNonNull(settingsMap.get("Graphics:CustomBaseImage")),
-                            Objects.requireNonNull(settingsMap.get("Graphics:CustomOverlayImage"))};
-        }
-        catch (NullPointerException e) {
-            return null;
-        }
+        String base = settingsMap.get("Graphics:CustomBaseImage");
+        String overlay = settingsMap.get("Graphics:CustomOverlayImage");
+        if (base == null || base.isBlank() || overlay == null || overlay.isBlank()) return null;
+        return new String[] {base, overlay};
     }
 
     public void setLevelsetFolderPath(String levelsetFolderPath) {

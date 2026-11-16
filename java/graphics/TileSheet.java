@@ -3,12 +3,26 @@ package graphics;
 import emulator.SuperCC;
 import io.SuccPaths;
 
+import javax.imageio.IIOException;
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
+import javax.imageio.stream.FileImageInputStream;
+import javax.imageio.stream.MemoryCacheImageInputStream;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
+import java.net.URISyntaxException;
 import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.util.Iterator;
+import java.util.Locale;
 import java.util.Objects;
 
 public enum TileSheet {
@@ -47,28 +61,167 @@ public enum TileSheet {
         this.name = name;
     }
     
+    /* MOD (Jeremy, fix layer, UB-19): every way the custom images can be unusable is an IOException
+     * with words in it -- the type the callers catch. (View > Tileset shows it; startup, the
+     * ruleset swap and a window-size change do not yet: UB-20 and UB-21.) Upstream threw an
+     * IOException with NO message when none had been chosen (its callers show getMessage(), so the
+     * user saw "null"), let a missing file surface as ImageIO's "Can't get input stream from URL!",
+     * and let a file that is not an image through as a NullPointerException, which no caller
+     * catches (ImageIO.read returns null for a format it cannot read). A built-in sheet missing from
+     * the jar stays the NullPointerException it always was: that is a broken build, not a user
+     * mistake, and jc-17's Black and White fix is the proof it gets noticed. jc-18's loader (merged
+     * as "upstream merge", reverted for the upstream baseline in jc-22), re-applied alone: its
+     * fallbacks (Choice, load, loadForRuleset) come back with UB-20, UB-21 and UB-16. */
     public BufferedImage[] getTileSheets(SuperCC emulator, int tileWidth, int tileHeight) throws IOException {
         URL localUrlTiles;
         URL localUrlOverlay;
         if (this == TileSheet.CUSTOM) {
-            SuccPaths paths = emulator.getPaths();
+            SuccPaths paths = emulator == null ? null : emulator.getPaths();
+            // Two messages, so neither is false: with no settings loaded (a headless emulator) the
+            // images may well be chosen -- they just cannot be looked up from here (review).
+            if (paths == null) throw new IOException("The custom tileset's images are named in succ_settings.ini, which is not loaded here.");
             String[] imgPaths = paths.getCustomTilesetImages();
-            if (imgPaths == null) throw new IOException();
-            localUrlTiles = new File(imgPaths[0]).toURI().toURL();
-            localUrlOverlay = new File(imgPaths[1]).toURI().toURL();
+            if (imgPaths == null) throw new IOException("No images have been chosen for the custom tileset.");
+            return loadCustom(new File(imgPaths[0]), new File(imgPaths[1]), tileWidth, tileHeight);
         } else {
             localUrlTiles = TileSheet.class.getResource(urlTiles);
             localUrlOverlay = TileSheet.class.getResource(urlOverlay);
         }
         return new BufferedImage[] {this.loadTilesetImage(localUrlTiles, tileWidth, tileHeight), this.loadTilesetImage(localUrlOverlay, tileWidth, tileHeight)};
     }
+    /** MOD (Jeremy, fix layer, UB-19): a file URL as the path a user would recognize, for the
+     *  messages (URL.getPath() keeps %20 for every space). */
+    private static String shown(URL url) {
+        try { return new File(url.toURI()).getPath(); }
+        catch (Exception e) { return url.toString(); }
+    }
+
+    /** MOD (Jeremy, fix layer, UB-19): the custom tileset from two given files, so View > Tileset >
+     *  custom can load both BEFORE saving their paths -- upstream saved first, and a file that is
+     *  not an image was then saved too, failing again at every launch. */
+    public static BufferedImage[] loadCustom(File base, File overlay, int tileWidth, int tileHeight) throws IOException {
+        return new BufferedImage[] {loadTilesetImage(customImage(base), tileWidth, tileHeight),
+                                    loadTilesetImage(customImage(overlay), tileWidth, tileHeight)};
+    }
+    /** MOD (Jeremy, fix layer, UB-19): a chosen picture as the URL loadTilesetImage reads, or the
+     *  reason it cannot be one, naming it by its absolute path, as every other message does. */
+    private static URL customImage(File f) throws IOException {
+        String named = f.getAbsolutePath();
+        BasicFileAttributes found = null;   // stays null when the file cannot be looked at
+        try {
+            found = Files.readAttributes(f.toPath(), BasicFileAttributes.class);
+        } catch (InvalidPathException e) {
+            // From a hand-edited settings file, say: never looked for, so not "not found" (jc-33 review).
+            throw new IOException("Custom tileset image is not a valid path:\n" + named, e);
+        } catch (NoSuchFileException e) {
+            throw new IOException("Custom tileset image not found:\n" + named, e);
+        } catch (IOException e) {
+            // There or not, it cannot be looked at -- in a folder this user may not open: opening it
+            // says why, naming it (jc-33 review: File.exists() answered "not found").
+        }
+        // There, but not a file -- a folder named in a hand-edited settings file (jc-33 review).
+        if (found != null && !found.isRegularFile()) throw new IOException("Custom tileset image is not a file:\n" + named);
+        return f.toURI().toURL();
+    }
+    /* MOD (Jeremy, fix layer, UB-19): the most pixels a tileset image may have, 32 Mi (33,554,432). A
+     * sheet of 7 x 16 tiles of 512 pixels -- far past any tile size the menus offer -- is 29 million.
+     * 32 Mi decodes to 128 MB as an ordinary 8-bit image, and to 256 MB at worst, for 16 bits per
+     * channel (review); the scaled copies are small. Above it, the image is refused BEFORE it is
+     * decoded: a PNG of a few dozen bytes whose header claims 46000 x 46000 stays under ImageIO's own
+     * overflow check and makes it allocate about 8 GB, an OutOfMemoryError that no fallback catches
+     * (review). The cap bounds a picture's dimensions only. A large sheet also costs time, because
+     * every tileset is re-read when a set is opened; that is how the built-in ones always worked. */
+    private static final long MAX_PIXELS = 32L * 1024 * 1024;
+
     public static BufferedImage loadTilesetImage(URL url, int tileWidth, int tileHeight) throws IOException {
-        Image image = ImageIO.read(Objects.requireNonNull(url));
+        // A built-in sheet missing from the jar is a broken build, not a user mistake, and stays the
+        // NullPointerException it always was -- thrown here, outside the try below, which would
+        // otherwise catch it (jc-33 review: it then escaped only by accident, from shown()).
+        URL source = Objects.requireNonNull(url);
+        File file = fileOf(source);
+        Image image;
+        ImageReader reader = null;
+        /* MOD (Jeremy, fix layer, UB-19): how the picture is read. A file -- every custom picture -- is
+         * read in place, with no cache and no copy: ImageIO's default cache, a temp file, failed on its
+         * own when the temp folder could not be used ("Can't create cache file!"), reported as the
+         * picture's fault, and a cache in memory held a large file whole on the heap (jc-33 reviews).
+         * A built-in sheet, inside the jar, is cached in memory; those are small. Every stream is a
+         * resource of this try, the jar entry too (null for a file): closing ImageIO's stream does not
+         * close the one it wraps, and jc-18's first loader leaked a handle on every image it read --
+         * which on Windows LOCKS the file, so the user could not move or replace their own tileset
+         * while SuperCC ran (EngineTest 6f's move of a loaded image is what failed). */
+        try (InputStream raw = file == null ? source.openStream() : null;
+             ImageInputStream in = file != null ? new FileImageInputStream(file) : new MemoryCacheImageInputStream(raw)) {
+            Iterator<ImageReader> readers = ImageIO.getImageReaders(in);
+            if (!readers.hasNext()) throw notAnImage(source, null);
+            reader = readers.next();
+            reader.setInput(in, true, true);
+            long width = reader.getWidth(0), height = reader.getHeight(0);
+            if (width * height > MAX_PIXELS) {
+                throw new Refused("Too large for a tileset image:\n" + shown(source) + "\nIt is " + width + " x " + height
+                        + " pixels; SuperCC loads up to " + String.format(Locale.ROOT, "%,d", MAX_PIXELS) + " pixels.", null);
+            }
+            image = reader.read(0);
+        } catch (Refused r) {
+            throw r;   // the loader's own words, already naming the file
+        } catch (FileNotFoundException e) {
+            // MOD (Jeremy, fix layer, UB-19): a picture that cannot be opened -- this user may not
+            // read it, or it went away or was locked after customImage looked -- in words, naming it,
+            // not as the system's bare "<path> (Access is denied)" (jc-33 reviews, reproduced).
+            throw new IOException("Could not open the picture:\n" + shown(source) + "\n(" + reason(e) + ")", e);
+        } catch (RuntimeException | IIOException e) {
+            // MOD (Jeremy, fix layer, UB-19): ImageIO's readers throw RUNTIME exceptions, not an
+            // IOException, for files they cannot use -- IllegalArgumentException for a header that
+            // overflows, IndexOutOfBoundsException for a GIF with no image in it, decoder-internal
+            // array errors -- and each skipped every caller's fallback, at startup too (reviews).
+            // Their own IIOException, for a file cut short or damaged ("Error reading PNG image
+            // data"), named no file (jc-33 review; jc-18 let it through). Anything the reader throws
+            // about the user's file is that file's problem, said in words, naming it, with the
+            // reader's own words after them.
+            throw notAnImage(source, e);
+        } catch (IOException e) {
+            // MOD (Jeremy, fix layer, UB-19): any other failure to read -- a drive that drops part
+            // way, say -- names the file too, but is not blamed on the picture: it may well be a good
+            // one (jc-33 reviews). Not checked by a test: it needs a device that fails mid-read.
+            throw new IOException("Could not read the picture:\n" + shown(source) + "\n(" + e + ")", e);
+        } finally {
+            if (reader != null) reader.dispose();
+        }
+        if (image == null) throw notAnImage(source, null);  // MOD (Jeremy, fix layer, UB-19): see above
         Image imageResized = image.getScaledInstance(tileWidth * TILESHEET_WIDTH, tileHeight * TILESHEET_HEIGHT, Image.SCALE_SMOOTH);
         BufferedImage imageBuf = new BufferedImage(tileWidth * TILESHEET_WIDTH, tileHeight * TILESHEET_HEIGHT, BufferedImage.TYPE_INT_ARGB);
         Graphics2D gr = imageBuf.createGraphics();
         gr.drawImage(imageResized, 0, 0, null);
         gr.dispose();
         return imageBuf;
+    }
+
+    /** MOD (Jeremy, fix layer, UB-19): the file a URL names, or null for anything else -- a built-in
+     *  sheet, inside the jar. */
+    private static File fileOf(URL source) {
+        if (!"file".equals(source.getProtocol())) return null;
+        try { return new File(source.toURI()); }
+        catch (URISyntaxException | IllegalArgumentException notAPlainFile) { return null; }
+    }
+
+    /** MOD (Jeremy, fix layer, UB-19): why a file could not be opened, without the path the system puts
+     *  in front of it ("C:\...\base.png (Access is denied)" gives "Access is denied"; jc-33 review: the
+     *  message printed the path twice). */
+    private static String reason(FileNotFoundException e) {
+        String message = String.valueOf(e.getMessage());
+        int open = message.lastIndexOf(" (");
+        return open >= 0 && message.endsWith(")") ? message.substring(open + 2, message.length() - 1) : message;
+    }
+
+    /** MOD (Jeremy, fix layer, UB-19): a picture the loader itself refuses, in its own words -- so the
+     *  catch for what the image reader throws does not wrap it a second time. */
+    private static final class Refused extends IOException {
+        Refused(String message, Throwable cause) { super(message, cause); }
+    }
+
+    /** MOD (Jeremy, fix layer, UB-19): the one message for a file the image reader cannot use, naming
+     *  it, with the reader's own words when it gave any (jc-33 review: it was written out three times). */
+    private static IOException notAnImage(URL url, Exception cause) {
+        return new Refused("Not an image SuperCC can read:\n" + shown(url) + (cause == null ? "" : "\n(" + cause + ")"), cause);
     }
 }

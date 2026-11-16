@@ -58,7 +58,8 @@ import java.util.zip.ZipFile;
  *   4. Canceling Go to... and Set RNG Seed (by the close box and by the Cancel button: the reply
  *      is null), and each box's other answers.
  *   4b. Canceling every file chooser the menus open with a level loaded but View > Tileset >
- *      custom's (5b, UB-18): the close box, Cancel; and for the four UB-13 concerns, a file chosen.
+ *      custom's (UB-18, pinned in 2's walk): the close box, Cancel; and for the four UB-13
+ *      concerns, a file chosen.
  *   5. A level that loads is not reported as failed when the repaint after it throws.
  *   Nothing reaches the error log before 3a, nothing after 3a until 5, whose trace is expected.
  *
@@ -273,7 +274,8 @@ public class GuiWindowTest {
         /**
          * Answers each file chooser that appears with the next of `files` -- selects it and approves,
          * as a person picking the file would -- and closes any other dialog (an error) as its close
-         * box would. Records "chooser" or "dialog" in `log` for each. The dialog is looked at on
+         * box would. Records "chooser", "chooser (closed)" for one past the last file, or "message:
+         * <its text>" for any other dialog, in `log` for each. The dialog is looked at on
          * the event thread, inside its own loop, so it is fully built by then (jc-31 review: looked
          * at from the poller's thread, a chooser caught half-built would be closed as a "dialog"
          * and never offered again). Stop it with stop().
@@ -286,9 +288,11 @@ public class GuiWindowTest {
                 if (fc != null && i < files.length) {
                     next.incrementAndGet();
                     approve(fc, files[i], log);
-                } else {
-                    log.add(fc != null ? "chooser (closed)" : "dialog");
+                } else if (fc != null) {
+                    log.add("chooser (closed)");
                     win.dispose();
+                } else {
+                    recordMessage(win, log);
                 }
             }));
         }
@@ -1154,18 +1158,18 @@ public class GuiWindowTest {
             //     TWS > Write solution to new tws fail with an AssertionError (the child runs with
             //     -ea:graphics.MenuBar for that). MOD (Jeremy, fix layer, UB-13): both are gone again.
             //     Every file chooser the menus open with a level loaded -- but View > Tileset >
-            //     custom's, whose Cancel is UB-18 (pinned in 5b) -- is answered as a person would
-            //     (answerChooser): its close box and its Cancel button, which must change nothing and
-            //     show nothing else; and for UB-13's four, a file too. For the three that open one, the
-            //     file is one that is not there, which must bring jc-12's own message ("There is no
-            //     file:" and the path) and nothing else; for the TWS save, a new file, which must be
-            //     written and its folder remembered for the next tws chooser (jc-10) -- both prove the
-            //     chooser's answer reaches the code. Each item starts afresh on level 1 with two moves
-            //     made and the TWS folder in a folder of its own, and the new file goes to another, so
-            //     a Cancel that moved the folder, or a save that did not remember it, shows (planted:
-            //     both survived while the folder was this one). "Changes nothing" is the same Level
-            //     object, moves, savestates object and TWS folder, no file added here, and no window
-            //     opened (jc-32 review).
+            //     custom's, whose Cancel is UB-18 (pinned in section 2's walk) -- is answered as a
+            //     person would (answerChooser): its close box and its Cancel button, which must change
+            //     nothing and show nothing else; and for UB-13's four, a file too. For the three that
+            //     open one, the file is one that is not there, which must bring jc-12's own message
+            //     ("There is no file:" and the path) and nothing else; for the TWS save, a new file,
+            //     which must be written and its folder remembered for the next tws chooser (jc-10) --
+            //     both prove the chooser's answer reaches the code. Each item starts afresh on level 1
+            //     with two moves made and the TWS folder in a folder of its own, and the new file goes
+            //     to another, so a Cancel that moved the folder, or a save that did not remember it,
+            //     shows (planted: both survived while the folder was this one). "Changes nothing"
+            //     is the same Level object, moves, savestates object and TWS folder, no file added
+            //     here, and no window opened (jc-32 review).
             File twsStart = new File("tws-start").getAbsoluteFile(), twsNew = new File("tws-new").getAbsoluteFile();
             fact("the two TWS folders exist", (twsStart.isDirectory() || twsStart.mkdirs()) && (twsNew.isDirectory() || twsNew.mkdirs()));
             File written = new File(twsNew, "written.tws");
@@ -1275,8 +1279,9 @@ public class GuiWindowTest {
             //     the paths relative to this folder (the Chip's Challenge folder), and loaded both
             //     pictures before saving them. ⚠ UPSTREAM BASELINE (from jc-22): all reverted
             //     (UB-16, UB-17, UB-19) -- upstream stores custom as tileset number 5, the paths
-            //     absolute, and saves a picture before it knows the picture loads. Each is pinned at
-            //     upstream's, read from the settings file this window writes.
+            //     absolute, and saves a picture before it knows the picture loads. The first two are
+            //     pinned at upstream's, read from the settings file this window writes; the load before
+            //     the save is back from jc-33 (UB-19, below).
             List<String> answered = java.util.Collections.synchronizedList(new ArrayList<>());
             Thread chooser = answerChoosers(answered, cBase, cOver);
             noThrow("View > Tileset > custom, two pictures chosen, with a level open", customMark::doClick);
@@ -1294,18 +1299,26 @@ public class GuiWindowTest {
                 ini.contains("CustomBaseImage = cbase.png") ? "relative"
                     : ini.contains("CustomBaseImage = " + cBase.getPath()) ? "absolute" : "neither",
                 "absolute", "relative");
+            //     MOD (Jeremy, fix layer, UB-19): both pictures are LOADED before their paths are saved,
+            //     so a file that is not a picture brings one error naming it, and nothing is saved from
+            //     it: the pictures chosen above stay the saved ones. (jc-22 to jc-32, upstream's order,
+            //     saved it first and then threw NullPointerException; pinned there.) Both choosers must
+            //     really have been answered, or these would be reading a canceled pick (review).
             answered.clear();
             chooser = answerChoosers(answered, cText, cOver);
-            pin("choosing a file that is not a picture", outcome(customMark::doClick), "throws NullPointerException", "works");
+            String notPicture = outcome(customMark::doClick);
             stop(chooser);
-            // The harness, not the program: both choosers must really have been answered, or the
-            // pin above would be reading a canceled pick (review).
-            fact("and both of its choosers were answered (" + answered + ")",
-                 answered.size() >= 2 && answered.get(0).equals("chooser") && answered.get(1).equals("chooser"));
+            fact("choosing a file that is not a picture: works", notPicture.equals("works"), notPicture);
+            fact("and both its choosers were answered, then one error naming the file",
+                 answered.size() == 3 && answered.get(0).equals("chooser") && answered.get(1).equals("chooser")
+                 && answered.get(2).startsWith("message: Not an image SuperCC can read:") && answered.get(2).contains("cnotes.png"),
+                 answered.toString());
             Thread.sleep(200);
             String iniText = Files.readString(Path.of(io.SuccPaths.SETTINGS_FILE_NAME));
-            pin("and that file is not saved as a custom picture", iniText.contains("cnotes.png") ? "saved" : "not saved",
-                "saved", "not saved");
+            fact("and that file is not saved as a custom picture", !iniText.contains("cnotes.png"), iniText);
+            fact("and the pictures chosen before it are still the saved ones",
+                 iniText.contains("CustomBaseImage = " + cBase.getPath() + "\n")
+                 && iniText.contains("CustomOverlayImage = " + cOver.getPath() + "\n"), iniText);
             Thread restore = closeEveryDialog();
             noThrow("and a built-in tileset can be chosen again", bwMark::doClick);
             stop(restore);

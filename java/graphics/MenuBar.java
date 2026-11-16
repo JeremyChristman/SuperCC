@@ -535,6 +535,7 @@ class MenuBar extends JMenuBar{
                         tileHeight = Gui.DEFAULT_TILE_HEIGHT;
                     }
                     try {
+                        BufferedImage[] tilesetImages;
                         if (tileSheet == TileSheet.CUSTOM) {
                             SuccPaths paths = emulator.getPaths();
                             String basePath;
@@ -552,9 +553,16 @@ class MenuBar extends JMenuBar{
                             if (baseImage == null || overlayImage == null) throw new IOException("No tileset image provided");
                             basePath = baseImage.getAbsolutePath();
                             overlayPath = overlayImage.getAbsolutePath();
+                            /* MOD (Jeremy, fix layer, UB-19): both pictures are LOADED before their
+                             * paths are saved. Upstream saved first, so a file that is not a picture
+                             * was saved too, then failed -- and, once custom was the saved tileset,
+                             * failed again at every launch. jc-18's order, re-applied alone (jc-18
+                             * also changed Cancel, UB-18, and how the choice is stored, UB-16, UB-17). */
+                            tilesetImages = TileSheet.loadCustom(baseImage, overlayImage, tileWidth, tileHeight);
                             paths.setCustomTilesetImages(basePath, overlayPath);
+                        } else {
+                            tilesetImages = tileSheet.getTileSheets(emulator,tileWidth, tileHeight);
                         }
-                        BufferedImage[] tilesetImages = tileSheet.getTileSheets(emulator,tileWidth, tileHeight);
                         window.getGamePanel().initialise(emulator, tilesetImages, tileSheet,  // aen-exempt: upstream method name
                                 window.getGamePanel().getTileWidth(), window.getGamePanel().getTileHeight());
                         window.getInventoryPanel().initialise(emulator);  // aen-exempt: upstream method name
