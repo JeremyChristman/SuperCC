@@ -32,7 +32,7 @@ How to keep it:
 | UB-7 | Seed Search with a negative start: one thread does all the work | anyone typing a negative start | `397c7bb`, ships in jc-20 | open |
 | UB-8 | Seed Search's threads race at the start: "running" can drop mid-search, a Pause can be undone | anyone, mostly on short searches | `397c7bb`, ships in jc-20 | open |
 | UB-9 | Seed Search never shows a success at a negative seed as the example | anyone searching from a negative start | `397c7bb`, ships in jc-20 | open |
-| UB-10 | Seed Search's Pause flag is not `volatile` | nobody observed (theoretical) | `397c7bb`, ships in jc-20 | open |
+| UB-10 | Seed Search's Pause flag is not `volatile` | nobody observed (theoretical) | `397c7bb`, ships in jc-20 | **FIXED in `b2c383c` (jc-41)** |
 | UB-11 | With no level set open, most menu controls fail with an internal error | everyone, from launch until a set is opened | `c57f217`, ships in jc-21 | **FIXED in `d57d419` (jc-28)** |
 | UB-12 | Canceling Go to... or Set RNG Seed fails with an internal error | anyone who cancels either | `c57f217`, ships in jc-21 | **FIXED in `cd5a644` (jc-31)** |
 | UB-13 | Canceling the file chooser of Solution › Open, Search for seeds or Load states fails | anyone who cancels one | `c57f217`, ships in jc-21 | **FIXED in `7469c09` (jc-32)** |
@@ -210,10 +210,11 @@ stored solution, against jc-39: all 24,216 saves it replays record identically (
 
 ## Seed Search (`397c7bb`, ships in jc-20)
 
-The fork's four fixes from jc-16 were reverted. All four come back at once with `git revert 397c7bb`,
-which also restores the compiled form classes and both baselines it changed; under the fix layer
-(FORK.md) they go back one at a time instead, by hand from its diff. FORK.md step 3 has the
-engineering record.
+The fork's four fixes from jc-16 were reverted. Until jc-41 all four came back at once with
+`git revert 397c7bb`, which also restores the compiled form classes and both baselines it changed;
+with UB-10 back by hand that revert no longer applies cleanly. Under the fix layer (FORK.md) they go
+back one at a time, by hand from its diff. FORK.md step 3 has the
+engineering record. Back so far: UB-10, the `volatile` flags (jc-41, `b2c383c`).
 
 ### UB-7 — a negative start does not share the work
 
@@ -267,11 +268,25 @@ engineering record.
 
 ### UB-10 — Seed Search's Pause flag is not `volatile`
 
-- **What a user sees:** nothing observed. `killFlag` and `running` are set on one thread and read in
-  the search threads' loops; without `volatile`, Java does not promise the search threads ever see a
-  Pause. HotSpot happens to make it work: Pause worked in every test and playtest.
-- **Fix:** declare both `volatile` (jc-16).
-- **Pinned by:** nothing. A memory-model guarantee cannot be tested reliably.
+**Status: FIXED in `b2c383c` (jc-41).** jc-16's `volatile` on `killFlag` and `running`,
+re-applied alone in `SeedSearch` (a form class: compiled with `formclass.ps1 -Compile`, form
+baseline updated). Checked by a new `SeedSearchTest` §6, which reads the modifier on the two
+fields of the class that ships: no timing test can show the difference on HotSpot, but the
+modifier is what the memory model's promise rests on, and it can be read exactly. On jc-40's jar
+exactly those two checks fail; 3 defects planted, all caught (either field without it, and
+neither, as upstream). Corpus against jc-40: 24,217 of 24,217 identical. It does not fix UB-8:
+each thread's `run()` still writes both flags as it starts, so a thread starting after a Pause
+clears it.
+
+- **What a user saw (jc-20 to jc-40):** nothing observed. `killFlag` and `running` are shared
+  between the event thread and the search threads (Pause sets `killFlag`, read in every search
+  loop; the threads set `running`, read by the window); without `volatile`, Java does not promise
+  either side ever sees the other's write. HotSpot happens to make it work: Pause worked in every
+  test and playtest. (Until jc-41 this entry said both are set on one thread and read in the
+  search loops; the jc-41 review corrected it.)
+- **Fix:** declare both `volatile` (jc-16), re-applied by hand in jc-41 (`b2c383c`).
+- **Checked by:** `SeedSearchTest` §6, from jc-41 (until then nothing: the entry said a memory-model
+  guarantee cannot be tested reliably, which holds for its EFFECT; the modifier itself can be).
 
 ## The no-level-loaded guards (`c57f217`, ships in jc-21)
 

@@ -12,6 +12,24 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## jc-41 — 2026-11-16 (the fix layer: Seed Search's shared flags are volatile again)
+
+The first of the four Seed Search fixes goes back on the upstream baseline. It closes UB-10 in
+[`BASELINE-ISSUES.md`](BASELINE-ISSUES.md). Nothing observable changes, and no stored solution does.
+
+### Fixed
+- **Seed Search's `killFlag` and `running` are `volatile` again (`b2c383c`, UB-10).** jc-16's
+  modifier, re-applied alone in the form class (`formclass.ps1 -Compile`). They are shared between
+  the event thread and the search threads (Pause sets `killFlag`, read in every search loop; the
+  threads set `running`, read by the window); without `volatile`, Java does not promise either side
+  sees the other's write. HotSpot made Pause work either way. It does not fix UB-8: a thread that
+  starts after a Pause still clears it. Corpus against jc-40: 24,217 of 24,217 identical.
+
+### Changed (tests only)
+- `SeedSearchTest` §6 checks the `volatile` modifier on both fields of the class that ships; on
+  jc-40's jar exactly those two checks fail. 3 defects planted, all caught. Suite 2,666 assertions, 21 pins, 4 skips.
+  Coverage: unchanged (`volatile` adds no branches; the baseline check passes as it stands).
+
 ## jc-40 — 2026-11-16 (the fix layer: the move recorder keeps the key on a both-bits tick; the recorder step back)
 
 The recorder fix goes back on the upstream baseline. It closes UB-6 in

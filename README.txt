@@ -1,5 +1,5 @@
 ==============================================================================
-  SuperCC  --  Jeremy Christman's fork                      build jc-40
+  SuperCC  --  Jeremy Christman's fork                      build jc-41
 ==============================================================================
 
   1. What this is
@@ -613,6 +613,22 @@ AlwaysOpenInMS  Whether every level set opens under the MS ruleset, no matter
 Releases from jc-2 on carry a jc-N tag in the repository. The title bar, when
 ShowBuildTag is on, shows the build tag compiled into the jar, which matches
 the tag for that release. Newest first.
+
+
+jc-41  --  Seed Search's shared flags are volatile again
+--------------------------------------------------------
+
+  * SOLUTION > SEARCH FOR SEEDS: THE TWO FLAGS ITS SEARCH THREADS AND
+    ITS WINDOW SHARE (STOP, AND STILL RUNNING) ARE MARKED VOLATILE AGAIN,
+    as in jc-16 to jc-19, so Java promises each side sees the other's
+    change. From jc-20 to jc-40 Pause worked only because the Java
+    runtime happened to make it work; nobody ever saw it fail. A Pause
+    pressed just as a short search starts can still be undone; that is
+    a separate fix still to come (UB-8).
+
+  * Nothing you play changes: every one of the 24,217 stored solutions
+    replays exactly as on jc-40. This closes UB-10 in BASELINE-ISSUES.md
+    in the repository.
 
 
 jc-40  --  The move recorder keeps every key it used
