@@ -12,6 +12,33 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## jc-33 — 2026-11-15 (the fix layer: a custom tileset's pictures fail in words, and load before they are saved)
+
+The first of the custom-tileset fixes goes back on the upstream baseline. It closes UB-19 in
+[`BASELINE-ISSUES.md`](BASELINE-ISSUES.md). No stored solution changes.
+
+### Fixed
+- **A custom tileset picture that cannot be used is an error that says why, and is never saved
+  (`cb55dbf`, UB-19).** jc-18's loader, re-applied alone: a missing picture, a file that is not a
+  picture, a broken one, one whose header claims too many pixels (refused before it is decoded, so
+  one claiming about 46000 x 46000 no longer makes SuperCC try to allocate about 8 GB), or none
+  chosen at all is now an error naming the file, where each was an internal error or a message
+  that named nothing; both streams the reader opens are closed. View › Tileset › custom loads both
+  pictures before saving their paths, so a bad pick leaves the earlier pictures saved. Corpus
+  against jc-32: 24,217 of 24,217 identical.
+
+### Changed (tests only)
+- UB-19's 11 pins are checks again (`EngineTest` §6f, `SettingsTest` §13, `GuiWindowTest` §5b),
+  with checks that each message names its file, that the 46000 x 46000 picture is refused (run
+  only once the 50000 one is refused from its header, so an older loader is never asked to decode
+  it), that a loaded picture is not left locked, that a picture cut short is refused in words, and,
+  in a real window, that a file that is not a picture brings one error naming it and leaves the
+  earlier pictures saved. `answerChoosers`
+  records a message's text. On jc-32's jar exactly those checks fail; 18 defects planted, all caught. Suite 2,525 assertions, 27 pins, 4 skips.
+  Coverage: target 57.1% (1530/2678: `SuccPaths`' new test adds 8 branches), `io\**` 74.2% (320/431); the non-target pool 3.9% (77/1973), since `EngineTest` now reaches the loader in `TileSheet`; re-baselined.
+- Docs: jc-32 said View › Tileset › custom's Cancel (UB-18) is pinned in `GuiWindowTest` §5b; it
+  is pinned in §2's walk. Corrected.
+
 ## jc-32 — 2026-11-15 (the fix layer: a canceled file chooser; the no-level step all back)
 
 The last of the no-level-loaded fixes goes back on the upstream baseline. It closes UB-13 in

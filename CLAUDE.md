@@ -248,7 +248,7 @@ test/LinkTest.java           every call between the fork's classes resolves IN T
 test/InputDiscardTest.java   which keys Level.tick reports as DISCARDED, and the WAIT the move list records
 test/SeedSearchTest.java     Seed Search through its REAL constructor, headless: stops at the top seed, threads, Pause
 test/FormClassTest.java      every form window's REAL constructor builds its components (14 of 15; Gui is the JFrame)
-test/GuiWindowTest.java      the MAIN window (Gui) built for real in a NON-headless child JVM; every menu control with no level open (PIN lines: UB-16..19, UB-22..27)
+test/GuiWindowTest.java      the MAIN window (Gui) built for real in a NON-headless child JVM; every menu control with no level open (PIN lines: UB-16..18, UB-22..27)
 ```
 
 **Testing a form-based window headless.** Its constructor builds every component
@@ -338,7 +338,7 @@ taken. JaCoCo is a test-time tool cached under `%LOCALAPPDATA%\jacoco\<version>\
 dependency**, never committed, never shipped. Output goes to `coverage-report\` (gitignored);
 `coverage.csv` is the evidence behind every percentage below.
 
-As of jc-32, with all 2,509 assertions passing (38 of them `upstreamBug` pins, §6) and 5 skipped —
+As of jc-33, with all 2,525 assertions passing (27 of them `upstreamBug` pins, §6) and 4 skipped —
 counts for a machine with 4 or more CPUs. `SeedSearchTest` §3 makes one pin per search thread, so a
 3-CPU run has one pass and pin fewer and a 2-CPU run two; at 1 CPU §3 and §2's pin are skipped
 (measured: 7 passes and 6 pins fewer, 2 skips more) — **measured on JDK 16.0.2** (16.0.2+7-67 on the desktop; Temurin 16.0.2+7, what CI pins, gives the
@@ -346,16 +346,16 @@ same figures):
 
 | scope | branch | line | branches |
 |---|---|---|---|
-| **`game\**` + `io\**` — THE TARGET** | **57.1%** | 71.4% | 1524/2670 |
+| **`game\**` + `io\**` — THE TARGET** | **57.1%** | 71.5% | 1530/2678 |
 | &nbsp;&nbsp;`game\**` (the emulator) | 53.8% | 68.0% | 1210/2247 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\MS\**` | 47.7% | 62.6% | 558/1170 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\Lynx\**` | 63.5% | 71.3% | 466/734 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 54.2% | 73.0% | 186/343 |
-| &nbsp;&nbsp;`io\**` (file formats) | 74.2% | 81.4% | 314/423 |
+| &nbsp;&nbsp;`io\**` (file formats) | 74.2% | 81.6% | 320/431 |
 | `emulator\**` | 33.8% | 36.1% | 159/470 |
-| `tools\**` + `graphics\**` — *not a target* | 2.7% | 8.9% | 52/1945 |
+| `tools\**` + `graphics\**` — *not a target* | 3.9% | 9.7% | 77/1973 |
 
-**Read this correctly.** Whole-project branch coverage is 30.5% (1847/6051), and that number is
+**Read this correctly.** Whole-project branch coverage is 30.9% (1878/6087), and that number is
 meaningless: 15 form-based classes can be rebuilt here only by copying IntelliJ's output (ADR 0010), `tools\**`
 is 35 files of upstream code this fork does not modify, `graphics\**` is Swing with no headless test
 story, and the rest is vendored `org.json` / `com.intellij`. What this fork can break is the engine
@@ -364,9 +364,9 @@ and the file formats, so that is what is scoped and measured.
 **The number is JDK-dependent, by construction — so measure the baseline on JDK 16.0.2.** Every
 spliced class is compiled by your `javac`, and `build-config.ps1` already notes that javac 17 does
 not emit identical bytecode to javac 16. That was once only the five `io\**` classes (`ErrorLog`,
-`LevelFactory`, `SuccPaths`, `TWSReader`, `TWSWriter`, 382 branches at jc-15, 386 now). Since the upstream
+`LevelFactory`, `SuccPaths`, `TWSReader`, `TWSWriter`, 382 branches at jc-15, 394 now). Since the upstream
 trap merge (2026-11-02) it is also `MSCreature`, `MSLevel` and `LynxLevel` (plus `Level` and
-`BrownButton`, which have none): another 1,162 branches — 1,548 of the target's 2,670 in all. Only the rest comes from the committed
+`BrownButton`, which have none): another 1,162 branches — 1,556 of the target's 2,678 in all. Only the rest comes from the committed
 baseline and is byte-identical on every machine. A figure that differs slightly on another JDK is not
 a bug, but it is not the baseline either: `docs/coverage-baseline.tsv` and the table above are
 measured on 16.0.2, what CI and the release workflow pin. A machine without it does not need an
@@ -754,8 +754,9 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
   Cancel on Go to... and Set RNG Seed, UB-12, since jc-31, and a canceled file chooser, UB-13,
   since jc-32: the whole step is back),
   custom tilesets (`5d3f0a3`: a saved tileset that cannot be drawn stops
-  SuperCC from starting, UB-20 -- do not "fix" it in passing) and auto-diagonals (`d08e6ef`:
-  with the switch on, EVERY game key waits 50 ms and a `java.util.Timer` makes ONE move, on its own
+  SuperCC from starting, UB-20 -- do not "fix" it in passing; the hardened picture loader and
+  load-before-save, UB-19, are back since jc-33, and the rest follow one fix at a time) and auto-diagonals
+  (`d08e6ef`: with the switch on, EVERY game key waits 50 ms and a `java.util.Timer` makes ONE move, on its own
   thread, from the keys still held, so taps are lost and other input jumps ahead; UB-22 to UB-28). **Every problem a revert brings back goes
   into `BASELINE-ISSUES.md` in the same push** (Jeremy's standing request, 2026-11-08) — and a fix
   closes its entry there rather than deleting it. ⚠ That makes "no tick returns both bits" load-bearing with nothing

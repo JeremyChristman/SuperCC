@@ -1,5 +1,5 @@
 ==============================================================================
-  SuperCC  --  Jeremy Christman's fork                      build jc-32
+  SuperCC  --  Jeremy Christman's fork                      build jc-33
 ==============================================================================
 
   1. What this is
@@ -593,6 +593,21 @@ AlwaysOpenInMS  Whether every level set opens under the MS ruleset, no matter
 Releases from jc-2 on carry a jc-N tag in the repository. The title bar, when
 ShowBuildTag is on, shows the build tag compiled into the jar, which matches
 the tag for that release. Newest first.
+
+
+jc-33  --  A custom tileset picture that cannot be used says why
+------------------------------------------------------------------
+
+  * VIEW > TILESET > CUSTOM NOW LOADS BOTH PICTURES BEFORE SAVING THEM, as
+    in jc-18 to jc-21. A file that is not a picture, a broken or missing
+    one, or one far too large is refused with a message naming the file,
+    and the pictures you had before stay saved. Since jc-22 such a file
+    was saved anyway and then failed with an internal error -- and if
+    custom was your saved tileset, SuperCC failed again at its next start.
+
+  * Nothing you play changes: every one of the 24,217 stored solutions
+    replays exactly as on jc-32. This closes UB-19 in BASELINE-ISSUES.md
+    in the repository, the first of the custom-tileset problems.
 
 
 jc-32  --  Canceling a file chooser works again

@@ -41,7 +41,7 @@ How to keep it:
 | UB-16 | Choosing a custom tileset saves it as tileset number 5, which builds before jc-18 cannot start with | anyone sharing the settings file with an older build | `5d3f0a3`, ships in jc-22 | open |
 | UB-17 | Custom tileset pictures are saved as full paths, which the other computer does not have | anyone sharing the folder between computers | `5d3f0a3`, ships in jc-22 | open |
 | UB-18 | Canceling View › Tileset › custom asks for the second picture anyway, then shows an error, and leaves the mark on custom | anyone who cancels it | `5d3f0a3`, ships in jc-22 | open |
-| UB-19 | A custom picture is saved before it is known to load; a bad one fails with an internal error or an unclear message | anyone choosing a wrong file | `5d3f0a3`, ships in jc-22 | open |
+| UB-19 | A custom picture is saved before it is known to load; a bad one fails with an internal error or an unclear message | anyone choosing a wrong file | `5d3f0a3`, ships in jc-22 | **FIXED in `cb55dbf` (jc-33)** |
 | UB-20 | SuperCC does not start (no window) when the saved MS tileset cannot be drawn | anyone with a bad TilesheetNum or missing custom pictures | `5d3f0a3`, ships in jc-22 | open |
 | UB-21 | A Lynx tileset that cannot be drawn, or a failing custom tileset at a window resize, leaves the screen wrong | anyone with such a choice | `5d3f0a3`, ships in jc-22 | open |
 | UB-22 | With Auto diagonals on, a quick tap of any game key makes no move | anyone with Auto diagonals on (it is off by default) | `d08e6ef`, ships in jc-23 | open |
@@ -380,7 +380,7 @@ gone, as jc-17 left it out. With comments stripped, `MenuBar` now differs from j
 by step 5's tileset code (still reverted) and jc-28's listener order, so the whole no-level
 step (UB-11 to UB-15) is back. `GuiWindowTest` §4b answers every file chooser the menus open
 with a level loaded -- but View › Tileset › custom's, whose Cancel is UB-18 (pinned in
-§5b) -- in a real window, as a person would: its close box (the window-closing event) and
+§2's walk; jc-32 said §5b in error) -- in a real window, as a person would: its close box (the window-closing event) and
 its own Cancel button, which must change nothing and show nothing else -- the same `Level`
 object, moves, savestates object and TWS folder, no file added, no window opened -- and, for
 the four UB-13 concerns (Solution › Open, Search for seeds, Load states from disk, TWS ›
@@ -553,10 +553,11 @@ before UB-14's fix, and jc-17 had shipped the two together.
 The fork's changes to upstream's custom tilesets (`d78f6f3`), merged in jc-18, were reverted:
 `TileSheet`, `SmallGamePanel` and `Gui` are upstream's byte for byte, `MenuBar`'s View › Tileset
 listener and `SuperCC.initialiseTilesheet` are upstream's, and `SuccPaths` stores the custom tileset <!-- aen-exempt: upstream method name -->
-as upstream does, inside the fork's own settings structure. All of it comes back at once with
-`git revert 5d3f0a3` (the fix layer takes it back one fix at a time instead), which also restores `Gui`'s compiled class and both baselines; re-apply it before
-step 4's (newest first), since both touched View › Tileset's listener. FORK.md step 5
-has the engineering record. Nobody's tileset changes by itself: these all start with choosing a
+as upstream does, inside the fork's own settings structure. FORK.md step 5 has the engineering
+record. The fix layer takes these back one fix at a time, by hand from `5d3f0a3`'s diff (a whole
+`git revert` no longer applies: the no-level step's fixes rewrote View › Tileset's listener since),
+in dependency order: **UB-19 is back since jc-33 (`cb55dbf`)**; UB-20, UB-18, UB-21, UB-16 and UB-17
+follow, each in a release of its own. Nobody's tileset changes by itself: these all start with choosing a
 custom tileset, or with a settings file that names one that cannot be drawn.
 
 ### UB-16 — custom is saved as tileset number 5
@@ -587,7 +588,8 @@ custom tileset, or with a settings file that names one that cannot be drawn.
 
 - **What a user sees:** canceling the first picture's chooser still opens the second; canceling
   either shows "No tileset image provided"; and the View › Tileset mark stays on custom though the
-  old tileset is still drawn.
+  old tileset is still drawn. Since jc-33 (UB-19) a picture that is refused leaves the mark on
+  custom the same way.
 - **Fix:** the first Cancel ends it, with no error, and the mark goes back to what is drawn
   (`MenuBar.markActiveTileset`; jc-18).
 - **Pinned by:** `GuiWindowTest` §2 (canceled with no level open: both choosers and the error) and
@@ -595,23 +597,64 @@ custom tileset, or with a settings file that names one that cannot be drawn.
 
 ### UB-19 — a custom picture is saved before it is known to load, and a bad one fails badly
 
-- **What a user sees:** choosing a file that is not a picture saves it anyway, then fails with an
-  internal error (`NullPointerException`) before the choice of tileset is saved. If custom was
-  already the saved tileset, the next start then fails (UB-20); if not, only the stored picture
-  paths are wrong. Other bad files fail with internal errors as well: a broken GIF
+**Status: FIXED in `cb55dbf` (jc-33).** jc-18's loader is back in `TileSheet`, re-applied alone:
+every way a custom picture can be unusable is an `IOException` that says what is wrong and,
+where there is one, names the file -- none chosen, the settings not loaded, a missing picture,
+a file that is not a picture, a broken GIF, a picture cut short (the reader's own `IIOException`,
+which jc-18 let through unnamed; found in jc-33's review), and any other exception the image
+reader throws; a picture whose header claims more than 33,554,432 pixels (32 Mi) is refused
+from the header, before it is decoded (the 46000 x 46000 file is refused, not decoded); and
+both streams the reader opens are closed, so a loaded picture is never left locked. From the
+jc-33 reviews, beyond jc-18: a folder where a picture should be is "not a file" rather than
+"not found"; the size message states the exact limit (33,554,432 pixels); and a picture file
+is read in place, with no temp-file cache and no copy held on the heap, so an unusable temp
+folder no longer fails the load as the picture's fault, and a folder this user may not look in
+is reported by the error from opening the file, not as "not found"; a picture the loader cannot open is said in words, naming it, not with the system's bare message; any other failure to read says "Could not read the picture", naming it, rather than blaming the picture (no test: it needs a device that fails mid-read); and a path that cannot
+be a path says so. (The jar path's close, for the built-in sheets, is not covered by a check:
+a leaked entry there locks no user file.) The cap bounds a picture's dimensions only: a crafted
+file whose other fields ask for huge allocations (a TIFF's strip sizes, a compressed metadata
+chunk) can still exhaust memory, as with every image reader. `SuccPaths.getCustomTilesetImages`
+reads an empty path as "not chosen". And View › Tileset › custom LOADS both chosen pictures
+(`TileSheet.loadCustom`) before it saves their paths, so a file that is not a picture brings
+one error naming it and nothing is saved: the pictures chosen before stay the saved ones. Left
+out, and coming back with their own fixes: the fallbacks (`TileSheet.load`, `loadForRuleset`:
+UB-20, UB-21, UB-16), Cancel (UB-18) and how the choice is stored (UB-16, UB-17). The 11 pins
+are checks again, with checks that each message names its file, that the 46000 x 46000 file
+is refused (run only once the 50000 one has been refused from its header, since a loader that
+decodes first would try to allocate the 8 GB), and that a picture just loaded can be moved. On
+jc-32's jar `EngineTest` fails exactly the 18 it should (the 46000 case is skipped there,
+as designed), `SettingsTest` the 3, and `GuiWindowTest` the 4 and its exit check; 18 defects
+planted in `TileSheet`, `SuccPaths` and `MenuBar`, all caught (the reader's runtime exceptions
+not turned into words, its own `IIOException` and plain `IOException` passed through unnamed
+(jc-18's gap), ImageIO's temp-file cache back for a picture file or a built-in sheet, the
+loader's own refusal wrapped a second time, the path printed twice when a picture cannot be
+opened, a folder reported as not found, no size cap, the picture file left open, a missing
+picture left to the error from opening it, an invalid path reported as not found, the system's
+bare message for a picture that cannot be opened, a missing picture's message naming no file,
+no settings reported as none chosen, upstream's getter back, half chosen read as a pair, the
+listener saving before it loads, the listener loading the saved pictures instead of the chosen
+ones); corpus against jc-32: 24,217 of 24,217 identical.
+
+- **What a user saw (jc-22 to jc-32):** choosing a file that is not a picture saved it anyway, then
+  failed with an internal error (`NullPointerException`) before the choice of tileset was saved. If
+  custom was already the saved tileset, the next start then failed (UB-20); if not, only the stored
+  picture paths were wrong. Other bad files failed with internal errors as well: a broken GIF
   (`IndexOutOfBoundsException`) and a picture whose header claims 50000 x 50000 pixels
-  (`IllegalArgumentException`); one claiming about 46000 x 46000 makes the loader try to decode about
-  8 GB. A missing picture's message names no file ("Can't get input stream from URL!"). With no
-  pictures chosen, custom fails with an internal error: upstream's getter returns the pair
+  (`IllegalArgumentException`); one claiming about 46000 x 46000 made the loader try to decode about
+  8 GB. A missing picture's message named no file ("Can't get input stream from URL!"). With no
+  pictures chosen, custom failed with an internal error: upstream's getter returns the pair
   whenever both keys exist, and this fork's settings always have them (empty), so the empty paths
-  reach the image reader as the working folder.
+  reached the image reader as the working folder.
 - **Fix:** load both pictures before saving them; make every failure an IOException that names
   the file and says what is wrong; refuse a picture over 32 million pixels from its header, before
   decoding; close both streams (jc-18).
-- **Pinned by:** `EngineTest` §6f (six: missing, not a picture, no settings, none chosen, the GIF,
-  the 50000 x 50000 header; the 8 GB case is skipped, not run); `SettingsTest` §13 (none chosen,
-  half chosen and a pre-jc-18 file read as a pair, not as "none"); `GuiWindowTest` §5b (the click on
-  a file that is not a picture, and that it is saved).
+- **Pinned by (jc-22 to jc-32):** `EngineTest` §6f (six: missing, not a picture, no settings, none
+  chosen, the GIF, the 50000 x 50000 header; the 8 GB case skipped, not run); `SettingsTest` §13
+  (none chosen, half chosen and a pre-jc-18 file read as a pair, not as "none"); `GuiWindowTest`
+  §5b (the click on a file that is not a picture, and that it is saved). **Checked by (jc-33 on):**
+  the same places, each pin a check, plus the file named in each message, the 46000 x 46000 file,
+  a loaded picture left unlocked, the error shown for a file that is not a picture, and the
+  earlier pictures still saved.
 
 ### UB-20 — SuperCC does not start when the saved MS tileset cannot be drawn
 
@@ -636,9 +679,11 @@ custom tileset, or with a settings file that names one that cannot be drawn.
   relevant tilesheet" (naming nothing) — every time such a set is opened — and keeps the previous
   ruleset's tileset; a Lynx number this version does not have fails with an internal error instead.
   Changing the window size while a custom tileset fails leaves the game area drawn at the old size.
-- **Measured:** by reading upstream's `Gui.swapRulesetTilesheet` (catches only IOException, with
-  that message) and `SmallGamePanel.setWindowSize` (swallows the IOException); the swap's dialog was
-  seen in the command-line launch above.
+- **Measured:** by reading upstream's `Gui.swapRulesetTilesheet` (catches only IOException,
+  with that message) and `SmallGamePanel.setWindowSize` (swallows the IOException); the swap's
+  dialog was seen in the command-line launch above. Since jc-33 (UB-19) a custom picture that
+  fails is always an IOException, so at a window-size change it is now dropped silently, where
+  before it usually escaped as an internal error into the error log.
 - **Fix:** both through jc-18's `loadForRuleset`, which falls back, says why once a session, and
   moves the View › Tileset mark to what is drawn.
 - **Pinned by:** nothing (a running window and a broken settings file; measured as above).
