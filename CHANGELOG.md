@@ -12,6 +12,23 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## jc-42 — 2026-11-16 (the fix layer: a Seed Search from a negative start shares the work again)
+
+The second of the four Seed Search fixes goes back on the upstream baseline. It closes UB-7 in
+[`BASELINE-ISSUES.md`](BASELINE-ISSUES.md). Seed Search only: no stored solution changes.
+
+### Fixed
+- **Solution › Search for seeds from a negative start splits the seeds among its threads again
+  (`06ebf90`, UB-7).** jc-16's `(long)` on `Integer.MAX_VALUE - start`, re-applied alone in the
+  form class. Since jc-20 the subtraction ran in `int`, so a negative start wrapped it: every thread
+  but the last got an empty range and the last searched billions of seeds alone (3.76 billion at
+  four threads). Corpus against jc-41: 24,217 of 24,217 identical.
+
+### Changed (tests only)
+- `SeedSearchTest` §3's five pins are exact checks again (each thread searches its own share, and
+  the attempt total matches); on jc-41's jar exactly those five fail. 3 defects planted, all
+  caught. Suite 2,666 assertions, 16 pins, 4 skips. Coverage: unchanged (a cast adds no branches; the baseline check passes as it stands).
+
 ## jc-41 — 2026-11-16 (the fix layer: Seed Search's shared flags are volatile again)
 
 The first of the four Seed Search fixes goes back on the upstream baseline. It closes UB-10 in

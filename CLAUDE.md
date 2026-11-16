@@ -345,10 +345,11 @@ taken. JaCoCo is a test-time tool cached under `%LOCALAPPDATA%\jacoco\<version>\
 dependency**, never committed, never shipped. Output goes to `coverage-report\` (gitignored);
 `coverage.csv` is the evidence behind every percentage below.
 
-As of jc-41, with all 2,666 assertions passing (21 of them `upstreamBug` pins, §6) and 4 skipped —
-counts for a machine with 4 or more CPUs. `SeedSearchTest` §3 makes one pin per search thread, so a
-3-CPU run has one pass and pin fewer and a 2-CPU run two; at 1 CPU §3 and §2's pin are skipped
-(measured: 7 passes and 6 pins fewer, 2 skips more) — **measured on JDK 16.0.2** (16.0.2+7-67 on the desktop; Temurin 16.0.2+7, what CI pins, gives the
+As of jc-42, with all 2,666 assertions passing (16 of them `upstreamBug` pins, §6) and 4 skipped —
+counts for a machine with 4 or more CPUs. `SeedSearchTest` §3 makes one check per search thread, so a
+3-CPU run has one pass fewer and a 2-CPU run two; at 1 CPU §3 and §2's pin are skipped
+(measured at jc-41, when §3's checks were pins: 7 passes and 6 pins fewer, 2 skips more; since
+jc-42 the same skips mean 1 pin fewer, by count, not re-measured) — **measured on JDK 16.0.2** (16.0.2+7-67 on the desktop; Temurin 16.0.2+7, what CI pins, gives the
 same figures):
 
 | scope | branch | line | branches |
@@ -755,7 +756,7 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
   fixes comes back fix by fix, by hand, never as one whole `git revert`**),
   `SuperCC.tick`'s recorder (`923d07c`: upstream writes a wait on ANY discarded tick, even one that
   also ran automatic ticks; no real level returns both bits; back since jc-40, UB-6, so such a tick
-  keeps its key, and `InputDiscardTest` §5 checks it through a wrapped level), Seed Search (`397c7bb`; its `volatile` flags, UB-10, are back since jc-41), the no-level-loaded guards (`c57f217`; the
+  keeps its key, and `InputDiscardTest` §5 checks it through a wrapped level), Seed Search (`397c7bb`; its `volatile` flags, UB-10, are back since jc-41, and the `(long)` that shares a negative start's work, UB-7, since jc-42), the no-level-loaded guards (`c57f217`; the
   menu guard, UB-11, is back since jc-28 -- see the next bullet -- opening a set at its first
   level that loads, UB-14, since jc-29, the all-or-nothing level load, UB-15, since jc-30, and
   Cancel on Go to... and Set RNG Seed, UB-12, since jc-31, and a canceled file chooser, UB-13,

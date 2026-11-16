@@ -29,7 +29,7 @@ How to keep it:
 | UB-4 | Lynx `isTrapOpen` throws on a position no button is wired to | code only; nothing in the game asks | `79b0032`, jc-19 | **FIXED in `dc3bb11` (jc-27)** |
 | UB-5 | Trap bits in a `.ser` savestate are numbered by hash order | anyone loading a `.ser` saved by another build | `79b0032`, jc-19 | **FIXED in `d974875` (jc-26)** |
 | UB-6 | A tick that reports both "discard" and "automatic ticks" is recorded as a wait, so the route saves short | nobody today: no real tick does that | `923d07c`, ships in jc-20 | **FIXED in `1ec3b47` (jc-40)** |
-| UB-7 | Seed Search with a negative start: one thread does all the work | anyone typing a negative start | `397c7bb`, ships in jc-20 | open |
+| UB-7 | Seed Search with a negative start: one thread does all the work | anyone typing a negative start | `397c7bb`, ships in jc-20 | **FIXED in `06ebf90` (jc-42)** |
 | UB-8 | Seed Search's threads race at the start: "running" can drop mid-search, a Pause can be undone | anyone, mostly on short searches | `397c7bb`, ships in jc-20 | open |
 | UB-9 | Seed Search never shows a success at a negative seed as the example | anyone searching from a negative start | `397c7bb`, ships in jc-20 | open |
 | UB-10 | Seed Search's Pause flag is not `volatile` | nobody observed (theoretical) | `397c7bb`, ships in jc-20 | **FIXED in `b2c383c` (jc-41)** |
@@ -214,11 +214,20 @@ The fork's four fixes from jc-16 were reverted. Until jc-41 all four came back a
 `git revert 397c7bb`, which also restores the compiled form classes and both baselines it changed;
 with UB-10 back by hand that revert no longer applies cleanly. Under the fix layer (FORK.md) they go
 back one at a time, by hand from its diff. FORK.md step 3 has the
-engineering record. Back so far: UB-10, the `volatile` flags (jc-41, `b2c383c`).
+engineering record. Back so far: UB-10, the `volatile` flags (jc-41, `b2c383c`), and UB-7, the negative start (jc-42, `06ebf90`).
 
 ### UB-7 — a negative start does not share the work
 
-- **What a user sees:** Solution › Search for seeds from a negative start: one thread searches
+**Status: FIXED in `06ebf90` (jc-42).** jc-16's `(long)` on `Integer.MAX_VALUE - start`,
+re-applied alone in `SeedSearch` (a form class: compiled with `formclass.ps1 -Compile`, form
+baseline updated). `SeedSearchTest` §3's five pins are exact checks again: from start -5 with four
+threads, each thread searches part of its own quarter, and the attempt total is exactly what the
+threads covered. On jc-41's jar exactly those five fail (threads 0-2 searched nothing, thread 3
+searched from upstream's start). 3 defects planted, all caught (the subtraction in `int` again, as
+upstream; the cast applied after the `int` subtraction has already wrapped; the start added instead
+of subtracted). Corpus against jc-41: 24,217 of 24,217 identical.
+
+- **What a user saw (jc-20 to jc-41):** Solution › Search for seeds from a negative start: one thread searches
   billions of seeds alone while the others sit idle — 3.22 billion at 2 threads, 3.76 billion at 4,
   4.22 billion at 28 (the slider's default is the CPU count; the desktop has 28). A third to about
   half of those (1.07 billion at 2 threads, 1.61 at 4, 2.07 at 28) are negative seeds below the start
@@ -229,9 +238,9 @@ engineering record. Back so far: UB-10, the `volatile` flags (jc-41, `b2c383c`).
   219,765 attempts from -1,610,612,735.
 - **Cause:** `Integer.MAX_VALUE - start` is computed in `int`, which wraps for a negative start, so
   the pool size is negative and every range but the last is empty.
-- **Fix:** `(long) Integer.MAX_VALUE - start`.
-- **Pinned by:** `SeedSearchTest` §3 (each thread's outcome, and the attempt total, at upstream's
-  split).
+- **Fix:** `(long) Integer.MAX_VALUE - start`, re-applied by hand in jc-42 (`06ebf90`).
+- **Checked by:** `SeedSearchTest` §3 (each thread's outcome, and the attempt total; pinned at
+  upstream's split from jc-20 to jc-41).
 
 ### UB-8 — the search threads race at the start
 
@@ -1287,3 +1296,16 @@ are not lost.
   fork build's alike (no fix was reverted here); read in the code, raised by the jc-39 review. The
   root of both is `openFile`'s handling of "", which UB-31's fix works around in custom's listener
   only, as jc-18 did.
+- **Seed Search from a negative start searches some seeds twice.** The RNG keeps 31 bits, so each
+  negative seed in the first thread's range is a positive seed another thread also searches, and
+  both attempts are counted: from -5, seeds -5 to -1 repeat the top five; from `Integer.MIN_VALUE`
+  every seed is searched twice and the total reads 4,294,967,296. Upstream's, and jc-16's alike:
+  UB-7's `(long)` only stops the negative start from emptying every range but the last (jc-16's
+  own comment says a negative start "only repeats positive seeds"). Turning a negative start into
+  its 31-bit seed, or refusing it, would change what the field accepts, so it is a decision rather
+  than a fix to re-apply. Read in the code, raised by the jc-42 review.
+- **Seed Search's Begin throws on a start or position it cannot read.** `Integer.parseInt` on the
+  raw start field throws for `""`, `" -5"`, `"abc"` or `"2147483648"`, and a position without a
+  comma throws `ArrayIndexOutOfBoundsException`, on the event thread: Begin does nothing visible
+  (the trace goes to the error log). Upstream's code in every build. Raised by the jc-42 review, not
+  reproduced in the window.
