@@ -28,7 +28,8 @@ and UB-31). The menus only: no stored solution changes.
 ### Changed (tests only)
 - `GuiWindowTest` gains `answerChoosersNoting`; §2 checks where each chooser opens with none
   chosen, and §5b with pictures saved in two folders. On jc-38's jar exactly the two §2 checks fail,
-  with the exit check; 5 defects planted, all caught. Suite 2,664 assertions, 22 pins, 4 skips. Coverage: target unchanged (57.5%, 1555/2704); the non-target pool 5.1% (103/2039: `MenuBar`'s two new branches, reached only in `GuiWindowTest`'s child JVM); re-baselined.
+  with the exit check; 5 defects planted, all caught. The folder checks compare canonical paths
+  (CI's temp folder is an 8.3 short name; its first run failed on raw strings, fixed in a follow-up). Suite 2,664 assertions, 22 pins, 4 skips. Coverage: target unchanged (57.5%, 1555/2704); the non-target pool 5.1% (103/2039: `MenuBar`'s two new branches, reached only in `GuiWindowTest`'s child JVM); re-baselined.
 
 ## jc-38 — 2026-11-16 (the fix layer: custom pictures work on both computers again)
 

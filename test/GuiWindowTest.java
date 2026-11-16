@@ -439,6 +439,17 @@ public class GuiWindowTest {
             }));
         }
 
+        /** A path in its canonical form, so one folder named two ways compares equal: CI's temp
+         *  folder is reached through an 8.3 short name (RUNNER~1) while a file chooser reports the
+         *  long one (runneradmin) -- jc-39's first CI run failed on exactly that. */
+        static String canonical(String path) {
+            try {
+                return new File(path).getCanonicalPath();
+            } catch (java.io.IOException e) {
+                return path;
+            }
+        }
+
         /** The first component of the given type below c, depth first, or null. */
         static <T> T find(java.awt.Container c, Class<T> type) {
             for (Component k : c.getComponents()) {
@@ -993,9 +1004,9 @@ public class GuiWindowTest {
             //    the same expression the fix uses).
             String ccFolder = new File(io.SuccPaths.SETTINGS_FILE_NAME).getAbsoluteFile().getParentFile().getAbsolutePath();
             fact("with no pictures chosen yet, the first chooser opens in the Chip's Challenge folder",
-                 openedIn.size() >= 1 && openedIn.get(0).equals(ccFolder), openedIn + " (the CC folder is " + ccFolder + ")");
+                 openedIn.size() >= 1 && canonical(openedIn.get(0)).equals(canonical(ccFolder)), openedIn + " (the CC folder is " + ccFolder + ")");
             fact("and the second where the first picture was just chosen",
-                 openedIn.size() >= 2 && openedIn.get(1).equals(nPics.getPath()), openedIn.toString());
+                 openedIn.size() >= 2 && canonical(openedIn.get(1)).equals(canonical(nPics.getPath())), openedIn.toString());
             // MOD (Jeremy, fix layer, UB-16): saved as the MS custom switch, TilesheetNum still the
             // built-in choice beside it (the walk's last, Black and White); jc-22 to jc-36 saved it
             // as tileset number 5.
@@ -1435,7 +1446,7 @@ public class GuiWindowTest {
             // With pictures saved (section 2's, in two folders), each chooser opens where its own
             // picture is -- upstream's behavior too, kept by UB-31's fix.
             fact("with pictures saved, each chooser opens where its own picture is",
-                 openedIn5b.equals(List.of(nPics.getPath(), nOverPics.getPath())), openedIn5b.toString());
+                 openedIn5b.size() == 2 && canonical(openedIn5b.get(0)).equals(canonical(nPics.getPath())) && canonical(openedIn5b.get(1)).equals(canonical(nOverPics.getPath())), openedIn5b.toString());
             fact("both choosers were answered, and no error shown (" + answered + ")",
                  answered.equals(java.util.Arrays.asList("chooser", "chooser")));
             fact("the custom tileset is drawn", w.getGamePanel().getTileSheet() == graphics.TileSheet.CUSTOM);
