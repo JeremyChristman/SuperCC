@@ -38,7 +38,7 @@ How to keep it:
 | UB-13 | Canceling the file chooser of Solution › Open, Search for seeds or Load states fails | anyone who cancels one | `c57f217`, ships in jc-21 | **FIXED in `7469c09` (jc-32)** |
 | UB-14 | A set whose level 1 will not load opens badly: an error, then no level, or the previous set's level under the new file | none of the 331 sets in the collection | `c57f217`, ships in jc-21 | **FIXED in `48a3eca` (jc-29)** |
 | UB-15 | A level whose savestates cannot be built is left half-loaded | nobody today (no level reaches it) | `c57f217`, ships in jc-21 | **FIXED in `e08c6b5` (jc-30)** |
-| UB-16 | Choosing a custom tileset saves it as tileset number 5, which builds before jc-18 do not have (they start in their default tileset, with an internal error) | anyone sharing the settings file with an older build | `5d3f0a3`, ships in jc-22 | open |
+| UB-16 | Choosing a custom tileset saves it as tileset number 5, which builds before jc-18 do not have (they start in their default tileset, with an internal error) | anyone sharing the settings file with an older build | `5d3f0a3`, ships in jc-22 | **FIXED in `f6d73e7` (jc-37)**; a stored 5 is read as custom on |
 | UB-17 | Custom tileset pictures are saved as full paths, which the other computer does not have | anyone sharing the folder between computers | `5d3f0a3`, ships in jc-22 | open |
 | UB-18 | Canceling View › Tileset › custom asks for the second picture anyway, then shows an error, and leaves the mark on custom | anyone who cancels it | `5d3f0a3`, ships in jc-22 | **FIXED in `bd2b915` (jc-35)** |
 | UB-19 | A custom picture is saved before it is known to load; a bad one fails with an internal error or an unclear message | anyone choosing a wrong file | `5d3f0a3`, ships in jc-22 | **FIXED in `cb55dbf` (jc-33)** |
@@ -558,13 +558,42 @@ as upstream does, inside the fork's own settings structure. FORK.md step 5 has t
 record. The fix layer takes these back one fix at a time, by hand from `5d3f0a3`'s diff (a whole
 `git revert` no longer applies: the no-level step's fixes rewrote View › Tileset's listener since),
 in dependency order: **UB-19 is back since jc-33 (`cb55dbf`), UB-20 since jc-34 (`9e6166a`), UB-18
-since jc-35 (`bd2b915`), UB-21 since jc-36 (`e30ab77`)**; UB-16, UB-17 and UB-31 (found in jc-35)
-follow, each in a release of its own. Nobody's tileset changes by itself: these all start with choosing a
+since jc-35 (`bd2b915`), UB-21 since jc-36 (`e30ab77`), UB-16 since jc-37 (`f6d73e7`)**; UB-17 and
+UB-31 (found in jc-35) follow, each in a release of its own. Nobody's tileset changes by itself: these all start with choosing a
 custom tileset, or with a settings file that names one that cannot be drawn.
 
 ### UB-16 — custom is saved as tileset number 5
 
-- **What a user sees:** View › Tileset › custom saves `TilesheetNum = 5` (or `LynxTilesheetNum = 5`).
+**Status: FIXED in `f6d73e7` (jc-37).** jc-18's switch is back, re-applied alone: custom is
+`CustomTileset` / `LynxCustomTileset` in `[Graphics]` (default false, read and written through
+`optedIn()`), beside a `TilesheetNum` / `LynxTilesheetNum` that is always a BUILT-IN tileset, the
+one every build can read. `SuccPaths.setCustomTileset(lynx, base, overlay)` saves the two pictures
+and turns the ruleset's switch on in one write; `setBuiltInTileset(lynx, n)` saves the number and
+turns it off in one write; View › Tileset saves through them. `TileSheet.loadForRuleset` reads the
+switch and replaces `load` at startup, the ruleset swap and a resize of a custom tileset: custom
+that fails falls back to the ruleset's built-in choice -- what an older build shows -- rather than
+the default; and, beyond jc-18 (jc-34 and jc-36 reviews), its message for a number that is not a
+built-in tileset names the setting (`TilesheetNum = 99 in succ_settings.ini is not a built-in
+tileset of this version (0, 1, 2, 3, 4).`). **One deliberate difference from jc-18, the
+maintainer's decision (2026-11-16):** a 5 stored by jc-22 to jc-36 -- released builds that saved
+custom that way -- is read at load as that ruleset's switch ON, with the stock built-in number (0)
+beside it, and saved that way at the next write (every launch makes one); jc-18 refused a stored 5
+like any number out of range, but no jc-18 to jc-21 file holds one. A 5 met while running with the
+switch off (only code can make one now) is still refused. A computer still on jc-22 to jc-36 that
+opens the migrated file shows tileset 0 and drops the switch lines at its next write -- the same
+trade jc-18 made with older builds. Checked by `SettingsTest` §13b (new: the stock lines, both
+switches through `optedIn()` and written back as read, each setter's one write, whole lines never
+5, the migration for MS and Lynx, a 5 beside `CustomTileset = false`, any other number left
+alone), `EngineTest` §6g (`loadForRuleset`: a fresh file, the switch on, Lynx's own choice, custom
+gone falling back to the built-in MSCC, both settings named, a 5 set while running refused, a
+stored 5 drawing custom), `StartupTilesetTest` (a stored 5 started and saved as the switch; custom
+beside built-in MSCC failing to MSCC; the number messages naming their setting) and
+`GuiWindowTest` (§5b's pin a check; §2's no-level pick saved as the switch beside Black and White;
+§5c's resize falling back to Black and White, the built-in choice, not the default). On jc-36's
+jar exactly those fail: `SettingsTest` 18, `EngineTest` 8, `StartupTilesetTest` 10, `GuiWindowTest`
+5 and its exit check; 18 defects planted in `SuccPaths`, `TileSheet`, `MenuBar`, `SuperCC`, `Gui` (form-compiled for each) and `SmallGamePanel`, all caught (no migration, a migration that keeps the 5, or one for MS only; choosing custom leaving the switch off; a built-in choice leaving it on; the switch written back raw, not through `optedIn()` -- caught only by a check added for it; the getter reading the other ruleset's key; custom that fails falling back to the default; the switch ignored; a 5 with the switch off taken as custom; the message naming `TilesheetNum` for Lynx; Lynx reading the MS number; custom saved as tileset number 5; a built-in choice saved without turning custom off; startup, the swap or a resize going through `load`; a resize reading Lynx's settings with an MS level open); corpus against jc-36: 24,217 of 24,217 identical.
+
+- **What a user saw (jc-22 to jc-36):** View › Tileset › custom saves `TilesheetNum = 5` (or `LynxTilesheetNum = 5`).
   A build from before jc-18 has no tileset 5, so on a settings file shared between computers (this
   one is, through Dropbox) such a build starts in its default tileset with an internal error and
   skips the rest of its startup, as in UB-20 (measured 2026-11-15 on jc-17's release: `Index 5 out
@@ -581,7 +610,8 @@ custom tileset, or with a settings file that names one that cannot be drawn.
   startup, the swap and a resize; it knows the ruleset, so its out-of-range message can name the
   key (`TilesheetNum` or `LynxTilesheetNum`), which `load`'s cannot (raised by the jc-34 and jc-36
   reviews).
-- **Pinned by:** `GuiWindowTest` §5b.
+- **Pinned by (jc-22 to jc-36):** `GuiWindowTest` §5b. **Checked by (jc-37 on):** `SettingsTest` §13b,
+  `EngineTest` §6g, `StartupTilesetTest`, `GuiWindowTest` §2, §5b and §5c.
 
 ### UB-17 — custom pictures are saved as full paths
 
@@ -1161,7 +1191,11 @@ are not lost.
   in use. Upstream's startup order; raised by the jc-34 review (second round). Since jc-36 (UB-21) the swap
   at that open marks and, if it falls back, names the Lynx choice, and startup then draws the MS
   tileset over it, so the mark (and such a message) can name a tileset not shown (raised by the
-  jc-36 review; the ordering is upstream's, kept).
+  jc-36 review; the ordering is upstream's, kept). Since jc-37 (UB-16) the tileset startup draws there is MS's
+  choice through `loadForRuleset`, custom included: with MS custom on, a Lynx level named on the
+  command line is drawn in the custom pictures, and a window-size change then reloads by the Lynx
+  ruleset's own setting, so the tileset can change at the resize (raised by the jc-37 review;
+  jc-18 read startup the same way).
 - **A saved tile size of 0 (or less) stops startup partway.** `TileWidth = 0` reaches the image
   scaling unchecked (`IllegalArgumentException: Width (0) and height (0) must be non-zero`), after
   `Gui` has put the window up, so the rest of startup -- layout, notation -- never runs, and only

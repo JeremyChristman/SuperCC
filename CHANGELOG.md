@@ -12,6 +12,36 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## jc-37 — 2026-11-16 (the fix layer: custom is a setting of its own again)
+
+The fifth of the custom-tileset fixes goes back on the upstream baseline. It closes UB-16 in
+[`BASELINE-ISSUES.md`](BASELINE-ISSUES.md). No stored solution changes.
+
+### Fixed
+- **Custom is saved as a switch of its own beside a built-in tileset (`f6d73e7`, UB-16).**
+  jc-18's `CustomTileset` / `LynxCustomTileset`, `setCustomTileset`, `setBuiltInTileset` and
+  `TileSheet.loadForRuleset`, re-applied alone: View › Tileset › custom saves the switch with its
+  two pictures and leaves `TilesheetNum` the built-in tileset, which every build can read; custom
+  that fails falls back to that built-in tileset rather than the default. Since jc-22 custom was
+  saved as `TilesheetNum = 5`, which builds before jc-18 cannot draw. Corpus against jc-36:
+  24,217 of 24,217 identical.
+
+### Changed
+- **A `TilesheetNum` or `LynxTilesheetNum` of 5, as jc-22 to jc-36 saved custom, is read as that
+  ruleset's switch on**, with 0 beside it, and saved that way at the next write -- the
+  maintainer's decision, where jc-18 refused a stored 5, so nobody who chose custom on those builds
+  loses it.
+- A number that is not a built-in tileset is named in its message by its setting (`TilesheetNum`
+  or `LynxTilesheetNum`).
+- Docs: README section 6's custom-tileset entries had not been updated since jc-22 (they still
+  described UB-18, UB-19 and UB-20 as open); rewritten, with the two new settings documented.
+
+### Changed (tests only)
+- New `SettingsTest` §13b; `loadForRuleset` checks in `EngineTest` §6g; `StartupTilesetTest`'s
+  stored 5 and a custom tileset beside built-in MSCC; `GuiWindowTest`'s UB-16 pin a check, and
+  §2 and §5c reading the switch. On jc-36's jar exactly those fail (18, 8, 10, and 5 with the exit
+  check); 18 defects planted, all caught. Suite 2,653 assertions, 24 pins, 4 skips. Coverage: target 57.4% (1546/2694: `SuccPaths`' switch and migration, reached by §13b), `io\**` 75.2% (336/447); the non-target pool 5.1% (103/2037: `TileSheet.loadForRuleset`, reached by §6g); re-baselined.
+
 ## jc-36 — 2026-11-16 (the fix layer: a tileset that cannot be drawn, met while running, falls back and says why)
 
 The fourth of the custom-tileset fixes goes back on the upstream baseline. It closes UB-21 in
