@@ -41,9 +41,8 @@ import java.util.concurrent.TimeUnit;
  * SuperCC.initialise on the event thread -- with every dialog it shows read and closed, and reports  // aen-exempt: upstream method name
  * what it saw. Two controls (a built-in tileset, and a good custom pair) start normally, show
  * nothing, and give what a normal start lays out. Section 2 starts with a level set on the command
- * line, which SuperCC opens BEFORE it reaches the tileset: opening it runs the ruleset swap, still
- * upstream's (UB-21), so there a number out of range still stops startup partway; two pins there
- * flip when UB-21's fix comes back.
+ * line, which SuperCC opens BEFORE it reaches the tileset: opening it runs the ruleset swap, which
+ * falls back as startup does since jc-36 (UB-21; jc-34 and jc-35 pinned the swap's failure there).
  *
  * Like GuiWindowTest, it needs a desktop, and skips without one. A SuperCC window appears for a
  * moment for each case.
@@ -170,14 +169,16 @@ public class StartupTilesetTest {
             Harness.check(what + ": the child ended by itself", s.ended && s.get("end").equals("reached"));
         }
 
-        Harness.section("2. ... with a level set on the command line: opening it swaps the tileset first (UB-21, still upstream's)");
+        Harness.section("2. ... with a level set on the command line: opening it swaps the tileset first (UB-21)");
         /* SuperCC.initialise opens a set named on the command line (ArgumentParser) BEFORE it reaches  // aen-exempt: upstream method name
-         * the tileset, and opening a set runs Gui.swapRulesetTilesheet, which is still upstream's
-         * (UB-21): it indexes TileSheet.values() with the saved number, and says only "Could not load
-         * relevant tilesheet" when the tileset fails. So with a set on the command line a number out
-         * of range still throws before UB-20's fallback is reached -- startup stops partway, as
-         * before jc-34 -- and custom that fails says the swap's words first, then UB-20's. Pinned
-         * here, so UB-21's fix shows as the correct answer coming back. */
+         * the tileset, and opening a set runs Gui.swapRulesetTilesheet. Upstream's swap (jc-22 to
+         * jc-35, pinned there) indexed TileSheet.values() with the saved number, and said only "Could
+         * not load relevant tilesheet" when the tileset failed, so with a set on the command line a
+         * number out of range threw before UB-20's fallback was reached -- startup stopped partway --
+         * and custom that failed said the swap's words first, then UB-20's. MOD (Jeremy, fix layer,
+         * UB-21): the swap falls back as startup does, so startup finishes, and the reason is said
+         * ONCE: by the swap, startup's identical message being one already said this session. */
+        String kept99 = "Tileset number 99 in succ_settings.ini is not one this version has.\n\nShowing " + shown + " instead. " + kept;
         Path setDir = Harness.tempDir("scc-startup-set-");
         DatBuilder b = new DatBuilder().signature(DatBuilder.SIG_MS);
         b.level().title("Startup").chips(0).timeLimit(60).tile(1, 1, game.Tile.CHIP).end();
@@ -187,15 +188,17 @@ public class StartupTilesetTest {
                 withSet.get("threw") + " " + withSet.messages + " " + withSet.get("title") + " " + withSet.get("size") + " "
                 + withSet.get("tiles") + " " + withSet.get("notation"), "nothing [] [SuperCC - Startup] " + normal + " 32x32 true");
         Start n99Set = start("number-99-set", "[Graphics]\nTilesheetNum = 99\n", set);
-        Harness.upstreamBug("number 99 and a set: startup throws nothing (the swap indexes the number first)",
-                n99Set.get("threw"), "java.lang.ArrayIndexOutOfBoundsException: Index 99 out of bounds for length 6", "nothing");
+        Harness.eq("number 99 and a set: nothing thrown, the default drawn, the set open, laid out as saved",
+                n99Set.get("threw") + " " + n99Set.get("drawn") + " " + n99Set.get("title") + " " + n99Set.get("size") + " "
+                + n99Set.get("tiles") + " " + n99Set.get("notation"), "nothing CCEDIT_TW [SuperCC - Startup] " + normal + " 32x32 true");
+        Harness.eq("number 99 and a set: the reason said once", n99Set.messages.toString(), "[" + kept99 + "]");
         Start missingSet = start("custom-missing-set", missingCustom, set);
-        Harness.upstreamBug("custom missing and a set: the first message says why (the swap's comes first, naming nothing)",
-                missingSet.firstMessage().replaceFirst("^\\d+ messages?, ", ""), "the first: Could not load relevant tilesheet",
-                "the first: The custom tileset could not be loaded:");
-        Harness.eq("custom missing and a set: startup still finishes, in the default tileset, after the swap's message (UB-20)",
-                missingSet.get("threw") + " " + missingSet.get("drawn") + " " + missingSet.get("tiles") + " " + missingSet.get("notation"),
-                "nothing CCEDIT_TW 32x32 true");
+        Harness.eq("custom missing and a set: nothing thrown, the default drawn, laid out as saved",
+                missingSet.get("threw") + " " + missingSet.get("drawn") + " " + missingSet.get("size") + " "
+                + missingSet.get("tiles") + " " + missingSet.get("notation"), "nothing CCEDIT_TW " + normal + " 32x32 true");
+        Harness.check("custom missing and a set: the reason said once, naming the file (" + missingSet.firstMessage() + ")",
+                missingSet.messages.size() == 1 && missingSet.messages.get(0).startsWith("The custom tileset could not be loaded:\nCustom tileset image not found:\n")
+                && missingSet.messages.get(0).contains("gone-base.png") && missingSet.messages.get(0).endsWith(kept));
         for (Start s : new Start[] {withSet, n99Set, missingSet})
             Harness.check("and that child ended by itself (" + s.get("title") + ")", s.ended && s.get("end").equals("reached"));
     }

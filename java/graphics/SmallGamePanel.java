@@ -40,10 +40,33 @@ public class SmallGamePanel extends GamePanel {
     public void setWindowSize(int windowSizeX, int windowSizeY) {
         this.windowSizeX = windowSizeX;
         this.windowSizeY = windowSizeY;
+        /* MOD (Jeremy, fix layer, UB-21): through TileSheet.load, like startup (UB-20) and the ruleset
+         * swap. This caught the IOException and did nothing, which left the panel's buffers at the OLD
+         * window size while the window took the new one -- and since jc-33 (UB-19) a custom picture
+         * that fails always is one, so the failure was dropped without a word. No built-in sheet
+         * throws here, but custom can: its pictures moved, deleted, or missing on the other machine.
+         * It now falls back to the default, the reason is said once a session, and the View >
+         * Tileset mark follows what is drawn -- here, so every caller gets it, View > Game window
+         * size > custom too. jc-18's, re-applied alone: jc-18 fell back to the ruleset's built-in
+         * choice for custom, through loadForRuleset and custom's own switch, which come back with
+         * UB-16. Both callers (the Game window size menu, ChooseWindowSize) run on the event thread. */
         try {
-            super.initialise(emulator, getTileSheet().getTileSheets(emulator, tileWidth, tileHeight), getTileSheet(), tileWidth, tileHeight);
+            TileSheet current = getTileSheet() != null ? getTileSheet() : Gui.DEFAULT_TILESHEET;
+            TileSheet.Choice choice = TileSheet.load(emulator, current.ordinal(), Gui.DEFAULT_TILESHEET, tileWidth, tileHeight);
+            super.initialise(emulator, choice.images(), choice.sheet(), tileWidth, tileHeight);  // aen-exempt: upstream method name
+            /* MOD (Jeremy, fix layer, UB-21; jc-36 review, beyond jc-18): the inventory panel takes
+             * its own reference to the board's tile pictures when it is set up, and the line above
+             * makes new ones -- so after a fallback it would go on drawing the keys and boots of the
+             * tileset that failed. The swap sets it up again too. The reason is said last. */
+            Gui window = emulator == null ? null : emulator.getMainWindow();
+            if (window != null && window.getInventoryPanel() != null) window.getInventoryPanel().initialise(emulator);  // aen-exempt: upstream method name
+            if (window != null && window.getJMenuBar() instanceof MenuBar)
+                ((MenuBar) window.getJMenuBar()).markActiveTileset();
+            if (choice.problem() != null && emulator != null) emulator.throwErrorOnce(choice.problem());
         }
-        catch (IOException e) {}
+        catch (IOException e) {
+            e.printStackTrace();   // the built-in default itself failed: a broken jar
+        }
     }
     
     public int getWindowSizeX() {
@@ -273,7 +296,7 @@ public class SmallGamePanel extends GamePanel {
     }
     
     @Override
-    protected void initialiseTileGraphics(BufferedImage allTiles) {
+    protected void initialiseTileGraphics(BufferedImage allTiles) {  // aen-exempt: upstream method name
         tileImage = new int[7*16][tileWidth*tileHeight*CHANNELS];
         for (int i = 0; i < 16 * 7; i++) {
             int x = i / 16;
@@ -283,7 +306,7 @@ public class SmallGamePanel extends GamePanel {
     }
     
     @Override
-    protected void initialiseOverlayGraphics(BufferedImage allTiles) {
+    protected void initialiseOverlayGraphics(BufferedImage allTiles) {  // aen-exempt: upstream method name
         overlayTileImage = new int[7*16][tileWidth*tileHeight*CHANNELS];
         for (int i = 0; i < 16 * 7; i++) {
             int x = i / 16;
@@ -293,7 +316,7 @@ public class SmallGamePanel extends GamePanel {
     }
 
     @Override
-    protected void initialiseCreatureGraphics(BufferedImage overlayImage, BufferedImage tilesImage) {
+    protected void initialiseCreatureGraphics(BufferedImage overlayImage, BufferedImage tilesImage) {  // aen-exempt: upstream method name
         creatureImages = new Image[13][4]; //11 creatures (plus blocks and death effect), each has 4 direction images
         for (int i = 0; i < 10; i++) {
             int offset = 60 + i*4; //60 is Swimming Chip N's tile
@@ -330,7 +353,7 @@ public class SmallGamePanel extends GamePanel {
     }
     
     @Override
-    protected void initialiseLayers() {
+    protected void initialiseLayers() {  // aen-exempt: upstream method name
         lowerImage = new BufferedImage(windowSizeX * tileWidth, windowSizeY * tileHeight, BufferedImage.TYPE_4BYTE_ABGR);
         upperImage = new BufferedImage(windowSizeX * tileWidth, windowSizeY * tileHeight, BufferedImage.TYPE_4BYTE_ABGR);
         backingImage = new BufferedImage(windowSizeX * tileWidth, windowSizeY * tileHeight, BufferedImage.TYPE_4BYTE_ABGR);

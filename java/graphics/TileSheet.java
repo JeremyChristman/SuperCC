@@ -63,15 +63,16 @@ public enum TileSheet {
     
     /* MOD (Jeremy, fix layer, UB-19): every way the custom images can be unusable is an IOException
      * with words in it -- the type the callers catch. (View > Tileset shows it, and so does startup
-     * since UB-20's fallback; the ruleset swap and a window-size change do not yet: UB-21.) Upstream threw an
-     * IOException with NO message when none had been chosen (its callers show getMessage(), so the
+     * since UB-20's fallback, the ruleset swap and a window-size change since UB-21's.) Upstream
+     * threw an IOException with NO message when none had been chosen (its callers show getMessage(), so the
      * user saw "null"), let a missing file surface as ImageIO's "Can't get input stream from URL!",
      * and let a file that is not an image through as a NullPointerException, which no caller
      * catches (ImageIO.read returns null for a format it cannot read). A built-in sheet missing from
      * the jar stays the NullPointerException it always was: that is a broken build, not a user
      * mistake, and jc-17's Black and White fix is the proof it gets noticed. jc-18's loader (merged
      * as "upstream merge", reverted for the upstream baseline in jc-22), re-applied alone; its
-     * fallbacks came back with UB-20 (Choice, load, below: startup) and come with UB-21 and UB-16. */
+     * fallbacks came back with UB-20 (Choice, load, below: startup) and UB-21 (the swap, a
+     * resize); loadForRuleset comes with UB-16. */
     public BufferedImage[] getTileSheets(SuperCC emulator, int tileWidth, int tileHeight) throws IOException {
         URL localUrlTiles;
         URL localUrlOverlay;

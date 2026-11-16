@@ -669,9 +669,10 @@ public class SuperCC {
 
 
     /* MOD (Jeremy, fix layer, UB-20): an error worth saying once per session, not every time its
-     * cause is met again -- a saved tileset that cannot be drawn is met at startup and, once UB-21's
-     * fallbacks are back, at every level set opened after it, and a dialog each time would teach
-     * people to click through them. jc-18's, re-applied alone. */
+     * cause is met again -- a saved tileset that cannot be drawn is met at startup and, since UB-21's
+     * fallbacks, at every level set opened and every window-size change after it, and a dialog each
+     * time would teach people to click through them. jc-18's, re-applied alone. Every caller runs on
+     * the event thread, which the plain HashSet relies on (checked for UB-21). */
     private final java.util.Set<String> shownOnce = new java.util.HashSet<>();
     public void throwErrorOnce(String s){
         if (shownOnce.add(s)) throwError(s);

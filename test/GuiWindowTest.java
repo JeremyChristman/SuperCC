@@ -1395,6 +1395,109 @@ public class GuiWindowTest {
             noThrow("and a built-in tileset can be chosen again", bwMark::doClick);
             stop(restore);
 
+            // 5c. MOD (Jeremy, fix layer, UB-21): a tileset that cannot be drawn, met while running.
+            //     Opening a set swaps in its ruleset's tileset (Gui.swapRulesetTilesheet), and a window
+            //     size change reloads the one drawn (SmallGamePanel.setWindowSize); both now fall back
+            //     to the default, say why once a session, and put the radio mark on what is drawn.
+            //     Upstream (jc-22 to jc-35): a Lynx number this version does not have threw at every
+            //     Lynx set opened; custom that failed kept the previous tileset under "Could not load
+            //     relevant tilesheet"; and at a size change a custom failure was dropped, the panel
+            //     left as it was. Each case starts with Black and White drawn and marked, not the
+            //     default, so a fallback shows. The settings are put back after, for section 6.
+            File lynxFile = new File(args[4]), msFile = new File(args[0]);
+            java.util.function.Supplier<String> onScreen = () -> {
+                String mark = "none";
+                for (int i = 0; i < tilesetMarks.length; i++)
+                    if (((AbstractButton) tilesetMarks[i]).isSelected()) mark = graphics.TileSheet.values()[i].name();
+                return "drawn " + w.getGamePanel().getTileSheet() + ", marked " + mark;
+            };
+            String onDefault = "drawn " + graphics.Gui.DEFAULT_TILESHEET + ", marked " + graphics.Gui.DEFAULT_TILESHEET;
+            String onBw = "drawn " + bw + ", marked " + bw;
+            String keptLine = " Your choice is kept; pick a tileset in View > Tileset to change it.";
+            int lynxBefore = emu.getPaths().getLynxTilesetNum();
+            String[] picturesBefore = emu.getPaths().getCustomTilesetImages();
+            fact("5c starts with an MS level open and " + bw + " drawn and marked", onScreen.get().equals(onBw)
+                 && emu.getLevel().getRuleset().name().equals("MS"), onScreen.get());
+
+            // A Lynx number this version does not have, at a Lynx set opened.
+            emu.getPaths().setLynxTilesetNum(99);
+            List<String> said99 = java.util.Collections.synchronizedList(new ArrayList<>());
+            Thread t99 = answerChoosers(said99);
+            String open99 = outcome(() -> emu.openLevelset(lynxFile));
+            stop(t99);
+            fact("a Lynx set opened with LynxTilesheetNum = 99: works", open99.equals("works"), open99);
+            fact("and the default tileset is drawn, the radio mark on it", onScreen.get().equals(onDefault), onScreen.get());
+            fact("and the reason is said", said99.equals(List.of("message: Tileset number 99 in succ_settings.ini is not one this version has.\n\nShowing "
+                 + graphics.TileSheet.getNames()[graphics.Gui.DEFAULT_TILESHEET.ordinal()] + " instead." + keptLine)), said99.toString());
+            fact("and the choice is kept", emu.getPaths().getLynxTilesetNum() == 99, String.valueOf(emu.getPaths().getLynxTilesetNum()));
+            // The same cause met again: an MS set (its own tileset drawn), then the Lynx set again.
+            Thread quietMs = closeEveryDialog();
+            noThrow("an MS set opened after it", () -> emu.openLevelset(msFile));
+            stop(quietMs);
+            fact("draws the MS tileset again", onScreen.get().equals(onBw), onScreen.get());
+            List<String> saidAgain = java.util.Collections.synchronizedList(new ArrayList<>());
+            Thread tAgain = answerChoosers(saidAgain);
+            String openAgain = outcome(() -> emu.openLevelset(lynxFile));
+            stop(tAgain);
+            fact("the Lynx set opened again: works, the default drawn and marked, and nothing said again (once a session)",
+                 openAgain.equals("works") && onScreen.get().equals(onDefault) && saidAgain.isEmpty(), openAgain + "; " + onScreen.get() + "; " + saidAgain);
+
+            // Custom as the Lynx tileset, its pictures missing, at a Lynx set opened.
+            File gone = new File("swap-gone-base.png").getAbsoluteFile();
+            emu.getPaths().setCustomTilesetImages(gone.getPath(), new File("swap-gone-overlay.png").getAbsolutePath());
+            emu.getPaths().setLynxTilesetNum(graphics.TileSheet.CUSTOM.ordinal());
+            Thread quietMs2 = closeEveryDialog();
+            noThrow("an MS set opened first", () -> emu.openLevelset(msFile));
+            stop(quietMs2);
+            List<String> saidCustom = java.util.Collections.synchronizedList(new ArrayList<>());
+            Thread tCustom = answerChoosers(saidCustom);
+            String openCustom = outcome(() -> emu.openLevelset(lynxFile));
+            stop(tCustom);
+            fact("a Lynx set opened with custom as its tileset, the pictures missing: works", openCustom.equals("works"), openCustom);
+            fact("and the default tileset is drawn, the radio mark on it", onScreen.get().equals(onDefault), onScreen.get());
+            fact("and the reason is said, naming the missing picture",
+                 saidCustom.size() == 1 && saidCustom.get(0).startsWith("message: The custom tileset could not be loaded:\nCustom tileset image not found:\n")
+                 && saidCustom.get(0).contains("swap-gone-base.png") && saidCustom.get(0).endsWith(keptLine), saidCustom.toString());
+
+            // Custom drawn, then its picture gone, at a window size change.
+            Thread quietMs3 = closeEveryDialog();
+            noThrow("an MS set opened again", () -> emu.openLevelset(msFile));
+            stop(quietMs3);
+            File rBase = new File("resize-base.png").getAbsoluteFile(), rOver = new File("resize-overlay.png").getAbsoluteFile();
+            javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(28, 64, java.awt.image.BufferedImage.TYPE_INT_ARGB), "png", rBase);
+            javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(28, 64, java.awt.image.BufferedImage.TYPE_INT_ARGB), "png", rOver);
+            List<String> pickedR = java.util.Collections.synchronizedList(new ArrayList<>());
+            Thread pickR = answerChoosers(pickedR, rBase, rOver);
+            noThrow("custom chosen with two pictures, an MS level open", customMark::doClick);
+            stop(pickR);
+            fact("and drawn and marked", onScreen.get().equals("drawn CUSTOM, marked CUSTOM"), onScreen.get() + " " + pickedR);
+            File rMoved = new File("resize-base.png.moved").getAbsoluteFile();
+            Files.move(rBase.toPath(), rMoved.toPath());
+            graphics.SmallGamePanel panel = (graphics.SmallGamePanel) w.getGamePanel();
+            List<String> saidResize = java.util.Collections.synchronizedList(new ArrayList<>());
+            Thread tResize = answerChoosers(saidResize);
+            String resized = outcome(() -> panel.setWindowSize(panel.getWindowSizeX(), panel.getWindowSizeY()));
+            stop(tResize);
+            fact("its base picture moved away, then the window size set: works", resized.equals("works"), resized);
+            fact("and the default tileset is drawn, the radio mark on it", onScreen.get().equals(onDefault), onScreen.get());
+            fact("and the reason is said, naming the moved picture",
+                 saidResize.size() == 1 && saidResize.get(0).startsWith("message: The custom tileset could not be loaded:\nCustom tileset image not found:\n")
+                 && saidResize.get(0).contains("resize-base.png") && saidResize.get(0).endsWith(keptLine), saidResize.toString());
+            fact("and the inventory draws from the board's new pictures, not the failed tileset's (jc-36 review)",
+                 field(w.getInventoryPanel(), "tileImage") == field(w.getGamePanel(), "tileImage"));
+
+            // Put back what section 6 opens sets with.
+            Files.move(rMoved.toPath(), rBase.toPath());
+            Thread quietRestore = closeEveryDialog();
+            noThrow("and a built-in tileset chosen again", bwMark::doClick);
+            stop(quietRestore);
+            emu.getPaths().setLynxTilesetNum(lynxBefore);
+            if (picturesBefore != null) emu.getPaths().setCustomTilesetImages(picturesBefore[0], picturesBefore[1]);
+            else emu.getPaths().setCustomTilesetImages("", "");   // read back as none chosen (UB-19)
+            fact("and the settings put back for section 6", emu.getPaths().getLynxTilesetNum() == lynxBefore
+                 && onScreen.get().equals(onBw) && java.util.Arrays.equals(emu.getPaths().getCustomTilesetImages(), picturesBefore),
+                 emu.getPaths().getLynxTilesetNum() + " " + onScreen.get() + " " + java.util.Arrays.toString(emu.getPaths().getCustomTilesetImages()));
+
             // 6. Auto-diagonals (upstream 5f928e0, fb8fe25, da35e33, 8c95b3e), exactly as upstream
             //    wrote them (the upstream baseline, FORK.md). Upstream's key listener sends EVERY game
             //    key -- arrows, diagonal keys, waits, Backspace, Enter -- through a 50 ms window, and
