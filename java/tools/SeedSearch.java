@@ -35,8 +35,14 @@ public class SeedSearch {
     private static final int UPDATE_GUI_RATE = UPDATE_VALUE_RATE * 2;
 
     private final byte[] startingState;
-    private static boolean killFlag = false;
-    private static boolean running = false;
+    /* MOD (Jeremy, fix layer, UB-10): volatile. Both flags are shared between the event thread and
+     * the search threads: Pause (or closing the window) sets killFlag, which every search thread's
+     * loop reads; the threads set running, which Pause and isRunning() read. Without volatile the
+     * Java memory model does not promise either side ever sees the other's write. It does not fix
+     * UB-8: each thread's run() still writes both as it starts, so one starting after a Pause clears
+     * it. SeedSearchTest §6 checks the modifier on the shipped class. jc-16's, re-applied alone. */
+    private static volatile boolean killFlag = false;
+    private static volatile boolean running = false;
     private static AtomicInteger numAlive = new AtomicInteger(0);
     private DecimalFormat df;
 

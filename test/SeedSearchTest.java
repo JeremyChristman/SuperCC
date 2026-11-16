@@ -373,5 +373,23 @@ public class SeedSearchTest {
             Harness.check("Pause: every thread ends", awaitIdle(20_000));
             Harness.eq("and the button offers Resume", ((JButton) field(paused, "startStopButton")).getText(), "Resume");
         }
+
+        /* ================================================================
+         * 6. The two flags every search thread reads are volatile (UB-10)
+         * ================================================================
+         * killFlag and running are shared between the event thread and the search threads (Pause
+         * sets killFlag, read in every search loop; the threads set running, read by the window).
+         * Without `volatile` the Java memory model does not promise either side sees the other's write;
+         * HotSpot happens to make section 5 pass either way, so no timing test can show the
+         * difference. What can be checked is the promise itself: the modifier on the fields of the
+         * class that SHIPS (this reads the jar's SeedSearch, as every check here does). jc-16 to
+         * jc-19 declared both volatile; the upstream baseline (jc-20 to jc-40) did not, and fails
+         * both checks; the fix layer put them back in jc-41. */
+        Harness.section("6. the flags are volatile");
+        for (String name : new String[] { "killFlag", "running" }) {
+            Field f = SeedSearch.class.getDeclaredField(name);
+            Harness.check(name + " is volatile, so every search thread is promised to see it change",
+                          java.lang.reflect.Modifier.isVolatile(f.getModifiers()));
+        }
     }
 }
