@@ -540,22 +540,29 @@ class MenuBar extends JMenuBar{
                         if (tileSheet == TileSheet.CUSTOM) {
                             SuccPaths paths = emulator.getPaths();
                             String[] customImages = paths.getCustomTilesetImages();
+                            /* MOD (Jeremy, fix layer, UB-31): where the two choosers open. With
+                             * pictures saved, each at its own picture (as upstream). With none,
+                             * the base picture's in the Chip's Challenge folder -- the working
+                             * folder -- and the overlay's where the base picture was just chosen
+                             * (overlayPath null, below; the absolute file's parent, so it is never null -- jc-39 review). Upstream handed "" to openFile, which has no
+                             * parent folder, so both opened in Java's default folder for the user
+                             * (Documents, on Windows; measured on jc-38). jc-18's, re-applied alone. */
                             if (customImages != null) {
                                 basePath = customImages[0];
                                 overlayPath = customImages[1];
                             } else {
-                                basePath = "";
-                                overlayPath = "";
+                                basePath = new File("").getAbsolutePath();
+                                overlayPath = null;
                             }
                             /* MOD (Jeremy, fix layer, UB-18): Cancel at either chooser ends it, as
                              * every other chooser does since jc-12 -- the second is not asked for
                              * once the first is canceled, nothing is shown, and the radio mark goes
                              * back to the tileset still drawn (below, in finally). Upstream asked for
                              * the second picture anyway, then threw "No tileset image provided",
-                             * leaving the mark on custom. jc-18's, re-applied alone: the choosers
-                             * still start where upstream starts them (UB-31). */
+                             * leaving the mark on custom. jc-18's, re-applied alone. */
                             File baseImage = openFile(basePath, "Tileset base image", "png");
-                            File overlayImage = baseImage == null ? null : openFile(overlayPath, "Tileset overlay image", "png");
+                            File overlayImage = baseImage == null ? null
+                                    : openFile(overlayPath != null ? overlayPath : baseImage.getAbsoluteFile().getParent(), "Tileset overlay image", "png");
                             if (baseImage == null || overlayImage == null) return;
                             basePath = baseImage.getAbsolutePath();
                             overlayPath = overlayImage.getAbsolutePath();

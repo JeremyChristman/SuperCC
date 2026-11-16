@@ -281,20 +281,8 @@ public class GuiWindowTest {
          * and never offered again). Stop it with stop().
          */
         static Thread answerChoosers(List<String> log, File... files) {
-            java.util.concurrent.atomic.AtomicInteger next = new java.util.concurrent.atomic.AtomicInteger();
-            return onEachNewDialog(win -> SwingUtilities.invokeLater(() -> {
-                javax.swing.JFileChooser fc = find(win, javax.swing.JFileChooser.class);
-                int i = next.get();
-                if (fc != null && i < files.length) {
-                    next.incrementAndGet();
-                    approve(fc, files[i], log);
-                } else if (fc != null) {
-                    log.add("chooser (closed)");
-                    win.dispose();
-                } else {
-                    recordMessage(win, log);
-                }
-            }));
+            // The same as answerChoosersNoting with the folders dropped: one copy of the logic (jc-39 review).
+            return answerChoosersNoting(log, java.util.Collections.synchronizedList(new ArrayList<>()), files);
         }
 
         /** One of section 4b's file choosers: its menu and item, the file it is answered with (null:
@@ -430,6 +418,24 @@ public class GuiWindowTest {
                     log.add("chooser: could not be answered (" + t + ")");
                     win.dispose();
                 }
+            }));
+        }
+
+        /**
+         * As answerChoosers, and first notes the folder each chooser opened in -- its current
+         * directory as it is shown, before the file is approved -- in `openedIn`, one entry per
+         * chooser (UB-31: where custom's choosers start). Stop it with stop().
+         */
+        static Thread answerChoosersNoting(List<String> log, List<String> openedIn, File... files) {
+            java.util.concurrent.atomic.AtomicInteger next = new java.util.concurrent.atomic.AtomicInteger();
+            return onEachNewDialog(win -> SwingUtilities.invokeLater(() -> {
+                javax.swing.JFileChooser fc = find(win, javax.swing.JFileChooser.class);
+                if (fc == null) { recordMessage(win, log); return; }
+                File dir = fc.getCurrentDirectory();
+                openedIn.add(dir == null ? "(none)" : dir.getAbsolutePath());
+                int i = next.getAndIncrement();
+                if (i < files.length) approve(fc, files[i], log);
+                else { log.add("chooser (closed)"); win.dispose(); }
             }));
         }
 
@@ -962,15 +968,34 @@ public class GuiWindowTest {
             AbstractButton bwMark = (AbstractButton) tilesetMarks[bw.ordinal()];
             // Pictures of their own, so section 5b's check of what IT saves cannot be satisfied by
             // this pick's lines (review).
-            File nBase = new File("nolevel-base.png").getAbsoluteFile(), nOver = new File("nolevel-overlay.png").getAbsoluteFile();
+            // In a folder of their own, so "the second chooser opens where the first picture is"
+            // cannot pass as "it opens in the Chip's Challenge folder" (UB-31, below).
+            // The overlay in another, so section 5b can tell where each chooser opens once both are saved.
+            File nPics = new File("nolevel-pics").getAbsoluteFile(), nOverPics = new File("nolevel-pics-overlay").getAbsoluteFile();
+            Files.createDirectories(nPics.toPath());
+            Files.createDirectories(nOverPics.toPath());
+            File nBase = new File(nPics, "nolevel-base.png"), nOver = new File(nOverPics, "nolevel-overlay.png");
             javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(28, 64, java.awt.image.BufferedImage.TYPE_INT_ARGB), "png", nBase);
             javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(28, 64, java.awt.image.BufferedImage.TYPE_INT_ARGB), "png", nOver);
             List<String> picked = java.util.Collections.synchronizedList(new ArrayList<>());
-            Thread pick = answerChoosers(picked, nBase, nOver);
+            List<String> openedIn = java.util.Collections.synchronizedList(new ArrayList<>());
+            Thread pick = answerChoosersNoting(picked, openedIn, nBase, nOver);
             noThrow("View > Tileset > custom, two pictures chosen, with no level open", customMark::doClick);
             stop(pick);
             fact("and both of its choosers were answered (" + picked + ")",
                  picked.size() >= 2 && picked.get(0).equals("chooser") && picked.get(1).equals("chooser"));
+            //    MOD (Jeremy, fix layer, UB-31): with no pictures chosen yet, the base picture's chooser
+            //    opens in the Chip's Challenge folder (this one's working folder, as SuperCC's is), and
+            //    the overlay's where the base picture was just chosen. Upstream handed "" to openFile,
+            //    which has no parent folder, so both opened in Java's default folder for the user
+            //    (Documents, on Windows) -- measured with this check on jc-38's jar. The Chip's Challenge
+            //    folder is the settings file's folder, as SuccPaths anchors stored paths to (review: not
+            //    the same expression the fix uses).
+            String ccFolder = new File(io.SuccPaths.SETTINGS_FILE_NAME).getAbsoluteFile().getParentFile().getAbsolutePath();
+            fact("with no pictures chosen yet, the first chooser opens in the Chip's Challenge folder",
+                 openedIn.size() >= 1 && openedIn.get(0).equals(ccFolder), openedIn + " (the CC folder is " + ccFolder + ")");
+            fact("and the second where the first picture was just chosen",
+                 openedIn.size() >= 2 && openedIn.get(1).equals(nPics.getPath()), openedIn.toString());
             // MOD (Jeremy, fix layer, UB-16): saved as the MS custom switch, TilesheetNum still the
             // built-in choice beside it (the walk's last, Black and White); jc-22 to jc-36 saved it
             // as tileset number 5.
@@ -1397,9 +1422,20 @@ public class GuiWindowTest {
             //     pinned tileset number 5), and its pictures stored relative to this folder from jc-38
             //     (UB-17, checked here; jc-22 to jc-37 pinned them absolute).
             List<String> answered = java.util.Collections.synchronizedList(new ArrayList<>());
-            Thread chooser = answerChoosers(answered, cBase, cOver);
+            // The precondition, said out loud (jc-39 review): section 2's two pictures, in their two
+            // folders, are the saved pair here -- or the check after the pick would blame the start
+            // folders for a fixture another section changed.
+            fact("before 5b's pick, the saved pictures are still section 2's",
+                 java.util.Arrays.equals(emu.getPaths().getCustomTilesetImages(), new String[] {nBase.getPath(), nOver.getPath()}),
+                 java.util.Arrays.toString(emu.getPaths().getCustomTilesetImages()));
+            List<String> openedIn5b = java.util.Collections.synchronizedList(new ArrayList<>());
+            Thread chooser = answerChoosersNoting(answered, openedIn5b, cBase, cOver);
             noThrow("View > Tileset > custom, two pictures chosen, with a level open", customMark::doClick);
             stop(chooser);
+            // With pictures saved (section 2's, in two folders), each chooser opens where its own
+            // picture is -- upstream's behavior too, kept by UB-31's fix.
+            fact("with pictures saved, each chooser opens where its own picture is",
+                 openedIn5b.equals(List.of(nPics.getPath(), nOverPics.getPath())), openedIn5b.toString());
             fact("both choosers were answered, and no error shown (" + answered + ")",
                  answered.equals(java.util.Arrays.asList("chooser", "chooser")));
             fact("the custom tileset is drawn", w.getGamePanel().getTileSheet() == graphics.TileSheet.CUSTOM);
