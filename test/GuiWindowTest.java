@@ -58,7 +58,7 @@ import java.util.zip.ZipFile;
  *   4. Canceling Go to... and Set RNG Seed (by the close box and by the Cancel button: the reply
  *      is null), and each box's other answers.
  *   4b. Canceling every file chooser the menus open with a level loaded but View > Tileset >
- *      custom's (UB-18, pinned in 2's walk): the close box, Cancel; and for the four UB-13
+ *      custom's (UB-18, checked in 2: the walk and after it): the close box, Cancel; and for the four UB-13
  *      concerns, a file chosen.
  *   5. A level that loads is not reported as failed when the repaint after it throws.
  *   Nothing reaches the error log before 3a, nothing after 3a until 5, whose trace is expected.
@@ -69,7 +69,7 @@ import java.util.zip.ZipFile;
  * measured answer, the correct one -- and this side judges it with Harness.upstreamBug. Every check
  * upstream passes is still an ordinary one. The fix behind 2 (UB-11, the guard over the whole menu
  * bar) is back from jc-28 (FORK.md, "The fix layer"), so 2's UB-11 pins are checks again; its two
- * pins on View > Tileset > custom (UB-18, from the custom-tileset step) stay. The fix behind 3a and
+ * pins on View > Tileset > custom (UB-18, from the custom-tileset step) are checks again from jc-35. The fix behind 3a and
  * 5 (UB-14, opening a set at its first level that loads) is back from jc-29, so their pins are
  * checks again too; so are those of 4 (UB-12, canceling the two input boxes) from jc-31, and of
  * 4b (UB-13, canceling a file chooser) from jc-32. The no-level guards step (UB-11 to UB-15) is
@@ -401,6 +401,31 @@ public class GuiWindowTest {
                     if (press == Press.CLOSE_BOX) { pressCloseBox(win, log, "chooser"); return; }
                     if (press == Press.OK) { approve(fc, file, log); return; }
                     pressLabeled(win, fc, "FileChooser.cancelButtonText", log, "chooser");
+                } catch (Throwable t) {
+                    log.add("chooser: could not be answered (" + t + ")");
+                    win.dispose();
+                }
+            }));
+        }
+
+        /**
+         * As answerChoosers, but the chooser after the last of `files` is answered as a person
+         * would -- `last`, its close box or its own Cancel button -- rather than disposed: a
+         * disposed chooser returns ERROR_OPTION, which is not what Cancel returns (jc-35 review).
+         * Records "chooser" for each chooser answered, "message: <its text>" for any other dialog,
+         * or what went wrong, and then disposes it, so the click cannot hang. Stop it with stop().
+         */
+        static Thread answerChoosersThen(List<String> log, Press last, File... files) {
+            if (last == Press.OK) throw new IllegalArgumentException("answerChoosersThen ends with Cancel or the close box, not OK");
+            java.util.concurrent.atomic.AtomicInteger next = new java.util.concurrent.atomic.AtomicInteger();
+            return onEachNewDialog(win -> SwingUtilities.invokeLater(() -> {
+                try {
+                    javax.swing.JFileChooser fc = find(win, javax.swing.JFileChooser.class);
+                    if (fc == null) { recordMessage(win, log); return; }
+                    int i = next.getAndIncrement();
+                    if (i < files.length) approve(fc, files[i], log);
+                    else if (last == Press.CLOSE_BOX) pressCloseBox(win, log, "chooser");
+                    else pressLabeled(win, fc, "FileChooser.cancelButtonText", log, "chooser");
                 } catch (Throwable t) {
                     log.add("chooser: could not be answered (" + t + ")");
                     win.dispose();
@@ -813,15 +838,15 @@ public class GuiWindowTest {
                     act = ((AbstractButton) c[1])::doClick;
                 }
                 if (name.equals("View > Tileset > custom")) {
-                    /* ⚠ UPSTREAM BASELINE (from jc-22, UB-18): upstream asks for BOTH images even when
-                     * the first chooser is canceled, then reports "No tileset image provided" -- three
-                     * dialogs. jc-18 to jc-21 stopped at the first Cancel. Counted, and pinned. */
+                    /* MOD (Jeremy, fix layer, UB-18): canceling the first chooser ends it -- one
+                     * dialog, the chooser, and nothing after it. Upstream (jc-22 to jc-34, pinned
+                     * there) asked for the second picture anyway, then reported "No tileset image
+                     * provided": three dialogs. jc-18's Cancel, back since jc-35. */
                     String did = outcome(act);
                     stop(closer);
                     int shown = dialogsClosed.get() - dialogsBefore;
-                    pin(name + ", canceled, with no level open", did + ", " + (shown == 1 ? "one chooser"
-                            : shown == 3 ? "both choosers and an error" : shown + " dialogs"),
-                        "works, both choosers and an error", "works, one chooser");
+                    fact(name + ", canceled, with no level open: works, one chooser and nothing else",
+                         did.equals("works") && shown == 1, did + ", " + shown + " dialog(s)");
                     closeToolWindows(w);
                     continue;
                 }
@@ -866,9 +891,10 @@ public class GuiWindowTest {
             //    whose overlay image could not be found in any jar before jc-17 -- is saved as the MS
             //    tileset, the one drawn at startup (jc-21 to jc-27 threw reading the level's ruleset
             //    before saving it, and the stock 0 stayed). The Lynx choice is untouched.
-            //    Then came "custom" (jc-18), whose choosers the closer canceled. jc-18 to jc-21 made
-            //    that a no-op that put the radio mark back on Black and White; upstream leaves the mark
-            //    on custom, which is not drawn (UB-18, pinned). Either way no image path is saved.
+            //    Then came "custom" (jc-18), whose chooser the closer canceled: a no-op that puts the
+            //    radio mark back on Black and White, the tileset still drawn (MOD (Jeremy, fix layer,
+            //    UB-18); upstream, jc-22 to jc-34, left the mark on custom, which is not drawn, and
+            //    was pinned there). Either way no image path is saved.
             graphics.TileSheet bw = graphics.TileSheet.CCEDIT_BLACK_AND_WHITE;
             fact("custom is the last tileset in the menu", graphics.TileSheet.values()[graphics.TileSheet.values().length - 1] == graphics.TileSheet.CUSTOM);
             fact("the last built-in tileset clicked is drawn (" + bw + ")", w.getGamePanel().getTileSheet() == bw);
@@ -876,8 +902,8 @@ public class GuiWindowTest {
             fact("and the Lynx tileset is left alone", emu.getPaths().getLynxTilesetNum() == 0);
             boolean markOnBw = ((AbstractButton) tilesetMarks[bw.ordinal()]).isSelected();
             boolean markOnCustom = ((AbstractButton) tilesetMarks[graphics.TileSheet.CUSTOM.ordinal()]).isSelected();
-            pin("canceling custom put the radio mark back on " + bw,
-                markOnBw && !markOnCustom ? "on " + bw : markOnCustom ? "on custom" : "elsewhere", "on custom", "on " + bw);
+            fact("canceling custom put the radio mark back on " + bw, markOnBw && !markOnCustom,
+                 markOnCustom ? "on custom" : "elsewhere");
             String[] noImages = emu.getPaths().getCustomTilesetImages();
             fact("and saved no custom image, nor chose custom",
                  (noImages == null || (noImages[0].isEmpty() && noImages[1].isEmpty()))
@@ -921,6 +947,52 @@ public class GuiWindowTest {
             noThrow("and the stock tileset chosen after it, with no level open", ((AbstractButton) tilesetMarks[0])::doClick);
             fact("is drawn and saved as the MS tileset (" + stock + ")",
                  w.getGamePanel().getTileSheet() == stock && emu.getPaths().getMSTilesetNum() == stock.ordinal());
+
+            //    MOD (Jeremy, fix layer, UB-18): with a built-in tileset drawn, a custom pick that does
+            //    not take effect changes nothing and puts the radio mark back on what is drawn. Each
+            //    chooser canceled as a person would -- its own Cancel button, and its close box -- the
+            //    first (one chooser, nothing after it) and the SECOND, the first answered with a
+            //    picture (the two choosers, nothing after them). Upstream (jc-22 to jc-34) asked for
+            //    the second after the first was canceled, then showed "No tileset image provided" and
+            //    left the mark on custom. Then a file that is not a picture: its one error (UB-19),
+            //    and the mark back as well -- upstream left it on custom (recorded under UB-18 in
+            //    jc-33). The stock tileset is a different one from the walk's, so none of these can be
+            //    passed by a mark left where the walk put it.
+            AbstractButton stockMark = (AbstractButton) tilesetMarks[stock.ordinal()];
+            // The saved custom pictures too: a pick that does not take effect must not leave half a pair
+            // saved (jc-35 review). They are the no-level pick's, above; the second chooser's cases answer
+            // the first with a DIFFERENT picture (cBase), so a stray save of it shows.
+            java.util.function.Supplier<String> stockState = () -> "drawn " + w.getGamePanel().getTileSheet()
+                    + ", saved " + emu.getPaths().getMSTilesetNum() + ", mark on stock " + stockMark.isSelected()
+                    + ", on custom " + customMark.isSelected() + ", pictures " + java.util.Arrays.toString(emu.getPaths().getCustomTilesetImages());
+            String stockUnchanged = "drawn " + stock + ", saved " + stock.ordinal() + ", mark on stock true, on custom false, pictures "
+                    + java.util.Arrays.toString(new String[] {nBase.getPath(), nOver.getPath()});
+            for (Press press : new Press[] {Press.CANCEL, Press.CLOSE_BOX}) {
+                for (int chosen = 0; chosen <= 1; chosen++) {
+                    String how = (chosen == 0 ? "its first" : "its SECOND") + " chooser's "
+                               + (press == Press.CANCEL ? "Cancel button" : "close box");
+                    List<String> log = java.util.Collections.synchronizedList(new ArrayList<>());
+                    Thread t = answerChoosersThen(log, press, chosen == 0 ? new File[0] : new File[] {cBase});
+                    String did = outcome(customMark::doClick);
+                    stop(t);
+                    List<String> expected = chosen == 0 ? List.of("chooser") : List.of("chooser", "chooser");
+                    fact("custom, " + how + ", with no level open: works, " + expected.size() + " chooser(s) and nothing else",
+                         did.equals("works") && log.equals(expected), did + " " + log);
+                    String after = stockState.get();
+                    fact("and after " + how + ", the stock tileset is still drawn and saved, the radio mark back on it",
+                         after.equals(stockUnchanged), after);
+                }
+            }
+            List<String> refused = java.util.Collections.synchronizedList(new ArrayList<>());
+            Thread refusedPick = answerChoosers(refused, cText, nOver);
+            String refusedDid = outcome(customMark::doClick);
+            stop(refusedPick);
+            fact("custom with a file that is not a picture, with no level open: works, one error naming it",
+                 refusedDid.equals("works") && refused.size() == 3 && refused.get(2).startsWith("message: Not an image SuperCC can read:")
+                 && refused.get(2).contains("cnotes.png"), refusedDid + " " + refused);
+            String afterRefused = stockState.get();
+            fact("and the stock tileset is still drawn and saved, the radio mark back on it, after a refused picture too",
+                 afterRefused.equals(stockUnchanged), afterRefused);
 
             //    TWS > Open tws with a file CHOSEN, still with no level open. The walk canceled its
             //    chooser, so what runs after a pick (SuperCC.setTWSFile, which reads the file's
@@ -1158,7 +1230,7 @@ public class GuiWindowTest {
             //     TWS > Write solution to new tws fail with an AssertionError (the child runs with
             //     -ea:graphics.MenuBar for that). MOD (Jeremy, fix layer, UB-13): both are gone again.
             //     Every file chooser the menus open with a level loaded -- but View > Tileset >
-            //     custom's, whose Cancel is UB-18 (pinned in section 2's walk) -- is answered as a
+            //     custom's, whose Cancel is UB-18 (checked in section 2: the walk and after it) -- is answered as a
             //     person would (answerChooser): its close box and its Cancel button, which must change
             //     nothing and show nothing else; and for UB-13's four, a file too. For the three that
             //     open one, the file is one that is not there, which must bring jc-12's own message

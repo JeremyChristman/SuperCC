@@ -548,16 +548,24 @@ class MenuBar extends JMenuBar{
                                 basePath = "";
                                 overlayPath = "";
                             }
+                            /* MOD (Jeremy, fix layer, UB-18): Cancel at either chooser ends it, as
+                             * every other chooser does since jc-12 -- the second is not asked for
+                             * once the first is canceled, nothing is shown, and the radio mark goes
+                             * back to the tileset still drawn (below, in finally). Upstream asked for
+                             * the second picture anyway, then threw "No tileset image provided",
+                             * leaving the mark on custom. jc-18's, re-applied alone: the choosers
+                             * still start where upstream starts them (UB-31). */
                             File baseImage = openFile(basePath, "Tileset base image", "png");
-                            File overlayImage = openFile(overlayPath, "Tileset overlay image", "png");
-                            if (baseImage == null || overlayImage == null) throw new IOException("No tileset image provided");
+                            File overlayImage = baseImage == null ? null : openFile(overlayPath, "Tileset overlay image", "png");
+                            if (baseImage == null || overlayImage == null) return;
                             basePath = baseImage.getAbsolutePath();
                             overlayPath = overlayImage.getAbsolutePath();
                             /* MOD (Jeremy, fix layer, UB-19): both pictures are LOADED before their
                              * paths are saved. Upstream saved first, so a file that is not a picture
                              * was saved too, then failed -- and, once custom was the saved tileset,
                              * failed again at every launch. jc-18's order, re-applied alone (jc-18
-                             * also changed Cancel, UB-18, and how the choice is stored, UB-16, UB-17). */
+                             * also changed how the choice is stored, UB-16, UB-17; its Cancel is
+                             * back, UB-18, above). */
                             tilesetImages = TileSheet.loadCustom(baseImage, overlayImage, tileWidth, tileHeight);
                             paths.setCustomTilesetImages(basePath, overlayPath);
                         } else {
@@ -575,6 +583,14 @@ class MenuBar extends JMenuBar{
                             emulator.getPaths().setLynxTilesetNum(tileSheet.ordinal());
                     } catch (IOException exc) {
                         emulator.throwError(exc.getMessage());
+                    } finally {
+                        /* MOD (Jeremy, fix layer, UB-18): the radio mark follows what is drawn,
+                         * whatever happened -- a JRadioButton moves its own mark before its listener
+                         * runs, so a Cancel, a refused picture, or anything else that leaves the
+                         * old tileset drawn would otherwise leave the mark on one that is not.
+                         * After a pick that took, it is already right. jc-18 put it back on the
+                         * Cancel path and in this catch; one place covers both (jc-35 review). */
+                        markActiveTileset();
                     }
                 });
                 tilesetButtonGroup.add(tilesheetButton);
@@ -847,8 +863,8 @@ class MenuBar extends JMenuBar{
      * MOD (Jeremy, jc-12): two fixes, both in the two lines this used to be.
      *
      * openFile() returns NULL when the user cancels the chooser; its other callers test for that
-     * (Open levelset and Open tws, quietly; View > Tileset > custom, which then shows an error --
-     * BASELINE-ISSUES.md UB-18). This one did not: it called .toPath() on
+     * (Open levelset and Open tws, quietly; View > Tileset > custom, quietly since jc-35 -- jc-22 to
+     * jc-34 showed an error, BASELINE-ISSUES.md UB-18). This one did not: it called .toPath() on
      * the result, and a NullPointerException is not an IOException, so the catch below could not
      * see it and it escaped into the event thread. Canceling Solution > Open, the seed search, or
      * Load states threw.
@@ -880,6 +896,16 @@ class MenuBar extends JMenuBar{
             emulator.throwError("Could not load file:\n" + e.getMessage());
         }
         return null;
+    }
+
+    /** MOD (Jeremy, fix layer, UB-18): puts View > Tileset's radio mark back on the tileset that is
+     *  actually drawn, after a choice that did not take effect (canceled, or a picture that would not
+     *  load). A JRadioButton has already moved its mark by the time its listener runs. jc-18's,
+     *  re-applied alone. */
+    void markActiveTileset() {
+        TileSheet active = window.getGamePanel() == null ? null : window.getGamePanel().getTileSheet();
+        if (active != null && tilesetButtons != null && active.ordinal() < tilesetButtons.length)
+            tilesetButtons[active.ordinal()].setSelected(true);
     }
 
     private File openFile(String path, String description, String... extensions) {
