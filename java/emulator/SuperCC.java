@@ -600,19 +600,32 @@ public class SuperCC {
     private void initialiseTilesheet() {  // aen-exempt: upstream method name
         Gui window = this.getMainWindow();
         SuccPaths paths = this.getPaths();
-        TileSheet[] tileSheets = TileSheet.values();
-        TileSheet tileSheet = tileSheets[paths.getMSTilesetNum()];
         int[] tileSizes = paths.getTileSizes();
         int width = tileSizes[0];
         int height = tileSizes[1];
         SmallGamePanel gamePanel = (SmallGamePanel) window.getGamePanel();
-        this.getMainWindow().getGamePanel().setTileSheet(tileSheet);
+        /* MOD (Jeremy, fix layer, UB-20): through TileSheet.load, which falls back to the default
+         * tileset with a reason when the saved one cannot be drawn -- a number this version does not
+         * have, or custom whose pictures are missing or cannot be used. This indexed values()
+         * directly, so a number out of range threw here, and a tileset that failed to load passed
+         * null images on to the panel, which threw. Gui had already put the window up in the default
+         * tileset, so SuperCC looked as if it had started, but the rest of startup never ran -- the
+         * saved tile size, the window's layout for it, the saved TWS notation -- the panel was left
+         * half set (custom: named custom at the saved size, drawing the default's pictures), and
+         * nothing said why but the error log's one notice. jc-18's fallback, re-applied alone: it
+         * reads the MS number as upstream stores it (custom as 5, UB-16). */
+        TileSheet tileSheet = Gui.DEFAULT_TILESHEET;
         BufferedImage[] tilesetImages = null;
+        String problem = null;
         try {
-            tilesetImages = tileSheet.getTileSheets(this, width, height);
+            TileSheet.Choice choice = TileSheet.load(this, paths.getMSTilesetNum(), Gui.DEFAULT_TILESHEET, width, height);
+            tileSheet = choice.sheet();
+            tilesetImages = choice.images();
+            problem = choice.problem();   // said at the end, over the finished window
         } catch (IOException e) {
-            e.printStackTrace();
+            e.printStackTrace();   // the built-in fallback itself failed: a broken jar
         }
+        this.getMainWindow().getGamePanel().setTileSheet(tileSheet);
         //see if all of this can't be refactored out of existence by pressing the buttons in MenuBar if their setting is changed
         window.getGamePanel().initialise(this, tilesetImages, tileSheet, tileSizes[0], tileSizes[1]);  // aen-exempt: upstream method name
         window.getInventoryPanel().initialise(this);  // aen-exempt: upstream method name
@@ -643,12 +656,26 @@ public class SuperCC {
          * full repaint happens exactly as before. */
         if (isLevelLoaded() && getSavestates() != null) window.repaint(true);
         else window.repaint();
+        /* MOD (Jeremy, fix layer, UB-20): why the saved tileset is not the one drawn, said LAST
+         * (jc-34 review). jc-18 said it where the choice was made, so the message sat over a window
+         * not yet laid out for the saved tile size, and its modal loop ran whatever was queued
+         * meanwhile; here the window behind it is the one the user gets. */
+        if (problem != null) throwErrorOnce(problem);
     }
 
     public static boolean areToolsRunning() {
         return (SeedSearch.isRunning() || TSPGUI.isRunning() || VariationTesting.isRunning());
     }
 
+
+    /* MOD (Jeremy, fix layer, UB-20): an error worth saying once per session, not every time its
+     * cause is met again -- a saved tileset that cannot be drawn is met at startup and, once UB-21's
+     * fallbacks are back, at every level set opened after it, and a dialog each time would teach
+     * people to click through them. jc-18's, re-applied alone. */
+    private final java.util.Set<String> shownOnce = new java.util.HashSet<>();
+    public void throwErrorOnce(String s){
+        if (shownOnce.add(s)) throwError(s);
+    }
 
     public void throwError(String s){
         if (hasGui)

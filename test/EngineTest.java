@@ -210,6 +210,55 @@ public class EngineTest {
         }
     }
 
+    /** TileSheet.load(emu, number, fallback, 10, 10), reached by reflection (6g): the Choice it
+     *  returned, or what happened instead as a String -- "throws <class>: <first line>", or "no
+     *  TileSheet.load" on a jar from before UB-20's fix. */
+    private static Object tilesetLoad(SuperCC emu, int number, graphics.TileSheet fallback) {
+        try {
+            return graphics.TileSheet.class.getMethod("load", SuperCC.class, int.class, graphics.TileSheet.class, int.class, int.class)
+                    .invoke(null, emu, number, fallback, 10, 10);
+        } catch (NoSuchMethodException e) {
+            return "no TileSheet.load";
+        } catch (java.lang.reflect.InvocationTargetException e) {
+            Throwable t = e.getCause();
+            return "throws " + t.getClass().getSimpleName() + ": " + String.valueOf(t.getMessage()).split("\n")[0];
+        } catch (ReflectiveOperationException e) {
+            return "cannot call TileSheet.load: " + e;
+        }
+    }
+
+    /** A record component of the Choice tilesetLoad returned. */
+    private static Object part(Object choice, String name) throws ReflectiveOperationException {
+        return choice.getClass().getMethod(name).invoke(choice);
+    }
+
+    /** tilesetLoad, comparably: "<sheet> | <the problem's first line, or (no problem)> | images
+     *  <count>", or what happened instead. */
+    private static String tilesetChoice(SuperCC emu, int number, graphics.TileSheet fallback) {
+        Object choice = tilesetLoad(emu, number, fallback);
+        if (choice instanceof String) return (String) choice;
+        try {
+            Object problem = part(choice, "problem");
+            java.awt.image.BufferedImage[] images = (java.awt.image.BufferedImage[]) part(choice, "images");
+            long real = images == null ? -1 : java.util.Arrays.stream(images).filter(java.util.Objects::nonNull).count();
+            return ((graphics.TileSheet) part(choice, "sheet")).name() + " | " + (problem == null ? "(no problem)" : ((String) problem).split("\n")[0])
+                    + " | images " + (images == null ? "null" : real == images.length ? String.valueOf(real) : real + " of " + images.length);
+        } catch (ReflectiveOperationException e) {
+            return "cannot read TileSheet.Choice: " + e;
+        }
+    }
+
+    /** The whole problem tilesetLoad reports, or what happened instead. */
+    private static String tilesetProblem(SuperCC emu, int number, graphics.TileSheet fallback) {
+        Object choice = tilesetLoad(emu, number, fallback);
+        if (choice instanceof String) return (String) choice;
+        try {
+            return String.valueOf(part(choice, "problem"));
+        } catch (ReflectiveOperationException e) {
+            return "cannot read TileSheet.Choice: " + e;
+        }
+    }
+
     /** A PNG that is well-formed in every byte but claims a width x height of its choosing. */
     private static byte[] pngClaiming(int width, int height) throws IOException {
         java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
@@ -812,6 +861,62 @@ public class EngineTest {
             Harness.check("and the " + side + " message names the file and its size", hugeMsg.contains("huge.png") && hugeMsg.contains(side + " x " + side));
             refusesFromHeader = hugeOutcome.equals("IOException: Too large for a tileset image:");
         }
+
+        Harness.section("6g. a saved tileset number that cannot be drawn: TileSheet.load falls back, and says why (UB-20)");
+        /* MOD (Jeremy, fix layer, UB-20): what startup draws for the MS number in succ_settings.ini.
+         * Upstream indexed TileSheet.values() with it, so a number out of range threw, and a tileset
+         * that failed passed null images on; StartupTilesetTest measures that through a real start.
+         * This checks the loader itself, at its edges: every number this version has, the first one
+         * past the end and one below zero, custom with nothing chosen, and the fallback itself
+         * failing. Reached by reflection, so that this file still compiles against a jar from before
+         * the fix (jc-22 to jc-33), where these checks then fail as "no TileSheet.load". */
+        graphics.TileSheet[] sheets = graphics.TileSheet.values();
+        SuperCC noneChosen = withCustom(null, null);
+        for (int n = 0; n < sheets.length; n++) {
+            boolean isCustom = sheets[n] == graphics.TileSheet.CUSTOM;
+            Harness.eq("tileset number " + n + (isCustom ? " (custom, none chosen)" : "") + " draws what it should",
+                    tilesetChoice(noneChosen, n, graphics.TileSheet.CCEDIT_TW),
+                    isCustom ? "CCEDIT_TW | The custom tileset could not be loaded: | images 2"
+                           : sheets[n].name() + " | (no problem) | images 2");
+        }
+        Harness.eq("custom with pictures that load is drawn, with nothing to say",
+                tilesetChoice(withCustom(base, overlay), graphics.TileSheet.CUSTOM.ordinal(), graphics.TileSheet.CCEDIT_TW),
+                "CUSTOM | (no problem) | images 2");
+        Harness.eq("tileset number " + sheets.length + ", the first past the last, falls back and says so",
+                tilesetChoice(noneChosen, sheets.length, graphics.TileSheet.CCEDIT_TW),
+                "CCEDIT_TW | Tileset number " + sheets.length + " in succ_settings.ini is not one this version has. | images 2");
+        Harness.eq("tileset number -1 falls back and says so", tilesetChoice(noneChosen, -1, graphics.TileSheet.MSCC),
+                "MSCC | Tileset number -1 in succ_settings.ini is not one this version has. | images 2");
+        Harness.eq("a number out of range: the whole message, which says the choice is kept too (jc-34 review)",
+                tilesetProblem(noneChosen, 99, graphics.TileSheet.CCEDIT_TW),
+                "Tileset number 99 in succ_settings.ini is not one this version has.\n\nShowing "
+                + graphics.TileSheet.getNames()[graphics.TileSheet.CCEDIT_TW.ordinal()]
+                + " instead. Your choice is kept; pick a tileset in View > Tileset to change it.");
+        String whole = tilesetProblem(withCustom(base, d6f.resolve("gone.png").toFile()), graphics.TileSheet.CUSTOM.ordinal(), graphics.TileSheet.MSCC);
+        Harness.check("custom that fails: the reason names the file, the tileset shown, and that the choice is kept",
+                whole.contains("gone.png") && whole.contains("Showing " + graphics.TileSheet.getNames()[graphics.TileSheet.MSCC.ordinal()] + " instead.") && whole.endsWith(
+                "Your choice is kept; pick a tileset in View > Tileset to change it."));
+        Harness.eq("custom asked for with custom as the fallback: the failure is thrown, not hidden",
+                tilesetChoice(noneChosen, graphics.TileSheet.CUSTOM.ordinal(), graphics.TileSheet.CUSTOM),
+                "throws IOException: No images have been chosen for the custom tileset.");
+
+        // throwErrorOnce: the same words once a session; headless, throwError prints to stderr.
+        java.lang.reflect.Method once;
+        try { once = SuperCC.class.getMethod("throwErrorOnce", String.class); } catch (NoSuchMethodException e) { once = null; }
+        String onceOutcome = "no SuperCC.throwErrorOnce";
+        if (once != null) {
+            java.lang.reflect.Method say = once;
+            onceOutcome = captureStderr(() -> {
+                try {
+                    SuperCC quiet = new SuperCC(false);
+                    for (String s : new String[] {"first", "second", "first", "second", "third"}) say.invoke(quiet, s);
+                    say.invoke(new SuperCC(false), "first");   // once per SESSION: another emulator says it again
+                } catch (ReflectiveOperationException e) {
+                    throw new IllegalStateException(e);
+                }
+            }).replace("\r", "").replace("[SuperCC Error] ", "").replace("\n", " ").trim();
+        }
+        Harness.eq("throwErrorOnce says each message once, in order", onceOutcome, "first second third first");
 
         Harness.section("7. the full collection fingerprint (local only)");
         /* Synthesized fixtures catch format and edge-case regressions. They cannot speak for the

@@ -62,16 +62,16 @@ public enum TileSheet {
     }
     
     /* MOD (Jeremy, fix layer, UB-19): every way the custom images can be unusable is an IOException
-     * with words in it -- the type the callers catch. (View > Tileset shows it; startup, the
-     * ruleset swap and a window-size change do not yet: UB-20 and UB-21.) Upstream threw an
+     * with words in it -- the type the callers catch. (View > Tileset shows it, and so does startup
+     * since UB-20's fallback; the ruleset swap and a window-size change do not yet: UB-21.) Upstream threw an
      * IOException with NO message when none had been chosen (its callers show getMessage(), so the
      * user saw "null"), let a missing file surface as ImageIO's "Can't get input stream from URL!",
      * and let a file that is not an image through as a NullPointerException, which no caller
      * catches (ImageIO.read returns null for a format it cannot read). A built-in sheet missing from
      * the jar stays the NullPointerException it always was: that is a broken build, not a user
      * mistake, and jc-17's Black and White fix is the proof it gets noticed. jc-18's loader (merged
-     * as "upstream merge", reverted for the upstream baseline in jc-22), re-applied alone: its
-     * fallbacks (Choice, load, loadForRuleset) come back with UB-20, UB-21 and UB-16. */
+     * as "upstream merge", reverted for the upstream baseline in jc-22), re-applied alone; its
+     * fallbacks came back with UB-20 (Choice, load, below: startup) and come with UB-21 and UB-16. */
     public BufferedImage[] getTileSheets(SuperCC emulator, int tileWidth, int tileHeight) throws IOException {
         URL localUrlTiles;
         URL localUrlOverlay;
@@ -95,6 +95,41 @@ public enum TileSheet {
         try { return new File(url.toURI()).getPath(); }
         catch (Exception e) { return url.toString(); }
     }
+
+    /** MOD (Jeremy, fix layer, UB-20): what to draw for a tileset named by a number in
+     *  succ_settings.ini: the sheet, its images, and, when the one asked for could not be used, why
+     *  (otherwise null). jc-18's, re-applied alone. */
+    public record Choice(TileSheet sheet, BufferedImage[] images, String problem) {}
+
+    /** MOD (Jeremy, fix layer, UB-20): one tileset by its number, falling back to `fallback` -- with
+     *  the reason -- when that number is not a tileset or its images cannot be loaded, so a saved
+     *  tileset that cannot be drawn no longer stops startup partway. The settings are left
+     *  alone: the pictures may come back, or exist on the other machine. Only the fallback itself
+     *  failing (a broken jar) still throws. jc-18's, re-applied alone; it reads the number as
+     *  upstream stores it (custom as 5, UB-16), and jc-18's loadForRuleset, which reads custom's own
+     *  switch, comes back with UB-16. Both of its messages end in KEPT (jc-34 review: jc-18 told
+     *  only the custom case, though a number out of range is kept just the same, and said again at
+     *  every start until it is changed). */
+    public static Choice load(SuperCC emulator, int settingsNumber, TileSheet fallback, int tileWidth, int tileHeight) throws IOException {
+        TileSheet[] all = values();
+        if (settingsNumber < 0 || settingsNumber >= all.length) {
+            return new Choice(fallback, fallback.getTileSheets(emulator, tileWidth, tileHeight),
+                    "Tileset number " + settingsNumber + " in succ_settings.ini is not one this version has.\n\n"
+                    + "Showing " + fallback.name + " instead." + KEPT);
+        }
+        TileSheet wanted = all[settingsNumber];
+        try {
+            return new Choice(wanted, wanted.getTileSheets(emulator, tileWidth, tileHeight), null);
+        } catch (IOException e) {
+            if (wanted == fallback) throw e;
+            return new Choice(fallback, fallback.getTileSheets(emulator, tileWidth, tileHeight),
+                    "The " + wanted.name + " tileset could not be loaded:\n" + e.getMessage()
+                    + "\n\nShowing " + fallback.name + " instead." + KEPT);
+        }
+    }
+
+    /** MOD (Jeremy, fix layer, UB-20): how load's messages end -- the saved choice is left as it is. */
+    private static final String KEPT = " Your choice is kept; pick a tileset in View > Tileset to change it.";
 
     /** MOD (Jeremy, fix layer, UB-19): the custom tileset from two given files, so View > Tileset >
      *  custom can load both BEFORE saving their paths -- upstream saved first, and a file that is
