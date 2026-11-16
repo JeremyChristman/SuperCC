@@ -42,8 +42,8 @@ How to keep it:
 | UB-17 | Custom tileset pictures are saved as full paths, which the other computer does not have | anyone sharing the folder between computers | `5d3f0a3`, ships in jc-22 | open |
 | UB-18 | Canceling View › Tileset › custom asks for the second picture anyway, then shows an error, and leaves the mark on custom | anyone who cancels it | `5d3f0a3`, ships in jc-22 | **FIXED in `bd2b915` (jc-35)** |
 | UB-19 | A custom picture is saved before it is known to load; a bad one fails with an internal error or an unclear message | anyone choosing a wrong file | `5d3f0a3`, ships in jc-22 | **FIXED in `cb55dbf` (jc-33)** |
-| UB-20 | A saved MS tileset that cannot be drawn breaks startup partway: the default tileset, no reason given, the saved tile size and TWS notation not applied (until jc-34 this row said "does not start (no window)": wrong, see the entry) | anyone with a bad TilesheetNum or missing custom pictures | `5d3f0a3`, ships in jc-22 | **FIXED in `9e6166a` (jc-34)** for a plain start (with a set on the command line it waits for UB-21) |
-| UB-21 | A Lynx tileset that cannot be drawn, or a failing custom tileset at a window resize, leaves the screen wrong | anyone with such a choice | `5d3f0a3`, ships in jc-22 | open |
+| UB-20 | A saved MS tileset that cannot be drawn breaks startup partway: the default tileset, no reason given, the saved tile size and TWS notation not applied (until jc-34 this row said "does not start (no window)": wrong, see the entry) | anyone with a bad TilesheetNum or missing custom pictures | `5d3f0a3`, ships in jc-22 | **FIXED in `9e6166a` (jc-34)** for a plain start, and with a set on the command line since jc-36 (UB-21) |
+| UB-21 | A Lynx tileset that cannot be drawn, or a failing custom tileset at a window resize, leaves the screen wrong | anyone with such a choice | `5d3f0a3`, ships in jc-22 | **FIXED in `e30ab77` (jc-36)** |
 | UB-22 | With Auto diagonals on, a quick tap of any game key makes no move | anyone with Auto diagonals on (it is off by default) | `d08e6ef`, ships in jc-23 | open |
 | UB-23 | With Auto diagonals on, keys pressed within 50 ms make ONE move between them: a held key runs at about half speed, a wait pressed with two arrows is lost, three arrows go by table order | anyone with Auto diagonals on | `d08e6ef`, ships in jc-23 | open |
 | UB-24 | With Auto diagonals on, MS arrows wait too, and Up held with Right pressed moves only Up | anyone with Auto diagonals on, playing MS | `d08e6ef`, ships in jc-23 | open |
@@ -558,8 +558,8 @@ as upstream does, inside the fork's own settings structure. FORK.md step 5 has t
 record. The fix layer takes these back one fix at a time, by hand from `5d3f0a3`'s diff (a whole
 `git revert` no longer applies: the no-level step's fixes rewrote View › Tileset's listener since),
 in dependency order: **UB-19 is back since jc-33 (`cb55dbf`), UB-20 since jc-34 (`9e6166a`), UB-18
-since jc-35 (`bd2b915`)**; UB-21, UB-16, UB-17 and UB-31 (found in jc-35) follow, each in a release
-of its own. Nobody's tileset changes by itself: these all start with choosing a
+since jc-35 (`bd2b915`), UB-21 since jc-36 (`e30ab77`)**; UB-16, UB-17 and UB-31 (found in jc-35)
+follow, each in a release of its own. Nobody's tileset changes by itself: these all start with choosing a
 custom tileset, or with a settings file that names one that cannot be drawn.
 
 ### UB-16 — custom is saved as tileset number 5
@@ -577,7 +577,10 @@ custom tileset, or with a settings file that names one that cannot be drawn.
 - **Measured:** `GuiWindowTest` §5b, in a real window with two pictures chosen: the file reads
   `TilesheetNum = 5`. A pre-jc-18 build on such a file was measured in jc-18's review (FORK.md step 5).
 - **Fix:** custom as a switch of its own (`CustomTileset` / `LynxCustomTileset`) beside a built-in
-  `TilesheetNum`, which every build can read (jc-18).
+  `TilesheetNum`, which every build can read (jc-18). With it, jc-18's `loadForRuleset` replaces `load` at
+  startup, the swap and a resize; it knows the ruleset, so its out-of-range message can name the
+  key (`TilesheetNum` or `LynxTilesheetNum`), which `load`'s cannot (raised by the jc-34 and jc-36
+  reviews).
 - **Pinned by:** `GuiWindowTest` §5b.
 
 ### UB-17 — custom pictures are saved as full paths
@@ -696,10 +699,10 @@ and a number out of range is told that the choice is kept too (jc-18 told only c
 and coming back with their own fixes: `loadForRuleset` and custom's own switch (UB-16; startup
 reads the number as upstream stores it, custom as 5), the ruleset swap and the window-size change
 (UB-21), and the View › Tileset mark (UB-18, UB-21; no build marks a tileset before a set is
-opened). **One startup path is still not fixed:** a set named on the command line is opened, and
-its tileset swapped (UB-21's code), before startup reaches the tileset, so with a number out of
-range startup still stops partway there, before this fallback runs; recorded and pinned under
-UB-21, whose fix ends it. Checked by a new `StartupTilesetTest`: real
+opened). **One startup path was left to UB-21:** a set named on the command line is opened, and
+its tileset swapped, before startup reaches the tileset, so with a number out of range startup
+still stopped partway there (jc-34 and jc-35, pinned under UB-21); since jc-36 the swap falls back
+too, and startup finishes. Checked by a new `StartupTilesetTest`: real
 starts in a child JVM, each with its own settings file, 32 x 32 tiles and the TWS notation on, its
 dialogs read and closed -- two controls (a built-in tileset, and custom with pictures that load:
 no message, laid out as saved) and four that cannot be drawn (99, -1, custom with its pictures
@@ -745,7 +748,32 @@ it should and `EngineTest` the 13 new ones ("no TileSheet.load"); 18 defects pla
 
 ### UB-21 — a tileset that cannot be drawn, met while running, leaves the screen wrong
 
-- **What a user sees:** opening a Lynx set whose Lynx tileset cannot be drawn shows "Could not load
+**Status: FIXED in `e30ab77` (jc-36).** jc-18's two fallbacks are back, re-applied alone, through
+`TileSheet.load` as at startup (UB-20): `Gui.swapRulesetTilesheet`, run at every set opened, the
+Level menu's ruleset switch and a solution load, and `SmallGamePanel.setWindowSize`, run at every
+window-size change. A number this version does not have, or custom whose pictures cannot be used,
+draws the default instead, says why once a session (`SuperCC.throwErrorOnce`: the same cause met
+at the next set opened is not said again), and the View › Tileset mark goes on what is drawn (the
+swap sets it; the resize calls UB-18's `markActiveTileset`). Both read the number as upstream
+stores it (custom as 5): jc-18 fell back to the ruleset's built-in choice for custom, through
+`loadForRuleset` and custom's own switch, which come back with UB-16. Beyond jc-18: the swap says
+its message last, after the window is redrawn, as startup does (jc-34 review); and a resize sets
+the inventory panel up again, as the swap does -- it keeps its own reference to the board's tile
+pictures, so after a fallback it went on drawing the failed tileset's keys and boots (jc-18's gap,
+found in jc-36's review; checked). All callers of both
+run on the event thread, which `throwErrorOnce`'s unsynchronized set relies on. `Gui` is a form
+class, compiled with `formclass.ps1 -Compile` (`-Check` byte for byte green; form baseline
+updated). The command-line start (UB-20's last path) now finishes: `StartupTilesetTest` §2's two
+pins are checks again (nothing thrown, the default drawn, the reason said once -- by the swap, so
+startup's identical message is not said again). New `GuiWindowTest` §5c, with an MS level open and
+Black and White drawn: a Lynx set opened with `LynxTilesheetNum = 99` (the default drawn and
+marked, the reason said, the choice kept), an MS set and then the Lynx set again (nothing said
+again), custom as the Lynx tileset with its pictures missing (the default drawn and marked, the
+reason naming the picture), and custom drawn, its base picture moved away, then the window size
+set (the same, and the inventory drawing from the board's new pictures). On jc-35's jar `GuiWindowTest` fails exactly those 8 and its exit check, and
+`StartupTilesetTest` its 3; 10 defects planted in `Gui` (each compiled with the form compiler, then restored byte for byte) and `SmallGamePanel`, all caught (the swap keeping the reason to itself, or saying it at every set opened; the swap marking the saved number, not what is drawn; the swap reading the Lynx number for MS sets too; the swap falling back to MSCC; a resize keeping the reason to itself, leaving the mark where it was, naming the failed tileset as the one drawn, drawing the default whatever was drawn, or leaving the inventory on the old pictures); corpus against jc-35: 24,217 of 24,217 identical.
+
+- **What a user saw (jc-22 to jc-35):** opening a Lynx set whose Lynx tileset cannot be drawn shows "Could not load
   relevant tilesheet" (naming nothing) — every time such a set is opened — and keeps the previous
   ruleset's tileset; a Lynx number this version does not have fails with an internal error instead.
   Changing the window size while a custom tileset fails leaves the game area drawn at the old size.
@@ -767,12 +795,13 @@ it should and `EngineTest` the 13 new ones ("no TileSheet.load"); 18 defects pla
   message saying why; custom missing and a set → "Could not load relevant tilesheet", then
   UB-20's message, and startup finishes.
 - **Fix:** both through jc-18's `loadForRuleset`, which falls back, says why once a session, and
-  moves the View › Tileset mark to what is drawn. `SuperCC.throwErrorOnce` (back since jc-34)
-  keeps its "once" in an unsynchronized set, as jc-18 did: check that the swap's and the resize's
-  calls run on the event thread when they come back (jc-34 review).
-- **Pinned by:** `StartupTilesetTest` §2 (since jc-34): a number out of range with a set on the
+  moves the View › Tileset mark to what is drawn (through `load` until UB-16). `SuperCC.throwErrorOnce`
+  (back since jc-34) keeps its "once" in an unsynchronized set, as jc-18 did: the swap's and the
+  resize's callers were checked in jc-36 and all run on the event thread.
+- **Pinned by (jc-34, jc-35):** `StartupTilesetTest` §2: a number out of range with a set on the
   command line throws, and custom missing with one says the swap's words first. The swap after a
-  start and the window-size change: nothing (measured as above).
+  start and the window-size change: nothing (measured as above). **Checked by (jc-36 on):**
+  `StartupTilesetTest` §2, the pins as checks, and `GuiWindowTest` §5c.
 
 ### UB-31 — custom's choosers start in the user's default folder
 
@@ -1129,10 +1158,19 @@ are not lost.
   the command line: what is drawn follows `TilesheetNum` (MSCC for 3, CCEdit for 0) whatever
   `LynxTilesheetNum` says, on jc-20 (jc-18's tileset code) and the jc-34 candidate alike. Since
   jc-34 a bad MS number there says so over the Lynx level, which is true but about a tileset not
-  in use. Upstream's startup order; raised by the jc-34 review (second round).
+  in use. Upstream's startup order; raised by the jc-34 review (second round). Since jc-36 (UB-21) the swap
+  at that open marks and, if it falls back, names the Lynx choice, and startup then draws the MS
+  tileset over it, so the mark (and such a message) can name a tileset not shown (raised by the
+  jc-36 review; the ordering is upstream's, kept).
 - **A saved tile size of 0 (or less) stops startup partway.** `TileWidth = 0` reaches the image
   scaling unchecked (`IllegalArgumentException: Width (0) and height (0) must be non-zero`), after
   `Gui` has put the window up, so the rest of startup -- layout, notation -- never runs, and only
   the error log's notice shows: UB-20's shape, from a different setting. Launched 2026-11-15:
   jc-20, jc-33 and the jc-34 candidate alike. Upstream's; raised by the jc-34 review (second
   round). Whether the tile-size dialog can save such a size was not checked.
+- **View › Tile size has no fallback.** Its sizes and its custom box reload the tileset drawn
+  through `getTileSheets` directly, so with a custom tileset whose picture has gone the raw error
+  is shown (not the "kept" wording, and not once a session), the tile-size mark has moved to a size
+  not applied, and the View › Tileset mark is not corrected. jc-18 did not change them (its MenuBar listener matches today's but for
+  UB-11's markers, and the jc-22 revert did not touch `ChooseTileSize`), so this is upstream's and
+  jc-18's alike; read in the code, raised by the jc-36 review.

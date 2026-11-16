@@ -1,5 +1,5 @@
 ==============================================================================
-  SuperCC  --  Jeremy Christman's fork                      build jc-35
+  SuperCC  --  Jeremy Christman's fork                      build jc-36
 ==============================================================================
 
   1. What this is
@@ -435,8 +435,10 @@ LynxTilesheetNum
                 The same, for the Lynx ruleset. SuperCC keeps a separate
                 choice per ruleset and swaps when you open a Lynx set.
                 Values and default: as above. A Lynx choice that cannot be
-                drawn does not stop the start; it fails each time a Lynx set
-                is opened instead, and the previous tileset stays on screen.
+                drawn shows Tile World (CCEdit) when a Lynx set is opened,
+                and says why, once a session (since jc-36; jc-22 to jc-35
+                failed each time a Lynx set was opened, and the previous
+                tileset stayed on screen).
 
 TileWidth       The size of one tile in pixels, and so the size of the game
 TileHeight      window. Both are usually the same number.
@@ -595,6 +597,30 @@ AlwaysOpenInMS  Whether every level set opens under the MS ruleset, no matter
 Releases from jc-2 on carry a jc-N tag in the repository. The title bar, when
 ShowBuildTag is on, shows the build tag compiled into the jar, which matches
 the tag for that release. Newest first.
+
+
+jc-36  --  A tileset that cannot be drawn, met while playing
+-------------------------------------------------------------
+
+  * WHEN A SAVED TILESET CANNOT BE DRAWN, OPENING A LEVEL SET, SWITCHING
+    RULESET, LOADING A SOLUTION AND CHANGING THE WINDOW SIZE NOW SHOW
+    TILE WORLD (CCEdit) INSTEAD, with a message saying why -- once a
+    session, not at every set opened -- and the View > Tileset mark on
+    what is drawn, as in jc-18 to jc-21. That covers a tileset number
+    this version does not have (in TilesheetNum or LynxTilesheetNum)
+    and the custom tileset with its pictures missing or not pictures.
+    Since jc-22 such a number failed with an internal error at every
+    set opened, a custom tileset that failed kept the previous tileset
+    under "Could not load relevant tilesheet", and a window-size change
+    dropped a custom failure without a word.
+
+  * The case jc-34 left for later is done: a level set named on the
+    command line (or dropped on SuperCC.jar) with such a tileset saved
+    no longer stops SuperCC partway through starting.
+
+  * Nothing you play changes: every one of the 24,217 stored solutions
+    replays exactly as on jc-35. This closes UB-21 in BASELINE-ISSUES.md
+    in the repository.
 
 
 jc-35  --  Canceling View > Tileset > custom ends it quietly

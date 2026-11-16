@@ -12,6 +12,30 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## jc-36 — 2026-11-16 (the fix layer: a tileset that cannot be drawn, met while running, falls back and says why)
+
+The fourth of the custom-tileset fixes goes back on the upstream baseline. It closes UB-21 in
+[`BASELINE-ISSUES.md`](BASELINE-ISSUES.md), and with it UB-20's last path. No stored solution
+changes.
+
+### Fixed
+- **Opening a set, switching ruleset, loading a solution and changing the window size fall back
+  when the saved tileset cannot be drawn (`e30ab77`, UB-21).** jc-18's two fallbacks, re-applied
+  alone through `TileSheet.load`: a number this version does not have, or custom whose pictures
+  cannot be used, draws the default tileset, says why once a session, and the View › Tileset mark
+  goes on what is drawn. Since jc-22 such a number threw at every set opened, custom that failed
+  kept the previous tileset under "Could not load relevant tilesheet", and a size change dropped
+  a custom failure without a word. A set named on the command line no longer stops startup
+  partway (UB-20's last path). From review, beyond jc-18: after a resize falls back, the
+  inventory draws from the new pictures too. `Gui` is compiled with JetBrains' form compiler.
+  Corpus against jc-35: 24,217 of 24,217 identical.
+
+### Changed (tests only)
+- `StartupTilesetTest` §2's two UB-21 pins are checks again; new `GuiWindowTest` §5c (a Lynx
+  number out of range, the same cause met again, custom missing at a set opened, custom failing at
+  a window-size change). On jc-35's jar exactly those fail (8 and the exit check, and 3);
+  10 defects planted, all caught (the `Gui` ones compiled with the form compiler). Suite 2,623 assertions, 25 pins, 4 skips. Coverage: target unchanged (57.1%, 1530/2678); the non-target pool 4.3% (87/2007: the new branches in `Gui` and `SmallGamePanel`, reached only in the GUI tests' child JVMs, which the profiler does not attach to); re-baselined.
+
 ## jc-35 — 2026-11-16 (the fix layer: canceling View › Tileset › custom ends it quietly)
 
 The third of the custom-tileset fixes goes back on the upstream baseline. It closes UB-18 in

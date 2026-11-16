@@ -249,7 +249,7 @@ test/InputDiscardTest.java   which keys Level.tick reports as DISCARDED, and the
 test/SeedSearchTest.java     Seed Search through its REAL constructor, headless: stops at the top seed, threads, Pause
 test/FormClassTest.java      every form window's REAL constructor builds its components (14 of 15; Gui is the JFrame)
 test/GuiWindowTest.java      the MAIN window (Gui) built for real in a NON-headless child JVM; every menu control with no level open (PIN lines: UB-16, UB-17, UB-22..27)
-test/StartupTilesetTest.java SuperCC STARTED as main does, in child JVMs with settings of their own: a saved tileset that cannot be drawn (UB-20; PIN lines: UB-21)
+test/StartupTilesetTest.java SuperCC STARTED as main does, in child JVMs with settings of their own: a saved tileset that cannot be drawn (UB-20, UB-21)
 ```
 
 **Testing a form-based window headless.** Its constructor builds every component
@@ -345,7 +345,7 @@ taken. JaCoCo is a test-time tool cached under `%LOCALAPPDATA%\jacoco\<version>\
 dependency**, never committed, never shipped. Output goes to `coverage-report\` (gitignored);
 `coverage.csv` is the evidence behind every percentage below.
 
-As of jc-35, with all 2,601 assertions passing (27 of them `upstreamBug` pins, §6) and 4 skipped —
+As of jc-36, with all 2,623 assertions passing (25 of them `upstreamBug` pins, §6) and 4 skipped —
 counts for a machine with 4 or more CPUs. `SeedSearchTest` §3 makes one pin per search thread, so a
 3-CPU run has one pass and pin fewer and a 2-CPU run two; at 1 CPU §3 and §2's pin are skipped
 (measured: 7 passes and 6 pins fewer, 2 skips more) — **measured on JDK 16.0.2** (16.0.2+7-67 on the desktop; Temurin 16.0.2+7, what CI pins, gives the
@@ -360,9 +360,9 @@ same figures):
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 54.2% | 73.0% | 186/343 |
 | &nbsp;&nbsp;`io\**` (file formats) | 74.2% | 81.6% | 320/431 |
 | `emulator\**` | 34.0% | 36.2% | 161/474 |
-| `tools\**` + `graphics\**` — *not a target* | 4.4% | 10.0% | 87/1989 |
+| `tools\**` + `graphics\**` — *not a target* | 4.3% | 10.0% | 87/2007 |
 
-**Read this correctly.** Whole-project branch coverage is 30.9% (1890/6107), and that number is
+**Read this correctly.** Whole-project branch coverage is 30.9% (1890/6125), and that number is
 meaningless: 15 form-based classes can be rebuilt here only by copying IntelliJ's output (ADR 0010), `tools\**`
 is 35 files of upstream code this fork does not modify, `graphics\**` is Swing with no headless test
 story, and the rest is vendored `org.json` / `com.intellij`. What this fork can break is the engine
@@ -762,10 +762,10 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
   since jc-32: the whole step is back),
   custom tilesets (`5d3f0a3`: the hardened picture loader and load-before-save, UB-19, are back
   since jc-33, the startup fallback, UB-20, since jc-34 -- a saved tileset that cannot be drawn
-  now starts in the default with a message saying why -- and Cancel on custom, UB-18, since
-  jc-35; the swap and resize fallbacks, custom's own switch, relative paths and the choosers'
-  start folders, UB-21, UB-16, UB-17 and UB-31, are still upstream's -- do not "fix" them in
-  passing; they follow one fix at a time) and auto-diagonals
+  now starts in the default with a message saying why -- Cancel on custom, UB-18, since jc-35,
+  and the swap and resize fallbacks, UB-21, since jc-36; custom's own switch, relative paths and
+  the choosers' start folders, UB-16, UB-17 and UB-31, are still upstream's -- do not "fix" them
+  in passing; they follow one fix at a time) and auto-diagonals
   (`d08e6ef`: with the switch on, EVERY game key waits 50 ms and a `java.util.Timer` makes ONE move, on its own
   thread, from the keys still held, so taps are lost and other input jumps ahead; UB-22 to UB-28). **Every problem a revert brings back goes
   into `BASELINE-ISSUES.md` in the same push** (Jeremy's standing request, 2026-11-08) — and a fix
