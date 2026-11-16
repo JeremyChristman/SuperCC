@@ -324,9 +324,10 @@ public class SuccPaths {
             // string -- otherwise a RELATIVE input that resolves outside the CC folder would be
             // stored verbatim, and toUsablePath() would then re-anchor it to the CC folder, i.e. a
             // different directory than the caller meant. Returning abs keeps the two functions
-            // exact inverses. (Unreachable today: the only caller passes absolute JFileChooser
-            // output, and the CC folder is the working directory. It goes live the moment either
-            // of those stops being true.)
+            // exact inverses. (Unreachable from the program today: its callers -- the Levelset and TWS
+            // setters, and since UB-17 the custom tileset's -- are handed absolute JFileChooser
+            // output, and the CC folder is the working directory; a test can pass any string. It goes
+            // live the moment either of those stops being true.)
             if (!abs.startsWith(cc)) return abs.toString();
             String rel = cc.relativize(abs).toString();
             return rel.isEmpty() ? "." : rel;              // the CC folder itself
@@ -552,20 +553,31 @@ public class SuccPaths {
         return Paths.get(getSuccPath(), levelsetName, Integer.toString(levelNumber), levelName+".scc").toString();
     }
 
-    /* Upstream d78f6f3: the base and overlay images of the custom tileset as stored (upstream stores
-     * them absolute; UB-17), or null when either has not been chosen.
+    /* Upstream d78f6f3: the base and overlay images of the custom tileset, as usable paths --
+     * absolute, unless the stored text is not a path at all (toUsablePath hands that back as it is,
+     * and the loader names it) -- or null when either has not been chosen.
+     *
+     * MOD (Jeremy, fix layer, UB-17): stored RELATIVE to the Chip's Challenge folder when the
+     * picture is inside it, through the same toStoredPath()/toUsablePath() pair as Levelset and TWS
+     * (jc-5). Upstream stored the absolute path, and this file is Dropbox-synced between two
+     * machines whose user folders differ, so a picture chosen on one was missing on the other. A
+     * picture outside the folder stays absolute -- there is nothing to anchor it to -- and so does a
+     * value already stored absolute (jc-22 to jc-37 wrote them so) still reads as it is, as jc-5's
+     * legacy Levelset values do; one inside this folder is put in the relative form at load
+     * (relativizeStoredCustomImages).
+     * jc-18's, re-applied alone.
      *
      * MOD (Jeremy, fix layer, UB-19): an EMPTY path is "not chosen". Upstream caught a
      * NullPointerException to mean "not set", so it returned null only for an ABSENT key; this
      * fork's settings structure seeds every absent key "" (seedDefaults), so upstream's getter
      * returned the pair whenever the keys existed -- always -- and an empty path reached the image
      * reader as the working folder, which is no picture: an internal error where "no images have
-     * been chosen" was meant. jc-18's test, re-applied alone; its relative storage is UB-17's. */
+     * been chosen" was meant. jc-18's test, re-applied alone. */
     public String[] getCustomTilesetImages() {
         String base = settingsMap.get("Graphics:CustomBaseImage");
         String overlay = settingsMap.get("Graphics:CustomOverlayImage");
         if (base == null || base.isBlank() || overlay == null || overlay.isBlank()) return null;
-        return new String[] {base, overlay};
+        return new String[] {toUsablePath(base), toUsablePath(overlay)};   // MOD (Jeremy, fix layer, UB-17)
     }
 
     public void setLevelsetFolderPath(String levelsetFolderPath) {
@@ -615,10 +627,43 @@ public class SuccPaths {
         settingsMap.put("Graphics:TWSNotate", String.valueOf(twsNotation));
         updateSettingsFile();
     }
+    /** Upstream d78f6f3's setter. MOD (Jeremy, fix layer, UB-17): the paths are stored relative to
+     *  the Chip's Challenge folder when they can be (getCustomTilesetImages), like setCustomTileset's
+     *  -- jc-18 had only that one; upstream's is kept, so no setter stores a picture inside the folder
+     *  absolute. */
     public void setCustomTilesetImages(String baseImage, String overlayImage) {
-        settingsMap.put("Graphics:CustomBaseImage", baseImage);
-        settingsMap.put("Graphics:CustomOverlayImage", overlayImage);
+        putCustomImages(baseImage, overlayImage);
         updateSettingsFile();
+    }
+
+    /** MOD (Jeremy, fix layer, UB-17): the two custom pictures into the map, each stored through
+     *  toStoredPath -- the one place both setters store them (jc-38 review). */
+    private void putCustomImages(String baseImage, String overlayImage) {
+        settingsMap.put("Graphics:CustomBaseImage", toStoredPath(baseImage));
+        settingsMap.put("Graphics:CustomOverlayImage", toStoredPath(overlayImage));
+    }
+
+    /* MOD (Jeremy, fix layer, UB-17; jc-38 review, beyond jc-18): a custom picture stored as a full
+     * path INSIDE this computer's Chip's Challenge folder -- how jc-22 to jc-37 saved every one --
+     * is put in the relative form at load, so the next settings write (every launch makes one)
+     * saves it the way the other computer can read. Left as they were, such paths stayed absolute
+     * until custom was chosen again, which might never happen, and the other computer kept missing
+     * the pictures. Only a path inside THIS folder is touched: it names the same file either way,
+     * and on the other computer it was never usable. A path outside it (the other computer's, or
+     * anywhere else) is left exactly as it is. jc-5 left legacy Levelset and TWS values absolute,
+     * but those are rewritten whenever they are used; custom's are not. */
+    private void relativizeStoredCustomImages() {
+        for (String key : new String[] {"Graphics:CustomBaseImage", "Graphics:CustomOverlayImage"}) {
+            String stored = settingsMap.get(key);
+            if (stored == null || stored.isBlank()) continue;
+            try {
+                if (!Paths.get(stored).isAbsolute()) continue;
+                String relative = toStoredPath(stored);
+                if (!Paths.get(relative).isAbsolute()) settingsMap.put(key, relative);
+            } catch (RuntimeException notAPath) {
+                // not a path at all: leave it, and the loader names it when custom is drawn
+            }
+        }
     }
 
     /* MOD (Jeremy, fix layer, UB-16): whether a ruleset draws the CUSTOM tileset, as a switch of its
@@ -639,11 +684,11 @@ public class SuccPaths {
      *  switch turned on in the SAME write: choosing custom saves three values that only mean
      *  something together, and this file is rewritten whole and synced, so two writes would be two
      *  chances for the other machine to see one without the other. The ruleset's TilesheetNum is
-     *  left as it is (getCustomTileset says why). The paths are stored as given -- absolute, as
-     *  upstream stores them, until UB-17. jc-18's, re-applied alone. */
+     *  left as it is (getCustomTileset says why). The paths are stored relative to the Chip's
+     *  Challenge folder when they can be (MOD (Jeremy, fix layer, UB-17); getCustomTilesetImages).
+     *  jc-18's, re-applied alone. */
     public void setCustomTileset(boolean lynx, String baseImage, String overlayImage) {
-        settingsMap.put("Graphics:CustomBaseImage", baseImage);
-        settingsMap.put("Graphics:CustomOverlayImage", overlayImage);
+        putCustomImages(baseImage, overlayImage);
         settingsMap.put(lynx ? "Graphics:LynxCustomTileset" : "Graphics:CustomTileset", "true");
         updateSettingsFile();
     }
@@ -702,6 +747,7 @@ public class SuccPaths {
         }
         seedDefaults();
         migrateUpstreamCustomNumber();   // MOD (Jeremy, fix layer, UB-16)
+        relativizeStoredCustomImages();  // MOD (Jeremy, fix layer, UB-17)
     }
 
     /* MOD (Jeremy): in-memory instance used when settings.ini exists but cannot be read. */

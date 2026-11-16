@@ -564,7 +564,8 @@ class MenuBar extends JMenuBar{
                              * that is not a picture was saved too, then failed -- and, once custom
                              * was the saved tileset, failed again at every launch. jc-18's order,
                              * re-applied alone (its Cancel is back, UB-18, above; how the choice is
-                             * stored, UB-16, below; relative paths are UB-17's). */
+                             * stored, UB-16, below, and its pictures relative to the Chip's
+                             * Challenge folder where they can be, UB-17). */
                             tilesetImages = TileSheet.loadCustom(baseImage, overlayImage, tileWidth, tileHeight);
                         } else {
                             tilesetImages = tileSheet.getTileSheets(emulator,tileWidth, tileHeight);

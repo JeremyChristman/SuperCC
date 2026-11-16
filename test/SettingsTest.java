@@ -374,8 +374,8 @@ public class SettingsTest {
          * fix layer"). MOD (Jeremy, fix layer, UB-19): empty reads as "none chosen" again from jc-33
          * (upstream's getter returned null only for an ABSENT key, and this fork's settings structure
          * seeds every absent key with "", so on jc-22 to jc-32 it returned the pair, empty or not;
-         * those three were pinned there). How the paths are stored is still pinned at upstream's
-         * (UB-17). Custom's own switch is back from jc-37 (UB-16), with its checks in 13b. To re-apply all of them at once (the fix layer, FORK.md,
+         * those three were pinned there). The paths are stored relative to the CC folder again from
+         * jc-38 (UB-17; pinned at upstream's absolute on jc-22 to jc-37). Custom's own switch is back from jc-37 (UB-16), with its checks in 13b. To re-apply all of them at once (the fix layer, FORK.md,
          * takes them back one fix at a time instead): `git revert` the commit "Upstream baseline:
          * revert the custom-tileset fixes"; it holds this change too. */
         Path d13 = freshDir("customtiles");
@@ -391,13 +391,45 @@ public class SettingsTest {
         Path inBase = d13.resolve("tilesets").resolve("base.png"), inOverlay = d13.resolve("tilesets").resolve("overlay.png");
         p13.setCustomTilesetImages(inBase.toString(), inOverlay.toString());
         String file13 = Files.readString(f13.toPath(), StandardCharsets.UTF_8);
-        Harness.upstreamBug("images inside the CC folder are stored RELATIVE to it, so the file works on both machines",
-              file13.contains("CustomBaseImage = tilesets\\base.png\n") && file13.contains("CustomOverlayImage = tilesets\\overlay.png\n") ? "relative"
-              : file13.contains("CustomBaseImage = " + inBase + "\n") && file13.contains("CustomOverlayImage = " + inOverlay + "\n") ? "absolute"
-              : "neither", "absolute", "relative");
+        // MOD (Jeremy, fix layer, UB-17): relative, as Levelset and TWS are (jc-5); jc-22 to jc-37 stored
+        // them absolute, as upstream does, and this was pinned there.
+        String sep = File.separator;
+        check("images inside the CC folder are stored RELATIVE to it, so the file works on both machines",
+              file13.contains("CustomBaseImage = tilesets" + sep + "base.png\n") && file13.contains("CustomOverlayImage = tilesets" + sep + "overlay.png\n"));
         String[] reread13 = SuccPaths.load(f13).getCustomTilesetImages();
         check("and read back, after a reload, as the paths chosen",
               reread13 != null && reread13[0].equals(inBase.toString()) && reread13[1].equals(inOverlay.toString()));
+        Path outside13 = freshDir("customtiles-out").resolve("art.png");
+        p13.setCustomTilesetImages(outside13.toString(), inOverlay.toString());
+        String mixed13 = Files.readString(f13.toPath(), StandardCharsets.UTF_8);
+        check("an image outside the CC folder is stored absolute -- there is nothing to anchor it to -- and the one inside still relative",
+              mixed13.contains("CustomBaseImage = " + outside13 + "\n") && mixed13.contains("CustomOverlayImage = tilesets" + sep + "overlay.png\n"));
+        Harness.eq("and it reads back as it was chosen",
+              java.util.Arrays.toString(SuccPaths.load(f13).getCustomTilesetImages()),
+              java.util.Arrays.toString(new String[] {outside13.toString(), inOverlay.toString()}));
+        // The point of it: a relative path written on the other computer resolves against THIS one's folder.
+        Path d13o = freshDir("customtiles-other");
+        Harness.eq("a relative path (as the other computer writes it) reads as a picture in THIS computer's folder",
+              java.util.Arrays.toString(SuccPaths.load(settingsWith(d13o, "[Graphics]", "CustomBaseImage = tilesets" + sep + "b.png",
+                    "CustomOverlayImage = tilesets" + sep + "o.png")).getCustomTilesetImages()),
+              java.util.Arrays.toString(new String[] {d13o.resolve("tilesets").resolve("b.png").toString(), d13o.resolve("tilesets").resolve("o.png").toString()}));
+        // A value already stored absolute (jc-22 to jc-37 wrote them so) still reads as it is (jc-5's
+        // rule); and, from the jc-38 review, one INSIDE this folder is put in the relative form at
+        // load, so the next write -- every launch makes one -- saves it the way the other computer
+        // can read, without custom being chosen again. One outside this folder is left alone.
+        Path d13a = freshDir("customtiles-legacy");
+        Path elsewhere13 = freshDir("customtiles-elsewhere").resolve("far.png");
+        File f13a = settingsWith(d13a, "[Graphics]", "CustomBaseImage = " + d13a.resolve("tilesets").resolve("old.png"),
+              "CustomOverlayImage = " + elsewhere13);
+        SuccPaths p13a = SuccPaths.load(f13a);
+        Harness.eq("pictures stored absolute by an earlier build still read as they are",
+              java.util.Arrays.toString(p13a.getCustomTilesetImages()),
+              java.util.Arrays.toString(new String[] {d13a.resolve("tilesets").resolve("old.png").toString(), elsewhere13.toString()}));
+        p13a.setTileSizes(new int[] {20, 20});   // a write of something else, as every launch makes
+        java.util.List<String> legacy13 = lines(f13a);
+        check("and at the next write the one inside this folder is saved relative, the one outside it left exactly as it was ("
+              + legacy13.stream().filter(l -> l.startsWith("Custom")).collect(java.util.stream.Collectors.joining("; ")) + ")",
+              legacy13.contains("CustomBaseImage = tilesets" + sep + "old.png") && legacy13.contains("CustomOverlayImage = " + elsewhere13));
         Path d13b = freshDir("customtiles-half");
         Harness.eq("only one of the two given reads as null (both are needed)",
               chosen(SuccPaths.load(settingsWith(d13b, "[Graphics]", "CustomBaseImage = a.png", "CustomOverlayImage = ")).getCustomTilesetImages()),
@@ -438,6 +470,10 @@ public class SettingsTest {
               call(p13s, "setCustomTileset", false, cBase13.toString(), cOver13.toString()) + "; " + customSwitch(SuccPaths.load(f13s), false)
               + " " + java.util.Arrays.toString(SuccPaths.load(f13s).getCustomTilesetImages()),
               "done; on " + java.util.Arrays.toString(new String[] {cBase13.toString(), cOver13.toString()}));
+        // MOD (Jeremy, fix layer, UB-17): this setter stores the pictures relative too.
+        check("and stores the two pictures, inside the CC folder, relative to it (" + lines(f13s).stream()
+              .filter(l -> l.startsWith("Custom")).collect(java.util.stream.Collectors.joining("; ")) + ")",
+              lines(f13s).contains("CustomBaseImage = base.png") && lines(f13s).contains("CustomOverlayImage = overlay.png"));
         Harness.eq("and leaves TilesheetNum the built-in choice, and Lynx alone",
               SuccPaths.load(f13s).getMSTilesetNum() + " " + customSwitch(SuccPaths.load(f13s), true), "3 off");
         Harness.eq("choosing custom under Lynx turns the Lynx switch on",

@@ -1394,7 +1394,8 @@ public class GuiWindowTest {
             //     absolute, and saves a picture before it knows the picture loads. The load before the
             //     save is back from jc-33 (UB-19, below), and custom as a switch of its own from jc-37
             //     (UB-16, checked here, read from the settings file this window writes; jc-22 to jc-36
-            //     pinned tileset number 5); how the paths are stored is still pinned (UB-17).
+            //     pinned tileset number 5), and its pictures stored relative to this folder from jc-38
+            //     (UB-17, checked here; jc-22 to jc-37 pinned them absolute).
             List<String> answered = java.util.Collections.synchronizedList(new ArrayList<>());
             Thread chooser = answerChoosers(answered, cBase, cOver);
             noThrow("View > Tileset > custom, two pictures chosen, with a level open", customMark::doClick);
@@ -1408,10 +1409,11 @@ public class GuiWindowTest {
             fact("choosing custom keeps TilesheetNum a built-in number, with custom a switch of its own",
                  !ini.contains("TilesheetNum = " + graphics.TileSheet.CUSTOM.ordinal()) && ini.contains("CustomTileset = true"),
                  ini.stream().filter(l -> l.contains("Tileset") || l.contains("Tilesheet")).collect(java.util.stream.Collectors.joining("; ")));
-            pin("and its pictures, inside the Chip's Challenge folder, are saved relative to it",
-                ini.contains("CustomBaseImage = cbase.png") ? "relative"
-                    : ini.contains("CustomBaseImage = " + cBase.getPath()) ? "absolute" : "neither",
-                "absolute", "relative");
+            fact("and its pictures, inside the Chip's Challenge folder, are saved relative to it",
+                 ini.contains("CustomBaseImage = cbase.png") && ini.contains("CustomOverlayImage = coverlay.png"),
+                 ini.stream().filter(l -> l.startsWith("Custom")).collect(java.util.stream.Collectors.joining("; ")));
+            fact("and read back as the pictures chosen", java.util.Arrays.equals(emu.getPaths().getCustomTilesetImages(),
+                 new String[] {cBase.getPath(), cOver.getPath()}), java.util.Arrays.toString(emu.getPaths().getCustomTilesetImages()));
             //     MOD (Jeremy, fix layer, UB-19): both pictures are LOADED before their paths are saved,
             //     so a file that is not a picture brings one error naming it, and nothing is saved from
             //     it: the pictures chosen above stay the saved ones. (jc-22 to jc-32, upstream's order,
@@ -1429,9 +1431,13 @@ public class GuiWindowTest {
             Thread.sleep(200);
             String iniText = Files.readString(Path.of(io.SuccPaths.SETTINGS_FILE_NAME));
             fact("and that file is not saved as a custom picture", !iniText.contains("cnotes.png"), iniText);
+            // Read from the SAVED file through a fresh load and its getter (jc-38 review: the in-memory
+            // map could hold them while the file did not), so this is about UB-19 whatever form the
+            // paths are stored in (UB-17).
+            String[] savedPictures = io.SuccPaths.load(new File(io.SuccPaths.SETTINGS_FILE_NAME)).getCustomTilesetImages();
             fact("and the pictures chosen before it are still the saved ones",
-                 iniText.contains("CustomBaseImage = " + cBase.getPath() + "\n")
-                 && iniText.contains("CustomOverlayImage = " + cOver.getPath() + "\n"), iniText);
+                 java.util.Arrays.equals(savedPictures, new String[] {cBase.getPath(), cOver.getPath()}),
+                 java.util.Arrays.toString(savedPictures));
             Thread restore = closeEveryDialog();
             noThrow("and a built-in tileset can be chosen again", bwMark::doClick);
             stop(restore);
