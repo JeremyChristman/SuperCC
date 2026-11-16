@@ -1,5 +1,5 @@
 ==============================================================================
-  SuperCC  --  Jeremy Christman's fork                      build jc-34
+  SuperCC  --  Jeremy Christman's fork                      build jc-35
 ==============================================================================
 
   1. What this is
@@ -595,6 +595,22 @@ AlwaysOpenInMS  Whether every level set opens under the MS ruleset, no matter
 Releases from jc-2 on carry a jc-N tag in the repository. The title bar, when
 ShowBuildTag is on, shows the build tag compiled into the jar, which matches
 the tag for that release. Newest first.
+
+
+jc-35  --  Canceling View > Tileset > custom ends it quietly
+-------------------------------------------------------------
+
+  * CANCELING EITHER PICTURE'S CHOOSER IN VIEW > TILESET > CUSTOM NOW
+    SIMPLY ENDS IT, as in jc-18 to jc-21: the second picture is not
+    asked for once the first is canceled, nothing is shown, nothing is
+    saved, and the menu's mark goes back to the tileset you still see
+    -- after a picture that cannot be used, too. Since jc-22 the second
+    chooser opened anyway, then "No tileset image provided" was shown,
+    and the mark stayed on custom.
+
+  * Nothing you play changes: this is in the menus only, and every one
+    of the 24,217 stored solutions replays exactly as on jc-34. This
+    closes UB-18 in BASELINE-ISSUES.md in the repository.
 
 
 jc-34  --  A saved tileset that cannot be drawn: SuperCC says why

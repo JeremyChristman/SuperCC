@@ -40,7 +40,7 @@ How to keep it:
 | UB-15 | A level whose savestates cannot be built is left half-loaded | nobody today (no level reaches it) | `c57f217`, ships in jc-21 | **FIXED in `e08c6b5` (jc-30)** |
 | UB-16 | Choosing a custom tileset saves it as tileset number 5, which builds before jc-18 do not have (they start in their default tileset, with an internal error) | anyone sharing the settings file with an older build | `5d3f0a3`, ships in jc-22 | open |
 | UB-17 | Custom tileset pictures are saved as full paths, which the other computer does not have | anyone sharing the folder between computers | `5d3f0a3`, ships in jc-22 | open |
-| UB-18 | Canceling View › Tileset › custom asks for the second picture anyway, then shows an error, and leaves the mark on custom | anyone who cancels it | `5d3f0a3`, ships in jc-22 | open |
+| UB-18 | Canceling View › Tileset › custom asks for the second picture anyway, then shows an error, and leaves the mark on custom | anyone who cancels it | `5d3f0a3`, ships in jc-22 | **FIXED in `bd2b915` (jc-35)** |
 | UB-19 | A custom picture is saved before it is known to load; a bad one fails with an internal error or an unclear message | anyone choosing a wrong file | `5d3f0a3`, ships in jc-22 | **FIXED in `cb55dbf` (jc-33)** |
 | UB-20 | A saved MS tileset that cannot be drawn breaks startup partway: the default tileset, no reason given, the saved tile size and TWS notation not applied (until jc-34 this row said "does not start (no window)": wrong, see the entry) | anyone with a bad TilesheetNum or missing custom pictures | `5d3f0a3`, ships in jc-22 | **FIXED in `9e6166a` (jc-34)** for a plain start (with a set on the command line it waits for UB-21) |
 | UB-21 | A Lynx tileset that cannot be drawn, or a failing custom tileset at a window resize, leaves the screen wrong | anyone with such a choice | `5d3f0a3`, ships in jc-22 | open |
@@ -53,6 +53,7 @@ How to keep it:
 | UB-28 | `AutoDiagonals = 1` is OFF, and a value read as OFF is usually written back as it was, so the file can look ON | anyone editing the file by hand | `d08e6ef`, ships in jc-23 | open |
 | UB-29 | A `.ser` savestate saved by jc-19 to jc-25 can load a trap wrong in other builds (two or more traps) | anyone keeping such a file; none in the maintainer's collection | `79b0032` (jc-19), exposed by jc-26 | open, accepted |
 | UB-30 | A set opened at launch whose level 1 will not load: its other levels cannot be reached (Go to... is guarded while no level is loaded) | anyone opening such a set before any other; none of the 331 sets in the collection | `d57d419` (jc-28): UB-11's fix back before UB-14's | **FIXED in `48a3eca` (jc-29)**, with UB-14 |
+| UB-31 | With no custom pictures chosen yet, View › Tileset › custom's two choosers open in the user's default folder (Documents), not the Chip's Challenge folder, and the second does not open where the first picture was | anyone choosing a custom tileset for the first time | `5d3f0a3`, ships in jc-22 (missed by that revert's tracker entries; recorded in jc-35) | open |
 
 ---
 
@@ -556,8 +557,9 @@ listener and `SuperCC.initialiseTilesheet` are upstream's, and `SuccPaths` store
 as upstream does, inside the fork's own settings structure. FORK.md step 5 has the engineering
 record. The fix layer takes these back one fix at a time, by hand from `5d3f0a3`'s diff (a whole
 `git revert` no longer applies: the no-level step's fixes rewrote View › Tileset's listener since),
-in dependency order: **UB-19 is back since jc-33 (`cb55dbf`), UB-20 since jc-34 (`9e6166a`)**;
-UB-18, UB-21, UB-16 and UB-17 follow, each in a release of its own. Nobody's tileset changes by itself: these all start with choosing a
+in dependency order: **UB-19 is back since jc-33 (`cb55dbf`), UB-20 since jc-34 (`9e6166a`), UB-18
+since jc-35 (`bd2b915`)**; UB-21, UB-16, UB-17 and UB-31 (found in jc-35) follow, each in a release
+of its own. Nobody's tileset changes by itself: these all start with choosing a
 custom tileset, or with a settings file that names one that cannot be drawn.
 
 ### UB-16 — custom is saved as tileset number 5
@@ -591,14 +593,31 @@ custom tileset, or with a settings file that names one that cannot be drawn.
 
 ### UB-18 — canceling custom asks again, then complains
 
-- **What a user sees:** canceling the first picture's chooser still opens the second; canceling
-  either shows "No tileset image provided"; and the View › Tileset mark stays on custom though the
-  old tileset is still drawn. Since jc-33 (UB-19) a picture that is refused leaves the mark on
-  custom the same way.
+**Status: FIXED in `bd2b915` (jc-35).** jc-18's Cancel is back in View › Tileset › custom's
+listener, re-applied alone: the second chooser is asked for only when the first returned a
+picture; a Cancel at either (its Cancel button or its close box) ends the pick with nothing shown
+and nothing saved; and the radio mark goes back to the tileset still drawn
+(`MenuBar.markActiveTileset`, in the listener's `finally`: after a Cancel, a refused picture --
+UB-19's error -- or anything else that leaves the old tileset drawn; jc-18 put it back on the
+Cancel path and in the catch, and review made it one place). jc-18's chooser start folders, in the same lines, are left out: they were reverted with
+the rest but never recorded, and are UB-31 now. The two pins are checks again (`GuiWindowTest`
+§2: the walk's Cancel is one chooser and nothing else; the mark back on Black and White), with
+new checks after a built-in tileset is drawn: each chooser canceled as a person would, by its
+Cancel button and by its close box, the first (one chooser, nothing after it) and the second
+(the two, nothing after them), each leaving the tileset drawn, saved and marked, and the saved custom pictures, unchanged; and
+a file that is not a picture (its one error, then the same). On jc-34's jar `GuiWindowTest` fails
+exactly those 11 and its exit check; 8 defects planted in `MenuBar`, all caught (the second chooser asked for after the first is canceled; Cancel complaining again; the mark never put back, or put back on Cancel only, as jc-18 split it, so a refused picture left it; `markActiveTileset` marking nothing, or custom; only the first chooser's Cancel counting; the first picture saved before the second chooser is answered); corpus against jc-34: 24,217 of 24,217 identical.
+
+- **What a user saw (jc-22 to jc-34):** canceling the first picture's chooser still opened the
+  second; canceling either showed "No tileset image provided"; and the View › Tileset mark stayed
+  on custom though the old tileset was still drawn. Since jc-33 (UB-19) a picture that is refused
+  left the mark on custom the same way.
 - **Fix:** the first Cancel ends it, with no error, and the mark goes back to what is drawn
   (`MenuBar.markActiveTileset`; jc-18).
-- **Pinned by:** `GuiWindowTest` §2 (canceled with no level open: both choosers and the error) and
-  the radio-mark check after it.
+- **Pinned by (jc-22 to jc-34):** `GuiWindowTest` §2 (canceled with no level open: both choosers
+  and the error) and the radio-mark check after it. **Checked by (jc-35 on):** the same, as
+  checks, plus each chooser canceled by its Cancel button and its close box, and a refused picture,
+  each putting the mark back.
 
 ### UB-19 — a custom picture is saved before it is known to load, and a bad one fails badly
 
@@ -754,6 +773,21 @@ it should and `EngineTest` the 13 new ones ("no TileSheet.load"); 18 defects pla
 - **Pinned by:** `StartupTilesetTest` §2 (since jc-34): a number out of range with a set on the
   command line throws, and custom missing with one says the swap's words first. The swap after a
   start and the window-size change: nothing (measured as above).
+
+### UB-31 — custom's choosers start in the user's default folder
+
+- **What a user sees:** with no custom pictures chosen yet, View › Tileset › custom's two file
+  choosers open in Java's default folder for the user (Documents, on Windows), not the Chip's
+  Challenge folder, and the second does not open where the first picture was. Once pictures are
+  saved, each chooser opens at its picture, as in jc-18.
+- **How it was found (jc-35):** re-applying UB-18 from `5d3f0a3`'s diff. jc-18's lines for Cancel
+  also chose where the choosers start ("starting where the current ones are", the working folder
+  when none are, the overlay's chooser at the base picture's folder); the revert took them out,
+  but no entry recorded it. Upstream passes "" to `MenuBar.openFile` when none are chosen, whose
+  `new File("")` has no parent, so `JFileChooser.setCurrentDirectory(null)` -- the user's default
+  folder. Read in the code; to be measured with its fix.
+- **Fix:** jc-18's start folders (`MenuBar`'s custom listener, three lines).
+- **Pinned by:** nothing yet; its fix should check where each chooser opens.
 
 ## Auto-diagonals (`d08e6ef`, ships in jc-23)
 

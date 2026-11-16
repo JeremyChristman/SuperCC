@@ -12,6 +12,31 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## jc-35 — 2026-11-16 (the fix layer: canceling View › Tileset › custom ends it quietly)
+
+The third of the custom-tileset fixes goes back on the upstream baseline. It closes UB-18 in
+[`BASELINE-ISSUES.md`](BASELINE-ISSUES.md). The menus only: no stored solution changes.
+
+### Fixed
+- **Canceling View › Tileset › custom ends the pick quietly (`bd2b915`, UB-18).** jc-18's Cancel,
+  re-applied alone: the second picture is not asked for once the first chooser is canceled, a
+  Cancel at either shows nothing and saves nothing, and the radio mark goes back to the tileset
+  still drawn (one `finally`), after a Cancel or a picture that is refused. Since jc-22 the second
+  chooser opened anyway, then "No tileset image provided" was shown, and the mark stayed on
+  custom. Corpus against jc-34: 24,217 of 24,217 identical.
+
+### Changed (tests only)
+- `GuiWindowTest` §2: UB-18's two pins are checks again, plus each chooser canceled by its Cancel
+  button and by its close box (new helper `answerChoosersThen`) and a refused picture, each with
+  the tileset drawn, saved and marked unchanged. On jc-34's jar exactly those 11 fail, with the
+  child's exit check; 8 defects planted, all caught. Suite 2,601 assertions, 27 pins, 4 skips. Coverage: target unchanged (57.1%, 1530/2678); the non-target pool 4.4% (87/1989: `MenuBar`'s new branches, reached only in `GuiWindowTest`'s child JVM, which the profiler does not attach to); re-baselined.
+
+### Recorded
+- **UB-31**: with no custom pictures chosen yet, custom's choosers open in the user's default
+  folder rather than the Chip's Challenge folder. jc-18 had changed that in the same lines as its
+  Cancel; the jc-22 revert took it out without a tracker entry. Found while re-applying UB-18.
+- Docs: jc-34's fix-layer row in `FORK.md` was split in two by a stray line break; rejoined.
+
 ## jc-34 — 2026-11-15 (the fix layer: a saved tileset that cannot be drawn says why, and startup finishes)
 
 The second of the custom-tileset fixes goes back on the upstream baseline. It closes UB-20 in
