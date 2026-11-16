@@ -375,12 +375,9 @@ public class InputDiscardTest {
          * upstream's line writes '-', and FORK.md step 2 measured the cost: a route replaying 3
          * ticks short.
          *
-         * ⚠ UPSTREAM BASELINE (after jc-19): that fix was REVERTED at the maintainer's
-         * request, so SuperCC.tick is upstream v2.0.3's exactly (FORK.md, "The upstream baseline").
-         * No real level reaches it; through this wrapper upstream writes two '-' where the engine ran
-         * automatic ticks, so the check is an upstreamBug() pinned at exactly that. To re-apply the
-         * fix: `git revert` the commit "Upstream baseline: revert the both-bits recording fix", which
-         * holds this change too, then update the notes that list it as reverted. */
+         * MOD (Jeremy, fix layer, UB-6): that fix was reverted for the upstream baseline (jc-20 to
+         * jc-39, where upstream's line wrote two '-' through this wrapper, "r--UUUUUu", pinned there)
+         * and is back from jc-40, so this is an exact check again: every key kept. */
         Harness.section("5. both bits");
         SuperCC eBoth = load(ffLynx, Ruleset.LYNX);
         Level real = eBoth.getLevel();
@@ -401,7 +398,6 @@ public class InputDiscardTest {
         levelField.set(eBoth, bothBits);
         String recordedBoth = play(eBoth, "ruuuuuuuu");
         Harness.eq("one entry per key", recordedBoth.length(), 9);
-        Harness.upstreamBug("every key was kept, none written as a wait",
-                            recordedBoth, "r--UUUUUu", "rUUUUUUUu");
+        Harness.eq("every key was kept, none written as a wait", recordedBoth, "rUUUUUUUu");
     }
 }

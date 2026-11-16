@@ -443,7 +443,17 @@ public class SuperCC {
                 level.tick(c, new Direction[] {Direction.NONE});
             }
         }
-        if ((levelFlags & Level.MASK_DISCARD_INPUT) != 0)
+        /* MOD (Jeremy, fix layer, UB-6): upstream replaces the key with WAIT whenever the discard bit
+         * is set, even on a tick that also reports automatic ticks -- recording one tick where the
+         * engine ran ticksPerMove, so the saved route would replay short. Here the automatic-tick bit
+         * wins and the key is kept. That is the safe side either way: the automatic-tick bit needs a
+         * direction Chip CHOSE from the key (LynxLevel: moveChip's result requires tDirection, which
+         * only selectChipMove sets from the key; MSLevel: a KEY or CLICK_EARLY move), so the key was
+         * used; and if it ever was not, replaying it is harmless, because the engine drops it again
+         * from the same state (InputDiscardTest's inertness check). No engine path returns both bits
+         * today -- the move list just should not depend on that staying true. InputDiscardTest §5
+         * checks this line through a level wrapped to return both. jc-15's, re-applied alone. */
+        if ((levelFlags & Level.MASK_DISCARD_INPUT) != 0 && !tickMulti)
             c = WAIT;
         if (flags.save) {
             savestates.addRewindState(level, c);
