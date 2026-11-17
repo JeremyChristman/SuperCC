@@ -49,7 +49,12 @@ public class SeedSearch {
     private long[] threadCurrentSeed;
     private AtomicLong globalAttempts = new AtomicLong(0);
     private AtomicLong globalSuccesses = new AtomicLong(0);
-    private AtomicLong globalLastSuccess = new AtomicLong(-1);
+    /* MOD (Jeremy, fix layer, UB-9): "no success yet" was -1, tested as `>= 0`, which hid every
+     * success at a negative seed -- reachable from a negative start, which UB-7's fix splits
+     * properly. No seed is a long this small (seeds are ints), and a negative one shown here can be
+     * typed into Set RNG Seed as is. SeedSearchTest §4 checks it. jc-16's, re-applied alone. */
+    private static final long NO_SUCCESS = Long.MIN_VALUE;
+    private AtomicLong globalLastSuccess = new AtomicLong(NO_SUCCESS);
     private boolean ranAlready = false;
     private boolean untilPosition = false;
     private Position endPosition = new Position(0, 0);
@@ -158,7 +163,7 @@ public class SeedSearch {
     private void updateValues(int attempsSinceUpdate, int successes, long exampleSuccess, long currentSeed) {
         globalAttempts.addAndGet(attempsSinceUpdate);
         globalSuccesses.addAndGet(successes);
-        if (exampleSuccess >= 0)
+        if (exampleSuccess != NO_SUCCESS)
             globalLastSuccess.set(exampleSuccess);
         if (currentSeed % UPDATE_GUI_RATE == 0)
             updateText();
@@ -170,7 +175,7 @@ public class SeedSearch {
         long globalAttemptsNA = globalAttempts.get();
         resultsLabel.setText("Successes: "+ globalSuccessesNA +"/"+globalAttemptsNA+" ("+df.format(100.0 * globalSuccessesNA / globalAttemptsNA)+"%)");
         resultsLabel.repaint();
-        if (lastSuccessNA >= 0)
+        if (lastSuccessNA != NO_SUCCESS)
             exampleSeedLabel.setText("Example seed: " + lastSuccessNA);
         exampleSeedLabel.repaint();
     }
@@ -224,7 +229,7 @@ public class SeedSearch {
             this.threadNum = threadNum;
             this.currentSeed = threadCurrentSeed[threadNum];
             this.endSeed = endSeed;
-            this.lastSuccess = -1;
+            this.lastSuccess = NO_SUCCESS;
             this.emulator = emulator;
             this.solution = solution;
 

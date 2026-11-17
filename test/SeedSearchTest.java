@@ -36,7 +36,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  * asked for the last 3,000 seeds, it had made 12.3 million attempts eight seconds later. The fix is
  * longs throughout. jc-16 to jc-19 added one more (long), for a negative start; the upstream baseline
  * reverted it (jc-20 to jc-41), and the fix layer put it back in jc-42 (section 3, BASELINE-ISSUES.md
- * UB-7).
+ * UB-7); and the "no success yet" sentinel that lets a success at a negative seed be shown, back in
+ * jc-43 (section 4, UB-9).
  *
  * SeedSearch is FORM-BASED, so its .class is committed bytecode rebuilt by formclass.ps1, not by the
  * splice build (docs\adr\0010). Section 1 is the guard on that: a class rebuilt without IntelliJ's
@@ -358,9 +359,37 @@ public class SeedSearchTest {
             } catch (InvocationTargetException e) {
                 throw new Exception(e.getCause());
             }
-            /* ⚠ UPSTREAM BASELINE (from jc-20): the sentinel fix was REVERTED (UB-9); upstream tests
-             * `>= 0`, so the label keeps its untouched text. */
-            Harness.upstreamBug("a success at a negative seed is shown", example.getText(), untouched, "Example seed: -3");
+            /* MOD (Jeremy, fix layer, UB-9): the sentinel fix was reverted for the upstream baseline
+             * (jc-20 to jc-42, when upstream's `>= 0` left the label untouched, pinned here) and is
+             * back from jc-43, so this is an exact check again. */
+            Harness.eq("a success at a negative seed is shown", example.getText(), "Example seed: -3");
+
+            /* ...and a thread that found nothing reports no success. Once the window tests `!=`, a
+             * thread that starts at upstream's -1 would report seed -1 as a success when it ends (a
+             * planted defect survived until this check existed). The thread is built as the window
+             * builds it, with an EMPTY range (endSeed -1, below its first seed 0), and its real run()
+             * is called on this thread: the loop is skipped, so the emulator and solution (null) are
+             * never touched, and run() itself makes the final report and gives back the alive count
+             * its constructor took -- the same path a thread with an empty range takes (jc-43 review:
+             * reading the field alone would miss a defect in run()'s report). */
+            try {
+                Class<?> tc = Class.forName("tools.SeedSearch$SeedSearchThread");
+                java.lang.reflect.Constructor<?> make = tc.getDeclaredConstructor(
+                        SeedSearch.class, int.class, long.class, SuperCC.class, Solution.class);
+                make.setAccessible(true);
+                Field seeds = SeedSearch.class.getDeclaredField("threadCurrentSeed");
+                seeds.setAccessible(true);
+                if (seeds.get(big) == null) seeds.set(big, new long[1]);
+                Object idle = make.newInstance(big, 0, -1L, null, null);
+                Method run = tc.getDeclaredMethod("run");
+                run.setAccessible(true);
+                String before = example.getText();
+                run.invoke(idle);
+                Harness.eq("a thread that found nothing leaves the example seed alone", example.getText(), before);
+                Harness.eq("and gives back its alive count", numAlive(), 0);
+            } catch (InvocationTargetException e) {
+                throw new Exception(e.getCause());
+            }
         }
 
         Harness.section("5. Pause stops a search");
