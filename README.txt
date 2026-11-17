@@ -1,5 +1,5 @@
 ==============================================================================
-  SuperCC  --  Jeremy Christman's fork                      build jc-42
+  SuperCC  --  Jeremy Christman's fork                      build jc-43
 ==============================================================================
 
   1. What this is
@@ -613,6 +613,19 @@ AlwaysOpenInMS  Whether every level set opens under the MS ruleset, no matter
 Releases from jc-2 on carry a jc-N tag in the repository. The title bar, when
 ShowBuildTag is on, shows the build tag compiled into the jar, which matches
 the tag for that release. Newest first.
+
+
+jc-43  --  Seed Search shows a success at a negative seed
+---------------------------------------------------------
+
+  * SOLUTION > SEARCH FOR SEEDS SHOWS AN EXAMPLE SEED AGAIN WHEN THE
+    SUCCESS WAS AT A NEGATIVE SEED, as in jc-16 to jc-19. From jc-20 to
+    jc-42 a search from a negative start counted its successes, but
+    "Example seed" stayed blank.
+
+  * Nothing you play changes: every one of the 24,219 stored solutions
+    replays exactly as on jc-42. This closes UB-9 in BASELINE-ISSUES.md
+    in the repository.
 
 
 jc-42  --  Seed Search from a negative start shares the work

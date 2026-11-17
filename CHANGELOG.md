@@ -12,6 +12,25 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## jc-43 — 2026-11-16 (the fix layer: Seed Search shows a success at a negative seed again)
+
+The third of the four Seed Search fixes goes back on the upstream baseline. It closes UB-9 in
+[`BASELINE-ISSUES.md`](BASELINE-ISSUES.md). Seed Search only: no stored solution changes.
+
+### Fixed
+- **Solution › Search for seeds shows an example seed when the success was at a negative seed
+  (`86e23d1`, UB-9).** jc-16's "no success yet" sentinel (`Long.MIN_VALUE`, tested with `!=`),
+  re-applied alone in the form class. Since jc-20 "no success" was -1 and only an example `>= 0` was
+  shown, so from a negative start successes were counted but "Example seed" stayed blank. Corpus
+  against jc-42: 24,219 of 24,219 identical.
+
+### Changed (tests only)
+- `SeedSearchTest` §4's pin is an exact check again, and a new check runs a thread with an empty
+  range through its real `run()`, whose report must leave the example alone (a planted defect, a
+  thread starting at -1, survived until it existed). On jc-42's jar exactly the first fails. 5
+  defects planted, all caught.
+  Suite 2,668 assertions, 15 pins, 4 skips. Coverage: unchanged (the sentinel adds no branches; the baseline check passes as it stands).
+
 ## jc-42 — 2026-11-16 (the fix layer: a Seed Search from a negative start shares the work again)
 
 The second of the four Seed Search fixes goes back on the upstream baseline. It closes UB-7 in

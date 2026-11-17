@@ -31,7 +31,7 @@ How to keep it:
 | UB-6 | A tick that reports both "discard" and "automatic ticks" is recorded as a wait, so the route saves short | nobody today: no real tick does that | `923d07c`, ships in jc-20 | **FIXED in `1ec3b47` (jc-40)** |
 | UB-7 | Seed Search with a negative start: one thread does all the work | anyone typing a negative start | `397c7bb`, ships in jc-20 | **FIXED in `06ebf90` (jc-42)** |
 | UB-8 | Seed Search's threads race at the start: "running" can drop mid-search, a Pause can be undone | anyone, mostly on short searches | `397c7bb`, ships in jc-20 | open |
-| UB-9 | Seed Search never shows a success at a negative seed as the example | anyone searching from a negative start | `397c7bb`, ships in jc-20 | open |
+| UB-9 | Seed Search never shows a success at a negative seed as the example | anyone searching from a negative start | `397c7bb`, ships in jc-20 | **FIXED in `86e23d1` (jc-43)** |
 | UB-10 | Seed Search's Pause flag is not `volatile` | nobody observed (theoretical) | `397c7bb`, ships in jc-20 | **FIXED in `b2c383c` (jc-41)** |
 | UB-11 | With no level set open, most menu controls fail with an internal error | everyone, from launch until a set is opened | `c57f217`, ships in jc-21 | **FIXED in `d57d419` (jc-28)** |
 | UB-12 | Canceling Go to... or Set RNG Seed fails with an internal error | anyone who cancels either | `c57f217`, ships in jc-21 | **FIXED in `cd5a644` (jc-31)** |
@@ -214,7 +214,7 @@ The fork's four fixes from jc-16 were reverted. Until jc-41 all four came back a
 `git revert 397c7bb`, which also restores the compiled form classes and both baselines it changed;
 with UB-10 back by hand that revert no longer applies cleanly. Under the fix layer (FORK.md) they go
 back one at a time, by hand from its diff. FORK.md step 3 has the
-engineering record. Back so far: UB-10, the `volatile` flags (jc-41, `b2c383c`), and UB-7, the negative start (jc-42, `06ebf90`).
+engineering record. Back so far: UB-10, the `volatile` flags (jc-41, `b2c383c`), UB-7, the negative start (jc-42, `06ebf90`), and UB-9, the example seed (jc-43, `86e23d1`).
 
 ### UB-7 — a negative start does not share the work
 
@@ -269,11 +269,22 @@ of subtracted). Corpus against jc-41: 24,217 of 24,217 identical.
 
 ### UB-9 — a success at a negative seed is never shown
 
-- **What a user sees:** "Example seed" stays blank although successes are counted.
+**Status: FIXED in `86e23d1` (jc-43).** jc-16's `Long.MIN_VALUE` sentinel, `NO_SUCCESS`, re-applied alone in `SeedSearch`
+(a form class) at all four of its sites: the window's starting value, each thread's, and the two
+tests, now `!=`. `SeedSearchTest` §4's pin is an exact check again (a success at seed -3 is shown),
+and a new check builds a thread as the window does with an empty range and runs its real `run()`:
+the example seed is left alone, and the alive count comes back. On jc-42's jar exactly the first fails (the second holds on upstream
+too, whose -1 and `>= 0` agree). 5 defects planted, one per site and one in `run()`'s final report; the thread's starting value
+SURVIVED the existing checks (a thread that found nothing would report seed -1 as a success once
+the tests are `!=`), which is why the new check exists, and all 5 are caught with it. Corpus
+against jc-42: 24,219 of 24,219 identical.
+
+- **What a user saw (jc-20 to jc-42):** "Example seed" stays blank although successes are counted.
 - **Measured (same playtest):** 219,765 successes from start -5, and no example seed shown.
 - **Cause:** "no success yet" is -1, and a success is shown only if `>= 0`.
-- **Fix:** a `Long.MIN_VALUE` sentinel compared with `!=` (jc-16).
-- **Pinned by:** `SeedSearchTest` §4.
+- **Fix:** a `Long.MIN_VALUE` sentinel compared with `!=` (jc-16), re-applied by hand in jc-43
+  (`86e23d1`).
+- **Checked by:** `SeedSearchTest` §4 (pinned from jc-20 to jc-42).
 
 ### UB-10 — Seed Search's Pause flag is not `volatile`
 
@@ -1303,7 +1314,10 @@ are not lost.
   UB-7's `(long)` only stops the negative start from emptying every range but the last (jc-16's
   own comment says a negative start "only repeats positive seeds"). Turning a negative start into
   its 31-bit seed, or refusing it, would change what the field accepts, so it is a decision rather
-  than a fix to re-apply. Read in the code, raised by the jc-42 review.
+  than a fix to re-apply. Read in the code, raised by the jc-42 review. Related (jc-43 review): a
+  success at a negative seed is shown as that negative number (jc-16's choice, kept: it can be typed
+  into Set RNG Seed as is), though the RNG treats it as its 31-bit equivalent, so a saved solution
+  stores the negative form.
 - **Seed Search's Begin throws on a start or position it cannot read.** `Integer.parseInt` on the
   raw start field throws for `""`, `" -5"`, `"abc"` or `"2147483648"`, and a position without a
   comma throws `ArrayIndexOutOfBoundsException`, on the event thread: Begin does nothing visible
