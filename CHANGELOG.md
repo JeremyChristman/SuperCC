@@ -12,6 +12,31 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## jc-44 — 2026-11-21 (the fix layer: Seed Search's threads start together)
+
+The last of the four Seed Search fixes goes back on the upstream baseline. It closes UB-8 in
+[`BASELINE-ISSUES.md`](BASELINE-ISSUES.md). Seed Search only: no stored solution changes.
+
+### Fixed
+- **Solution › Search for seeds stays "running" until the whole search ends, and a Pause pressed
+  as it begins is kept (`1414d6b`, UB-8).** jc-16's thread start, re-applied alone in the form
+  class with both of its review fixes: every thread is built, all are counted alive at once, the
+  flags are set once, and only then do the threads start; `run()` no longer writes either flag, and
+  the last thread's cleanup clears the Pause before it publishes "stopped". Since jc-20 an early
+  thread on a short search could finish first and mark the search stopped mid-search, so the
+  button acted as Begin and the main window unlocked; and each thread cleared the Pause as it
+  started. Corpus against jc-43: 24,252 of 24,252 identical.
+
+### Changed (tests only)
+- `SeedSearchTest` §2's 3,000-seed skip and 8-seed pin are exact checks again. New: the 8-seed
+  searches also watch the alive count (zero once per search, never negative), §5 presses Resume
+  for the first time, §7 runs a real thread's `run()` with the Pause already set, and the 3,000-seed
+  search watches the alive count too. On jc-43's jar 4 checks fail every run, and a fifth (the
+  second Pause) in some. 7 defects planted, 5 caught; the two survivors, a race no test can force
+  and a near-equivalent write order, are recorded in `BASELINE-ISSUES.md`.
+  Suite 2,676 assertions, 14 pins, 3 skips. Coverage: the engine target is unchanged; `tools\**` +
+  `graphics\**` moves 5.1% → 5.2% (106/2041), from the start loop's new branches.
+
 ## jc-43 — 2026-11-16 (the fix layer: Seed Search shows a success at a negative seed again)
 
 The third of the four Seed Search fixes goes back on the upstream baseline. It closes UB-9 in

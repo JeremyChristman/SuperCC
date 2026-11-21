@@ -145,24 +145,59 @@ public class SeedSearchTest {
         final AtomicInteger zeroes = new AtomicInteger();
         volatile int lowest = Integer.MAX_VALUE;
         private final java.util.concurrent.atomic.AtomicBoolean stop = new java.util.concurrent.atomic.AtomicBoolean();
-        RunningWatcher() { setDaemon(true); start(); }
+        /* Looked up ONCE, here, where a failure throws and fails the scenario (jc-44 review): read
+         * per sample with any failure taken as 0, a renamed field would pass both alive-count
+         * checks without measuring anything, and the lookup slowed the sampling it depends on. */
+        private final AtomicInteger alive;
+        RunningWatcher() throws Exception {
+            alive = (AtomicInteger) field(null, "numAlive");
+            setDaemon(true);
+            start();
+        }
         @Override public void run() {
             boolean prev = SeedSearch.isRunning();
-            int prevAlive = aliveOrZero();
+            int prevAlive = alive.get();
             while (!stop.get()) {
                 boolean now = SeedSearch.isRunning();
                 if (prev && !now) falls.incrementAndGet();
                 prev = now;
-                int alive = aliveOrZero();
-                if (prevAlive > 0 && alive == 0) zeroes.incrementAndGet();
-                if (alive < lowest) lowest = alive;
-                prevAlive = alive;
+                int a = alive.get();
+                if (prevAlive > 0 && a == 0) zeroes.incrementAndGet();
+                if (a < lowest) lowest = a;
+                prevAlive = a;
             }
         }
-        private static int aliveOrZero() {
-            try { return numAlive(); } catch (Exception e) { return 0; }
-        }
         int finish() throws InterruptedException { stop.set(true); join(); return falls.get(); }
+    }
+
+    /**
+     * Builds a search thread as the window builds it, with its range ending at endSeed, for a
+     * direct call of its real run() on the test thread (sections 4 and 7). Its emulator and solution
+     * are null, so it must never reach the search loop. WHO counts it alive changed in jc-44 (UB-8):
+     * the listener now counts every thread before starting any, where upstream's constructor counted
+     * itself. So the count is taken here only when the constructor did not, as the listener would,
+     * which keeps both sections true on both.
+     */
+    private static Object buildThread(SeedSearch ss, long endSeed) throws Exception {
+        Class<?> tc = Class.forName("tools.SeedSearch$SeedSearchThread");
+        java.lang.reflect.Constructor<?> make = tc.getDeclaredConstructor(
+                SeedSearch.class, int.class, long.class, SuperCC.class, Solution.class);
+        make.setAccessible(true);
+        Field seeds = SeedSearch.class.getDeclaredField("threadCurrentSeed");
+        seeds.setAccessible(true);
+        if (seeds.get(ss) == null) seeds.set(ss, new long[1]);
+        int before = numAlive();
+        Object t = make.newInstance(ss, 0, endSeed, null, null);
+        if (numAlive() == before)
+            ((AtomicInteger) field(null, "numAlive")).incrementAndGet();
+        return t;
+    }
+
+    /** Calls a built thread's real run() on this thread; its own exceptions arrive wrapped. */
+    private static void runThread(Object t) throws Exception {
+        Method run = t.getClass().getDeclaredMethod("run");
+        run.setAccessible(true);
+        run.invoke(t);
     }
 
     /**
@@ -265,6 +300,8 @@ public class SeedSearchTest {
              * search below is the deterministic one. */
             Harness.check("`running` went false once, at the end -- not as each early thread finished",
                           watch.finish() <= 1);
+            Harness.check("and the alive count fell to zero once and never below it (jc-44 review)",
+                          watch.zeroes.get() <= 1 && watch.lowest >= 0);
             Harness.eq("exactly 3,000 attempts", count(a, "globalAttempts"), 3000L);
             Harness.eq("exactly 3,000 successes (the fixture wins on every seed)", count(a, "globalSuccesses"), 3000L);
             Harness.eq("and the window says so", label(a), "Successes: 3000/3000 (100%)");
@@ -403,26 +440,13 @@ public class SeedSearchTest {
              * is called on this thread: the loop is skipped, so the emulator and solution (null) are
              * never touched, and run() itself makes the final report and gives back the alive count
              * it was given -- the same path a thread with an empty range takes (jc-43 review:
-             * reading the field alone would miss a defect in run()'s report). WHO counts it alive
-             * changed in jc-44 (UB-8): the listener now counts every thread before starting any,
-             * where upstream's constructor counted itself. So the count is taken here only when the
-             * constructor did not, as the listener would -- which keeps this case true on both. */
+             * reading the field alone would miss a defect in run()'s report). buildThread() says who
+             * counts it alive, which changed in jc-44. */
             try {
-                Class<?> tc = Class.forName("tools.SeedSearch$SeedSearchThread");
-                java.lang.reflect.Constructor<?> make = tc.getDeclaredConstructor(
-                        SeedSearch.class, int.class, long.class, SuperCC.class, Solution.class);
-                make.setAccessible(true);
-                Field seeds = SeedSearch.class.getDeclaredField("threadCurrentSeed");
-                seeds.setAccessible(true);
-                if (seeds.get(big) == null) seeds.set(big, new long[1]);
                 int aliveBefore = numAlive();
-                Object idle = make.newInstance(big, 0, -1L, null, null);
-                if (numAlive() == aliveBefore)  // jc-44+: the listener's job, done as it does it
-                    ((AtomicInteger) field(null, "numAlive")).incrementAndGet();
-                Method run = tc.getDeclaredMethod("run");
-                run.setAccessible(true);
+                Object idle = buildThread(big, -1L);
                 String before = example.getText();
-                run.invoke(idle);
+                runThread(idle);
                 Harness.eq("a thread that found nothing leaves the example seed alone", example.getText(), before);
                 Harness.eq("and gives back its alive count", numAlive(), aliveBefore);
             } catch (InvocationTargetException e) {
@@ -497,24 +521,13 @@ public class SeedSearchTest {
             Field kill = SeedSearch.class.getDeclaredField("killFlag");
             kill.setAccessible(true);
             try {
-                Class<?> tc = Class.forName("tools.SeedSearch$SeedSearchThread");
-                java.lang.reflect.Constructor<?> make = tc.getDeclaredConstructor(
-                        SeedSearch.class, int.class, long.class, SuperCC.class, Solution.class);
-                make.setAccessible(true);
-                Field seeds = SeedSearch.class.getDeclaredField("threadCurrentSeed");
-                seeds.setAccessible(true);
-                seeds.set(early, new long[1]);
                 int aliveBefore = numAlive();
-                Object late = make.newInstance(early, 0, 1000L, null, null);
-                if (numAlive() == aliveBefore)  // the listener's job since jc-44, done as it does it
-                    ((AtomicInteger) field(null, "numAlive")).incrementAndGet();
-                Method run = tc.getDeclaredMethod("run");
-                run.setAccessible(true);
+                Object late = buildThread(early, 1000L);  // a fresh window: its first seed is 0
                 long attempts = count(early, "globalAttempts");
                 kill.set(null, true);                 // the Pause, pressed before this thread begins
                 Throwable thrown = null;
                 try {
-                    run.invoke(late);
+                    runThread(late);
                 } catch (InvocationTargetException e) {
                     thrown = e.getCause();
                 }

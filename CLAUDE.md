@@ -345,11 +345,11 @@ taken. JaCoCo is a test-time tool cached under `%LOCALAPPDATA%\jacoco\<version>\
 dependency**, never committed, never shipped. Output goes to `coverage-report\` (gitignored);
 `coverage.csv` is the evidence behind every percentage below.
 
-As of jc-43, with all 2,668 assertions passing (15 of them `upstreamBug` pins, §6) and 4 skipped —
+As of jc-44, with all 2,676 assertions passing (14 of them `upstreamBug` pins, §6) and 3 skipped —
 counts for a machine with 4 or more CPUs. `SeedSearchTest` §3 makes one check per search thread, so a
-3-CPU run has one pass fewer and a 2-CPU run two; at 1 CPU §3 and §2's pin are skipped
+3-CPU run has one pass fewer and a 2-CPU run two; at 1 CPU §3 and §2's three 8-seed thread checks are skipped
 (measured at jc-41, when §3's checks were pins: 7 passes and 6 pins fewer, 2 skips more; since
-jc-42 the same skips mean 1 pin fewer, by count, not re-measured) — **measured on JDK 16.0.2** (16.0.2+7-67 on the desktop; Temurin 16.0.2+7, what CI pins, gives the
+jc-42 the same skips mean 1 pin fewer, and since jc-44 3 passes fewer and no pin, by count, not re-measured) — **measured on JDK 16.0.2** (16.0.2+7-67 on the desktop; Temurin 16.0.2+7, what CI pins, gives the
 same figures):
 
 | scope | branch | line | branches |
@@ -361,9 +361,9 @@ same figures):
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 54.2% | 73.0% | 186/343 |
 | &nbsp;&nbsp;`io\**` (file formats) | 75.5% | 82.6% | 345/457 |
 | `emulator\**` | 34.2% | 36.2% | 163/476 |
-| `tools\**` + `graphics\**` — *not a target* | 5.1% | 10.2% | 103/2039 |
+| `tools\**` + `graphics\**` — *not a target* | 5.2% | 10.2% | 106/2041 |
 
-**Read this correctly.** Whole-project branch coverage is 31.3% (1933/6185), and that number is
+**Read this correctly.** Whole-project branch coverage is 31.3% (1936/6187), and that number is
 meaningless: 15 form-based classes can be rebuilt here only by copying IntelliJ's output (ADR 0010), `tools\**`
 is 35 files of upstream code this fork does not modify, `graphics\**` is Swing with no headless test
 story, and the rest is vendored `org.json` / `com.intellij`. What this fork can break is the engine
@@ -756,7 +756,7 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
   fixes comes back fix by fix, by hand, never as one whole `git revert`**),
   `SuperCC.tick`'s recorder (`923d07c`: upstream writes a wait on ANY discarded tick, even one that
   also ran automatic ticks; no real level returns both bits; back since jc-40, UB-6, so such a tick
-  keeps its key, and `InputDiscardTest` §5 checks it through a wrapped level), Seed Search (`397c7bb`; its `volatile` flags, UB-10, are back since jc-41, and the `(long)` that shares a negative start's work, UB-7, since jc-42, and the "no success yet" sentinel, UB-9, since jc-43), the no-level-loaded guards (`c57f217`; the
+  keeps its key, and `InputDiscardTest` §5 checks it through a wrapped level), Seed Search (`397c7bb`; its `volatile` flags, UB-10, are back since jc-41, and the `(long)` that shares a negative start's work, UB-7, since jc-42, and the "no success yet" sentinel, UB-9, since jc-43, and the thread start that keeps `running` true until the whole search ends, UB-8, since jc-44: the whole step is back), the no-level-loaded guards (`c57f217`; the
   menu guard, UB-11, is back since jc-28 -- see the next bullet -- opening a set at its first
   level that loads, UB-14, since jc-29, the all-or-nothing level load, UB-15, since jc-30, and
   Cancel on Go to... and Set RNG Seed, UB-12, since jc-31, and a canceled file chooser, UB-13,

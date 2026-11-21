@@ -130,9 +130,9 @@ public class SeedSearch {
                  * mid-search: `running` read false (the button then started a SECOND batch over the
                  * same ranges, and the main window unlocked what a running search locks), and each
                  * run() also cleared killFlag, undoing a Pause that landed before the last thread
-                 * began. Counted all at once, not in each constructor, so a later build that throws
-                 * cannot leave earlier counted threads that never run. SeedSearchTest §2 checks
-                 * `running` never drops mid-search. jc-16's, re-applied alone. */
+                 * began. Counted all at once, after the builds, so a build that throws leaves none
+                 * counted (a start() that throws still would, as on upstream's code). SeedSearchTest
+                 * §2 checks `running` never drops mid-search. jc-16's, re-applied alone. */
                 SeedSearchThread[] workers = new SeedSearchThread[numThreads];
                 for (int i = 0; i < numThreads; i++) {
                     long end;

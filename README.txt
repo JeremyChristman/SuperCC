@@ -1,5 +1,5 @@
 ==============================================================================
-  SuperCC  --  Jeremy Christman's fork                      build jc-43
+  SuperCC  --  Jeremy Christman's fork                      build jc-44
 ==============================================================================
 
   1. What this is
@@ -613,6 +613,28 @@ AlwaysOpenInMS  Whether every level set opens under the MS ruleset, no matter
 Releases from jc-2 on carry a jc-N tag in the repository. The title bar, when
 ShowBuildTag is on, shows the build tag compiled into the jar, which matches
 the tag for that release. Newest first.
+
+
+jc-44  --  Seed Search's threads start together
+-----------------------------------------------
+
+  * SOLUTION > SEARCH FOR SEEDS STAYS "RUNNING" UNTIL THE WHOLE SEARCH
+    ENDS, as in jc-16 to jc-19. From jc-20 to jc-43 each search thread
+    started as soon as it was built, so on a short search an early
+    thread could finish first and mark the search stopped while others
+    still ran. In that moment the Pause button acted as Begin (a click
+    started a second search over the same seeds), and the main window
+    unlocked what a running search locks: Restart, Next, Previous, the
+    move keys and the rest. Now every thread is built first, then all
+    of them start.
+
+  * A Pause pressed as a search begins is kept. From jc-20 to jc-43 each
+    thread cleared the Pause as it started, so a thread that started
+    late could undo it.
+
+  * Nothing you play changes: every one of the 24,252 stored solutions
+    replays exactly as on jc-43. This closes UB-8 in BASELINE-ISSUES.md
+    in the repository, the last of the four Seed Search fixes.
 
 
 jc-43  --  Seed Search shows a success at a negative seed

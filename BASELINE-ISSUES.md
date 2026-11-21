@@ -30,7 +30,7 @@ How to keep it:
 | UB-5 | Trap bits in a `.ser` savestate are numbered by hash order | anyone loading a `.ser` saved by another build | `79b0032`, jc-19 | **FIXED in `d974875` (jc-26)** |
 | UB-6 | A tick that reports both "discard" and "automatic ticks" is recorded as a wait, so the route saves short | nobody today: no real tick does that | `923d07c`, ships in jc-20 | **FIXED in `1ec3b47` (jc-40)** |
 | UB-7 | Seed Search with a negative start: one thread does all the work | anyone typing a negative start | `397c7bb`, ships in jc-20 | **FIXED in `06ebf90` (jc-42)** |
-| UB-8 | Seed Search's threads race at the start: "running" can drop mid-search, a Pause can be undone | anyone, mostly on short searches | `397c7bb`, ships in jc-20 | open |
+| UB-8 | Seed Search's threads race at the start: "running" can drop mid-search, a Pause can be undone | anyone, mostly on short searches | `397c7bb`, ships in jc-20 | **FIXED in `1414d6b` (jc-44)** |
 | UB-9 | Seed Search never shows a success at a negative seed as the example | anyone searching from a negative start | `397c7bb`, ships in jc-20 | **FIXED in `86e23d1` (jc-43)** |
 | UB-10 | Seed Search's Pause flag is not `volatile` | nobody observed (theoretical) | `397c7bb`, ships in jc-20 | **FIXED in `b2c383c` (jc-41)** |
 | UB-11 | With no level set open, most menu controls fail with an internal error | everyone, from launch until a set is opened | `c57f217`, ships in jc-21 | **FIXED in `d57d419` (jc-28)** |
@@ -214,7 +214,7 @@ The fork's four fixes from jc-16 were reverted. Until jc-41 all four came back a
 `git revert 397c7bb`, which also restores the compiled form classes and both baselines it changed;
 with UB-10 back by hand that revert no longer applies cleanly. Under the fix layer (FORK.md) they go
 back one at a time, by hand from its diff. FORK.md step 3 has the
-engineering record. Back so far: UB-10, the `volatile` flags (jc-41, `b2c383c`), UB-7, the negative start (jc-42, `06ebf90`), and UB-9, the example seed (jc-43, `86e23d1`).
+engineering record. **All four are back**: UB-10, the `volatile` flags (jc-41, `b2c383c`), UB-7, the negative start (jc-42, `06ebf90`), UB-9, the example seed (jc-43, `86e23d1`), and UB-8, the thread start (jc-44, `1414d6b`).
 
 ### UB-7 — a negative start does not share the work
 
@@ -244,7 +244,28 @@ of subtracted). Corpus against jc-41: 24,217 of 24,217 identical.
 
 ### UB-8 — the search threads race at the start
 
-- **What a user sees:** each thread starts as soon as it is built, and building the next one takes
+**Status: FIXED in `1414d6b` (jc-44).** jc-16's thread start, re-applied alone in `SeedSearch` (a
+form class), with both of its review fixes: every thread is built, all are counted alive at once,
+`running` and `killFlag` are set once, and only then are the threads started; `run()` no longer
+writes either flag, and the last thread's cleanup clears `killFlag` before it publishes `running =
+false`. `SeedSearchTest` §2's 3,000-seed skip and 8-seed pin are exact checks again, and new checks
+were added: both searches in §2 also watch the alive count (it must fall to zero once per search
+and never go below zero), §5 presses Resume for the first time (the search must go on, and a second
+Pause must stop it), and §7 runs a real thread's `run()` with the Pause already set (it must make no
+attempt). On jc-43's jar 4 checks fail every run, and a fifth (the second Pause) in some runs: that
+one is the lost Pause itself, a race on jc-43's code. 7 defects planted: 5 caught. The two that
+survive are recorded rather than chased:
+- **Counting the threads after starting them** is a real race, but the four starts and the count
+  are microseconds apart, and a thread would have to be scheduled and finish inside that gap. No
+  test here can force it.
+- **The cleanup's old write order** (`running = false` before `killFlag = false`) is nearly
+  equivalent now: the listener clears `killFlag` itself before it starts a new batch, so the old
+  order matters only if the cleanup thread stalls between two adjacent writes for a whole thread
+  build, while a person presses Pause.
+
+Corpus against jc-43: 24,252 of 24,252 identical.
+
+- **What a user saw (jc-20 to jc-43):** each thread starts as soon as it is built, and building the next one takes
   longer than a short range takes to search. So an early thread can finish, decide it is the last one,
   and mark the search as stopped while others still run. While it reads stopped:
   - the button acts as Begin, not Pause: a click starts a second set of threads over the same ranges,
@@ -263,9 +284,10 @@ of subtracted). Corpus against jc-41: 24,217 of 24,217 identical.
   mid-search: an empty-range thread's late cleanup can write "stopped" after the searching thread set
   "running" (found by review; `SeedSearchTest` §3 avoids depending on it).
 - **Fix:** build every thread first, count them all as alive, set the flags once, then start them;
-  clear the Pause flag before publishing "stopped" (jc-16).
-- **Pinned by:** `SeedSearchTest` §2: five 8-seed searches, pinned on "running ever went false more
-  than once". The 3,000-seed check is skipped on this code, because a race cannot be pinned.
+  clear the Pause flag before publishing "stopped" (jc-16), re-applied by hand in jc-44 (`1414d6b`).
+- **Checked by:** `SeedSearchTest` §2, §5 and §7 (from jc-20 to jc-43, §2 pinned five 8-seed
+  searches on "running ever went false more than once", and skipped the 3,000-seed check, because a
+  race cannot be pinned).
 
 ### UB-9 — a success at a negative seed is never shown
 
