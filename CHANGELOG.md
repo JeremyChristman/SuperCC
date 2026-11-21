@@ -12,6 +12,30 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## jc-45 — 2026-11-21 (the fix layer: `AutoDiagonals = 1` is ON again)
+
+The first of the auto-diagonals fixes goes back on the upstream baseline. It closes UB-28 in
+[`BASELINE-ISSUES.md`](BASELINE-ISSUES.md). Settings file only: no stored solution changes.
+
+### Fixed
+- **`AutoDiagonals = 1` in `succ_settings.ini` turns auto-diagonals on, and the file is written
+  back as what the program read (`f4638be`, UB-28).** jc-18's predicate, re-applied alone in
+  `SuccPaths`: the switch is read through `optedIn()` (`true` in any casing, or `1`), like every
+  other default-OFF switch, and written through the same predicate. Since jc-23 only `true` was ON,
+  and a value read as OFF (`1`, `yes`) was written back raw, so the file could say `1` while the
+  switch was off. The line stays where upstream writes it, between `UpRight` and `Rewind`. Only a
+  hand edit met this; Tools › Controls writes `true` or `false` itself. ⚠ A file that already says
+  `AutoDiagonals = 1` therefore turns auto-diagonals ON on first launch, with upstream's behavior
+  (UB-22 to UB-27 are still open); README section 7 says so. Corpus against jc-44: 24,252 of 24,252
+  identical.
+
+### Changed (tests only)
+- `SettingsTest` §14's two pins are exact checks again, and three checks are new: a `1` written
+  back as `true`, the line's place, and the switch reading ON after a reload. On jc-44's jar
+  exactly those 4 fail. 7 defects planted, all caught.
+  Suite 2,679 assertions, 12 pins, 3 skips. Coverage: `io\**` 75.5% → 75.6% (347/459; the split
+  `[Controls]` loop adds two branches, both taken), the target still 57.5% (1557/2706).
+
 ## jc-44 — 2026-11-21 (the fix layer: Seed Search's threads start together)
 
 The last of the four Seed Search fixes goes back on the upstream baseline. It closes UB-8 in

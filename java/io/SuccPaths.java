@@ -528,8 +528,8 @@ public class SuccPaths {
 
     /* MOD (Jeremy, jc-9): ONE definition of "this switch is on", now that there are two of them.
      * Strictly opt-in: only "true" (any casing) or "1". Absent, blank, missing file, a typo, and
-     * anything else all mean OFF, so a setting can never switch itself on by accident. Both
-     * getShowBuildTag() and getAlwaysOpenInMS() read through this, and render() writes through it,
+     * anything else all mean OFF, so a setting can never switch itself on by accident. Every
+     * default-OFF switch reads through this (CLAUDE.md section 5), and render() writes through it,
      * so the file and the getters cannot disagree. Any future switch belongs here too rather than
      * growing a second, subtly different rule. */
     private static boolean optedIn(String raw) {

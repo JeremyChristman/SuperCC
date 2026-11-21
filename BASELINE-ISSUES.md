@@ -50,7 +50,7 @@ How to keep it:
 | UB-25 | With Auto diagonals on, other input jumps ahead of a waiting move: a state saved with Shift+digit misses it | anyone with Auto diagonals on | `d08e6ef`, ships in jc-23 | open |
 | UB-26 | With Auto diagonals on, the move is made from a background thread, beside the one that draws and takes input | anyone with Auto diagonals on; no clash seen | `d08e6ef`, ships in jc-23 | open |
 | UB-27 | With Auto diagonals on, a key let go while the main window does not have the keyboard stays "held" | anyone with Auto diagonals on | `d08e6ef`, ships in jc-23 | open |
-| UB-28 | `AutoDiagonals = 1` is OFF, and a value read as OFF is usually written back as it was, so the file can look ON | anyone editing the file by hand | `d08e6ef`, ships in jc-23 | open |
+| UB-28 | `AutoDiagonals = 1` is OFF, and a value read as OFF is usually written back as it was, so the file can look ON | anyone editing the file by hand | `d08e6ef`, ships in jc-23 | **FIXED in `f4638be` (jc-45)** |
 | UB-29 | A `.ser` savestate saved by jc-19 to jc-25 can load a trap wrong in other builds (two or more traps) | anyone keeping such a file; none in the maintainer's collection | `79b0032` (jc-19), exposed by jc-26 | open, accepted |
 | UB-30 | A set opened at launch whose level 1 will not load: its other levels cannot be reached (Go to... is guarded while no level is loaded) | anyone opening such a set before any other; none of the 331 sets in the collection | `d57d419` (jc-28): UB-11's fix back before UB-14's | **FIXED in `48a3eca` (jc-29)**, with UB-14 |
 | UB-31 | With no custom pictures chosen yet, View › Tileset › custom's two choosers open in the user's default folder (Documents), not the Chip's Challenge folder, and the second does not open where the first picture was | anyone choosing a custom tileset for the first time | `5d3f0a3`, ships in jc-22 (missed by that revert's tracker entries; recorded in jc-35) | **FIXED in `ef27c8d` (jc-39)** |
@@ -970,7 +970,9 @@ in jc-18, was reverted: `EmulatorKeyListener` and `ControlGUI` are upstream's by
 `SuccPaths.Controls`, `getControls` and `setControls` are upstream's, inside the fork's own settings
 structure (the line is written where upstream writes it, between `UpRight` and `Rewind`). All of it
 comes back with `git revert d08e6ef`, which also restores `AutoDiagonalTest`, `ControlGUI`'s
-compiled classes and both baselines; re-apply it first (newest first), before step 5's. FORK.md
+compiled classes and both baselines; re-apply it first (newest first), before step 5's. ⚠ Since
+jc-45 that whole revert no longer applies cleanly: UB-28 is back by hand (`f4638be`), so under the
+fix layer the rest goes back by hand from its diff too. FORK.md
 step 6 has the engineering record. Two code-level changes come back that no user sees:
 `Controls.keyNames` is a mutable public static array again (nothing reassigns it), and the key
 listener asks `getControls()` — twelve key codes parsed — on every key press AND release, switch on
@@ -1090,7 +1092,20 @@ key (states, macros, menu shortcuts) and the mouse act at once.
 
 ### UB-28 — `AutoDiagonals = 1` is OFF, and the file can say otherwise
 
-- **What a user sees:** only `true`, in any casing, turns the switch on. `1` is OFF, though the
+**Status: FIXED in `f4638be` (jc-45).** jc-18's predicate, re-applied alone in `SuccPaths` (a spliced
+file): `getControls()` reads the switch through `optedIn()` (`true` in any casing, or `1`), and
+`render()` writes it through the same predicate, so a value read as OFF goes back as `false` and a
+`1` as `true`. The line stays where upstream writes it, between `UpRight` and `Rewind`; jc-18 had
+moved it to the end of the section, which was never part of the fix. `SettingsTest` §14's two pins
+are exact checks again, and three checks are new: a `1` written back as `true`, the line's place
+(once, between `UpRight` and `Rewind`), and the switch reading ON after a reload. On jc-44's jar
+exactly those 4 fail. 7 defects planted (the read and the write each put back alone, both together,
+an exact-case read, a write of always `false`, the line left out, the line moved): all caught.
+Nothing else of the auto-diagonals rewrite came back with it: `Controls.keyNames` is still
+upstream's mutable array, and `getAutoDiagonals()`, which only jc-18's key listener used, waits for
+UB-22 to UB-27.
+
+- **What a user saw (jc-23 to jc-44):** only `true`, in any casing, turns the switch on. `1` is OFF, though the
   README of jc-18 to jc-22 listed it as ON. A value read as OFF is also written back as it was by
   every settings write except one that writes the Controls section itself, so the file can say
   `AutoDiagonals = 1` while the switch is off. The exceptions write `true` or `false`: closing
@@ -1099,8 +1114,8 @@ key (states, macros, menu shortcuts) and the mouse act at once.
 - **Measured:** `SettingsTest` §14 (the raw write-back, through a tileset write); the exceptions are
   from the code (`setControls` writes `String.valueOf` of the switch).
 - **Fix:** read it through `optedIn()` (`true` or `1`), and write it as the value read (CLAUDE.md
-  §5; jc-18).
-- **Pinned by:** `SettingsTest` §14 (two).
+  §5; jc-18), re-applied by hand in jc-45 (`f4638be`).
+- **Checked by:** `SettingsTest` §14 (two pins from jc-23 to jc-44).
 
 ---
 
@@ -1113,6 +1128,11 @@ are not lost.
   2026-11-08 playtest (CCLP1 #1, the last 3,000 seeds: 3000/3000, button "Pause"). Since the search
   is no longer running, pressing it starts a new round of threads rather than pausing; what that
   round does was not checked. Upstream and jc-16 to jc-19 alike; the fork never touched that code.
+- **`TWSNotate` is still read with `Boolean.parseBoolean` and written back raw** (`SuccPaths.getTWSNotation`
+  and `render()`'s `[Graphics]` loop), so `TWSNotate = 1` is OFF and stays `1` in the file. Seen
+  while fixing UB-28, which is the same shape. Upstream's own switch since the first import
+  (`fc31de0`), never part of a fork fix; README section 6 documents it as `true` or `false`, so
+  nothing promised otherwise. Moving it to `optedIn()` would be a new change, the maintainer's call.
 - **A held brown button counts only for the FIRST trap it is wired to, at the end of a tick.**
   `MSLevel.finaliseTraps` keeps a set of buttons already used (`pressedButtons`), so a button wired
   to two traps holds only the first in its own list, which is record (file) order, not hash order.

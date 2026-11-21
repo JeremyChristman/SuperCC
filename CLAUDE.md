@@ -345,7 +345,7 @@ taken. JaCoCo is a test-time tool cached under `%LOCALAPPDATA%\jacoco\<version>\
 dependency**, never committed, never shipped. Output goes to `coverage-report\` (gitignored);
 `coverage.csv` is the evidence behind every percentage below.
 
-As of jc-44, with all 2,676 assertions passing (14 of them `upstreamBug` pins, §6) and 3 skipped —
+As of jc-45, with all 2,679 assertions passing (12 of them `upstreamBug` pins, §6) and 3 skipped —
 counts for a machine with 4 or more CPUs. `SeedSearchTest` §3 makes one check per search thread, so a
 3-CPU run has one pass fewer and a 2-CPU run two; at 1 CPU §3 and §2's three 8-seed thread checks are skipped
 (measured at jc-41, when §3's checks were pins: 7 passes and 6 pins fewer, 2 skips more; since
@@ -354,16 +354,16 @@ same figures):
 
 | scope | branch | line | branches |
 |---|---|---|---|
-| **`game\**` + `io\**` — THE TARGET** | **57.5%** | 71.8% | 1555/2704 |
+| **`game\**` + `io\**` — THE TARGET** | **57.5%** | 71.9% | 1557/2706 |
 | &nbsp;&nbsp;`game\**` (the emulator) | 53.8% | 68.0% | 1210/2247 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\MS\**` | 47.7% | 62.6% | 558/1170 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\Lynx\**` | 63.5% | 71.3% | 466/734 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 54.2% | 73.0% | 186/343 |
-| &nbsp;&nbsp;`io\**` (file formats) | 75.5% | 82.6% | 345/457 |
+| &nbsp;&nbsp;`io\**` (file formats) | 75.6% | 82.6% | 347/459 |
 | `emulator\**` | 34.2% | 36.2% | 163/476 |
 | `tools\**` + `graphics\**` — *not a target* | 5.2% | 10.2% | 106/2041 |
 
-**Read this correctly.** Whole-project branch coverage is 31.3% (1936/6187), and that number is
+**Read this correctly.** Whole-project branch coverage is 31.3% (1938/6189), and that number is
 meaningless: 15 form-based classes can be rebuilt here only by copying IntelliJ's output (ADR 0010), `tools\**`
 is 35 files of upstream code this fork does not modify, `graphics\**` is Swing with no headless test
 story, and the rest is vendored `org.json` / `com.intellij`. What this fork can break is the engine
@@ -372,9 +372,9 @@ and the file formats, so that is what is scoped and measured.
 **The number is JDK-dependent, by construction — so measure the baseline on JDK 16.0.2.** Every
 spliced class is compiled by your `javac`, and `build-config.ps1` already notes that javac 17 does
 not emit identical bytecode to javac 16. That was once only the five `io\**` classes (`ErrorLog`,
-`LevelFactory`, `SuccPaths`, `TWSReader`, `TWSWriter`, 382 branches at jc-15, 420 now). Since the upstream
+`LevelFactory`, `SuccPaths`, `TWSReader`, `TWSWriter`, 382 branches at jc-15, 422 now). Since the upstream
 trap merge (2026-11-02) it is also `MSCreature`, `MSLevel` and `LynxLevel` (plus `Level` and
-`BrownButton`, which have none): another 1,162 branches — 1,582 of the target's 2,704 in all. Only the rest comes from the committed
+`BrownButton`, which have none): another 1,162 branches — 1,584 of the target's 2,706 in all. Only the rest comes from the committed
 baseline and is byte-identical on every machine. A figure that differs slightly on another JDK is not
 a bug, but it is not the baseline either: `docs/coverage-baseline.tsv` and the table above are
 measured on 16.0.2, what CI and the release workflow pin. A machine without it does not need an
@@ -708,12 +708,13 @@ The staging temp **must stay a sibling** of the target — same directory means 
 atomic path is available; the fallback is copy-then-delete, which truncates the destination and
 reintroduces the torn-file bug this replaced. Never "tidy" it into `%TEMP%`.
 
-Opt-in switches (`ShowBuildTag`, `ShowLevelPack`, `AlwaysOpenInMS`, `CustomTileset`, `LynxCustomTileset`) all go through the single
+Opt-in switches (`ShowBuildTag`, `ShowLevelPack`, `AlwaysOpenInMS`, `CustomTileset`, `LynxCustomTileset`, `AutoDiagonals`) all go through the single
 `optedIn()` predicate — ON only for `true`/`1`, so a typo cannot switch one on. **A switch whose
-default is OFF must use it.** The one exception is deliberate and temporary: `AutoDiagonals` is
-upstream's (`5f928e0`), read with `Boolean.parseBoolean` and written back raw in `[Controls]`'s loop,
-exactly as upstream wrote it, so `1` is OFF while the file says `1` (the upstream baseline, §6;
-UB-28). Do not route it through `optedIn()` in passing.
+default is OFF must use it.** `AutoDiagonals` joined them in jc-45 (UB-28): from jc-23 to jc-44 it
+was upstream's, read with `Boolean.parseBoolean` and written back raw in `[Controls]`'s loop. It is
+written by hand between `UpRight` and `Rewind`, upstream's place, through `optedIn()`. Upstream's
+own `TWSNotate` is still `Boolean.parseBoolean` and raw, as it always was (`BASELINE-ISSUES.md`,
+"NOT introduced"); moving it is a new change, not a fix to re-apply.
 
 `ShowLevelName` (jc-14) is the one exception and it proves the rule: its default is ON, so the same
 reasoning inverts and it goes through the mirror `shownUnlessOptedOut()` — OFF only for
@@ -768,7 +769,7 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
   path inside the folder converted at load, beyond jc-18; and the choosers' start folders, UB-31,
   which the revert took out without an entry) and auto-diagonals
   (`d08e6ef`: with the switch on, EVERY game key waits 50 ms and a `java.util.Timer` makes ONE move, on its own
-  thread, from the keys still held, so taps are lost and other input jumps ahead; UB-22 to UB-28). **Every problem a revert brings back goes
+  thread, from the keys still held, so taps are lost and other input jumps ahead; UB-22 to UB-27; UB-28, how the switch is read and written, is back since jc-45). **Every problem a revert brings back goes
   into `BASELINE-ISSUES.md` in the same push** (Jeremy's standing request, 2026-11-08) — and a fix
   closes its entry there rather than deleting it. From jc-20 to jc-39 "no tick returns both bits"
   was load-bearing with nothing guarding it: `LynxLevel.tick` CAN return `MASK_TICK_MULTI | discard`,

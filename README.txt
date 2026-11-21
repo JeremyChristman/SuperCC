@@ -1,5 +1,5 @@
 ==============================================================================
-  SuperCC  --  Jeremy Christman's fork                      build jc-44
+  SuperCC  --  Jeremy Christman's fork                      build jc-45
 ==============================================================================
 
   1. What this is
@@ -375,10 +375,12 @@ A value that is not a number is replaced by that key's default at launch.
 
 AutoDiagonals   Whether two arrow keys pressed together make a diagonal move,
                 so the four diagonal keys are not needed.
-                Values:  true (any casing) turns it ON. ANYTHING ELSE IS
-                         OFF -- 1 included -- and is kept as it was, so the
-                         file can say 1 while it is off, until Tools >
-                         Controls next saves this section (as true/false).
+                Values:  true (any casing) or 1 turns it ON. Anything else
+                         is OFF, and is written back as false the next time
+                         the program saves this file, so the file always
+                         says what the program does. (jc-23 to jc-44: only
+                         true was ON, and an OFF value such as 1 stayed in
+                         the file as it was.)
                 Default: false
                 Set it in the program with Tools > Controls > Auto diagonals,
                 which writes this line when the Controls window is closed
@@ -613,6 +615,36 @@ AlwaysOpenInMS  Whether every level set opens under the MS ruleset, no matter
 Releases from jc-2 on carry a jc-N tag in the repository. The title bar, when
 ShowBuildTag is on, shows the build tag compiled into the jar, which matches
 the tag for that release. Newest first.
+
+
+jc-45  --  AutoDiagonals = 1 turns auto-diagonals on again
+---------------------------------------------------------
+
+  * IN succ_settings.ini, AutoDiagonals = 1 TURNS AUTO DIAGONALS ON, as
+    true does and as the README of jc-18 to jc-22 said. From jc-23 to
+    jc-44 only true was ON, the same as every other on/off setting in
+    the file except this one.
+
+  * The file now always says what the program does. From jc-23 to
+    jc-44 a value read as OFF, such as 1 or yes, stayed in the file as
+    it was, so it could say 1 while the switch was off. Now the next
+    time the program saves the file it writes true or false. The line
+    stays where it was, between UpRight and Rewind.
+
+  * Only a hand edit of the file ever met this: Tools > Controls >
+    Auto diagonals writes true or false itself. The rest of the
+    auto-diagonals behavior, described in section 6, is unchanged.
+
+  * IF YOUR FILE SAYS AutoDiagonals = 1, THIS BUILD TURNS AUTO DIAGONALS
+    ON, with the behavior section 6 describes (a quick tap makes no
+    move, and more). From jc-23 to jc-44 that 1 was read as off. To keep
+    it off, set the line to false, or untick Tools > Controls > Auto
+    diagonals. A file that says false, as the stock one does, is not
+    affected.
+
+  * Nothing you play changes: every one of the 24,252 stored solutions
+    replays exactly as on jc-44. This closes UB-28 in BASELINE-ISSUES.md
+    in the repository, the first of the auto-diagonals fixes.
 
 
 jc-44  --  Seed Search's threads start together
