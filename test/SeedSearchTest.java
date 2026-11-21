@@ -36,8 +36,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  * asked for the last 3,000 seeds, it had made 12.3 million attempts eight seconds later. The fix is
  * longs throughout. jc-16 to jc-19 added one more (long), for a negative start; the upstream baseline
  * reverted it (jc-20 to jc-41), and the fix layer put it back in jc-42 (section 3, BASELINE-ISSUES.md
- * UB-7); and the "no success yet" sentinel that lets a success at a negative seed be shown, back in
- * jc-43 (section 4, UB-9).
+ * UB-7); the "no success yet" sentinel that lets a success at a negative seed be shown, back in
+ * jc-43 (section 4, UB-9); and the thread start that keeps `running` true until the whole search
+ * ends, back in jc-44 (section 2, UB-8) -- with it every Seed Search fix from jc-16 is back.
  *
  * SeedSearch is FORM-BASED, so its .class is committed bytecode rebuilt by formclass.ps1, not by the
  * splice build (docs\adr\0010). Section 1 is the guard on that: a class rebuilt without IntelliJ's
@@ -131,18 +132,35 @@ public class SeedSearchTest {
         return slider.getValue();
     }
 
-    /** Counts how often isRunning() goes from true to false while it watches. */
+    /**
+     * Counts how often isRunning() goes from true to false while it watches -- and, since jc-44,
+     * how often the alive count falls to zero and the lowest value it reads. A search with the UB-8
+     * fix counts every thread alive before any starts, so the count falls to zero exactly once and
+     * is never negative. Starting each thread as it is built makes it fall to zero once per early
+     * thread (the "last one cleans up" block running mid-search, even where `running` is set late
+     * enough to hide it), and counting after the starts lets it go negative.
+     */
     private static final class RunningWatcher extends Thread {
         final AtomicInteger falls = new AtomicInteger();
+        final AtomicInteger zeroes = new AtomicInteger();
+        volatile int lowest = Integer.MAX_VALUE;
         private final java.util.concurrent.atomic.AtomicBoolean stop = new java.util.concurrent.atomic.AtomicBoolean();
         RunningWatcher() { setDaemon(true); start(); }
         @Override public void run() {
             boolean prev = SeedSearch.isRunning();
+            int prevAlive = aliveOrZero();
             while (!stop.get()) {
                 boolean now = SeedSearch.isRunning();
                 if (prev && !now) falls.incrementAndGet();
                 prev = now;
+                int alive = aliveOrZero();
+                if (prevAlive > 0 && alive == 0) zeroes.incrementAndGet();
+                if (alive < lowest) lowest = alive;
+                prevAlive = alive;
             }
+        }
+        private static int aliveOrZero() {
+            try { return numAlive(); } catch (Exception e) { return 0; }
         }
         int finish() throws InterruptedException { stop.set(true); join(); return falls.get(); }
     }
@@ -239,13 +257,14 @@ public class SeedSearchTest {
              * an early thread runs the "last one cleans up" block mid-search: measured on the laptop,
              * `running` went false four times in three of five such searches. It is a race; the
              * fixed code can only ever go false once. */
-            /* ⚠ UPSTREAM BASELINE (from jc-20): the fork's fix was REVERTED (FORK.md, "The upstream
-             * baseline"; BASELINE-ISSUES.md UB-8). On upstream's code this is a RACE -- it passed five
-             * runs of five on a 28-CPU desktop and fails on slower machines -- so it can be neither a
-             * check nor a pin; the 8-seed search below pins the same bug deterministically. */
-            int falls = watch.finish();
-            Harness.skip("`running` went false once, at the end -- not as each early thread finished: "
-                         + "a race on upstream's code (UB-8), not asserted; this run saw " + falls);
+            /* MOD (Jeremy, fix layer, UB-8): the fix was reverted for the upstream baseline (jc-20 to
+             * jc-43), when this was a skip -- on upstream's code it is a RACE (it passed five of five
+             * on the 28-CPU desktop and failed on slower machines), so it could be neither a check
+             * nor a pin. The fix is back from jc-44: the fixed code can only ever go false once, so
+             * it is a check again. On a build WITHOUT the fix it fails only sometimes; the 8-seed
+             * search below is the deterministic one. */
+            Harness.check("`running` went false once, at the end -- not as each early thread finished",
+                          watch.finish() <= 1);
             Harness.eq("exactly 3,000 attempts", count(a, "globalAttempts"), 3000L);
             Harness.eq("exactly 3,000 successes (the fixture wins on every seed)", count(a, "globalSuccesses"), 3000L);
             Harness.eq("and the window says so", label(a), "Successes: 3000/3000 (100%)");
@@ -259,13 +278,14 @@ public class SeedSearchTest {
          * on a cold JIT, and its threads usually overlap -- that check alone let the regression
          * through three times out of three.
          *
-         * ⚠ UPSTREAM BASELINE (from jc-20): pinned (UB-8). One search is not enough to pin it: the
-         * watcher is itself a thread, and on 2 CPUs it missed the flicker in 1 search of 4
-         * (measured), which would read as "the correct answer came back". So the search runs FIVE
-         * times and the pin is whether `running` ever went false more than once. With the fix that
-         * can never happen in any search, so that side stays deterministic; on upstream's code all
-         * five would have to be missed. One thread cannot show it at all. */
-        int maxFalls = 0, n = 0;
+         * FIVE searches, not one: the watcher is itself a thread, and on 2 CPUs it missed the
+         * flicker in 1 search of 4 (measured). With the fix `running` can never go false more than
+         * once in any search, so this side is deterministic; without it all five would have to be
+         * missed. One thread cannot show it at all.
+         *
+         * MOD (Jeremy, fix layer, UB-8): pinned at upstream's answer from jc-20 to jc-43 (the fix
+         * was reverted for the upstream baseline); back from jc-44, so it is an exact check again. */
+        int maxFalls = 0, maxZeroes = 0, lowest = Integer.MAX_VALUE, n = 0;
         boolean allOk = true;
         for (int round = 0; round < 5; round++) {
             SeedSearch tiny = open(emulator, win);
@@ -274,12 +294,23 @@ public class SeedSearchTest {
             n = start(tiny, (long) Integer.MAX_VALUE - 7, 4);
             allOk &= awaitIdle(20_000);
             maxFalls = Math.max(maxFalls, watch.finish());
+            maxZeroes = Math.max(maxZeroes, watch.zeroes.get());
+            lowest = Math.min(lowest, watch.lowest);
             allOk &= count(tiny, "globalAttempts") == 8L;
         }
         Harness.check("the last 8 seeds, 2 a thread, five times: every thread ends, exactly 8 attempts each", allOk);
         if (n < 2) Harness.skip("one CPU: the slider allows one thread, so there is no early thread to see");
-        else Harness.upstreamBug("`running` went false once per search (" + n + " threads; upstream's order flips it once per thread)",
-                                 maxFalls <= 1);
+        else {
+            Harness.check("`running` went false only once per search, at the end (" + n + " threads; upstream's"
+                          + " order flipped it once per thread)", maxFalls <= 1);
+            /* jc-44: `running` alone let a planted defect through -- start each thread as it is
+             * built but set the flags after the loop, and `running` stays false through the build
+             * and drops once at the end. The alive count still shows it: every early thread takes
+             * it to zero and runs the "last one cleans up" block mid-search. */
+            Harness.check("the alive count fell to zero only once per search (" + n + " threads, all counted before any starts)",
+                          maxZeroes <= 1);
+            Harness.check("and never went below zero", lowest >= 0);
+        }
         SeedSearch one = open(emulator, win);
         if (one != null) {
             /* Integer.MAX_VALUE itself, with four threads: three get an empty range, one gets one seed. */
@@ -308,9 +339,10 @@ public class SeedSearchTest {
                 Harness.skip("one CPU: the slider allows one thread, so there is no split to see");
                 Harness.check("one thread: stopped", stopAll(20_000));
             } else {
-                /* Not `running` and not the Pause button: both are unreliable while UB-8 is open (a
-                 * thread that starts late sets `running` and clears killFlag as it begins), and the
-                 * button could then START a second batch instead of pausing. This section is about the
+                /* Not `running` and not the Pause button: both were unreliable while UB-8 was open
+                 * (jc-20 to jc-43: a thread that started late set `running` and cleared killFlag as
+                 * it began), and the button could then START a second batch instead of pausing --
+                 * kept this way so the section still judges a build without that fix. It is about the
                  * split, so it watches the threads themselves and stops them through killFlag directly
                  * (section 2 covers `running`). It waits until every thread has moved past the start
                  * of its own range, or 20 seconds, not a fixed time: each thread's SuperCC is built
@@ -370,8 +402,11 @@ public class SeedSearchTest {
              * builds it, with an EMPTY range (endSeed -1, below its first seed 0), and its real run()
              * is called on this thread: the loop is skipped, so the emulator and solution (null) are
              * never touched, and run() itself makes the final report and gives back the alive count
-             * its constructor took -- the same path a thread with an empty range takes (jc-43 review:
-             * reading the field alone would miss a defect in run()'s report). */
+             * it was given -- the same path a thread with an empty range takes (jc-43 review:
+             * reading the field alone would miss a defect in run()'s report). WHO counts it alive
+             * changed in jc-44 (UB-8): the listener now counts every thread before starting any,
+             * where upstream's constructor counted itself. So the count is taken here only when the
+             * constructor did not, as the listener would -- which keeps this case true on both. */
             try {
                 Class<?> tc = Class.forName("tools.SeedSearch$SeedSearchThread");
                 java.lang.reflect.Constructor<?> make = tc.getDeclaredConstructor(
@@ -380,13 +415,16 @@ public class SeedSearchTest {
                 Field seeds = SeedSearch.class.getDeclaredField("threadCurrentSeed");
                 seeds.setAccessible(true);
                 if (seeds.get(big) == null) seeds.set(big, new long[1]);
+                int aliveBefore = numAlive();
                 Object idle = make.newInstance(big, 0, -1L, null, null);
+                if (numAlive() == aliveBefore)  // jc-44+: the listener's job, done as it does it
+                    ((AtomicInteger) field(null, "numAlive")).incrementAndGet();
                 Method run = tc.getDeclaredMethod("run");
                 run.setAccessible(true);
                 String before = example.getText();
                 run.invoke(idle);
                 Harness.eq("a thread that found nothing leaves the example seed alone", example.getText(), before);
-                Harness.eq("and gives back its alive count", numAlive(), 0);
+                Harness.eq("and gives back its alive count", numAlive(), aliveBefore);
             } catch (InvocationTargetException e) {
                 throw new Exception(e.getCause());
             }
@@ -406,6 +444,22 @@ public class SeedSearchTest {
             press(paused);  // Pause
             Harness.check("Pause: every thread ends", awaitIdle(20_000));
             Harness.eq("and the button offers Resume", ((JButton) field(paused, "startStopButton")).getText(), "Resume");
+
+            /* ...and Resume really resumes. Nothing had ever pressed it, and since jc-44 (UB-8) the
+             * flag resets that make a batch run live in the listener, which is the path Resume
+             * takes: a listener that stopped setting `running`, or a cleanup that stopped clearing
+             * the Pause with nothing else clearing it, would leave Resume doing nothing. So: Resume,
+             * give the threads time to be built and to search, and require the attempt count to
+             * grow, `running` to be set and threads to be alive; then Pause again, which must stop
+             * them. */
+            long pausedAt = count(paused, "globalAttempts");
+            press(paused);  // Resume
+            long deadline = System.currentTimeMillis() + 10_000;
+            while (count(paused, "globalAttempts") == pausedAt && System.currentTimeMillis() < deadline) Thread.sleep(50);
+            Harness.check("Resume: the search goes on -- attempts grow and threads are alive",
+                          count(paused, "globalAttempts") > pausedAt && SeedSearch.isRunning() && numAlive() > 0);
+            press(paused);  // Pause again
+            Harness.check("and a second Pause stops it again", awaitIdle(20_000));
         }
 
         /* ================================================================
@@ -424,6 +478,53 @@ public class SeedSearchTest {
             Field f = SeedSearch.class.getDeclaredField(name);
             Harness.check(name + " is volatile, so every search thread is promised to see it change",
                           java.lang.reflect.Modifier.isVolatile(f.getModifiers()));
+        }
+
+        /* ================================================================
+         * 7. A Pause that lands before a thread begins is kept (UB-8)
+         * ================================================================
+         * Upstream's run() opened with `running = true; killFlag = false;`, so a thread that began
+         * AFTER a Pause cleared it and searched anyway. jc-44 moved both writes to the listener,
+         * before any thread starts. The window starts its threads microseconds apart, so no search
+         * through the window can land a Pause in that gap -- a planted defect putting the clear back
+         * into run() survived every other case here (jc-44). So, as section 4 does, a thread is
+         * built as the window builds it and its real run() is called on this thread, with the Pause
+         * already set and a range of 1,001 seeds: it must make no attempt. Its emulator and solution
+         * are null, so a thread that searched anyway would throw on its first seed. */
+        Harness.section("7. a Pause before a thread begins is kept");
+        SeedSearch early = open(emulator, win);
+        if (early != null) {
+            Field kill = SeedSearch.class.getDeclaredField("killFlag");
+            kill.setAccessible(true);
+            try {
+                Class<?> tc = Class.forName("tools.SeedSearch$SeedSearchThread");
+                java.lang.reflect.Constructor<?> make = tc.getDeclaredConstructor(
+                        SeedSearch.class, int.class, long.class, SuperCC.class, Solution.class);
+                make.setAccessible(true);
+                Field seeds = SeedSearch.class.getDeclaredField("threadCurrentSeed");
+                seeds.setAccessible(true);
+                seeds.set(early, new long[1]);
+                int aliveBefore = numAlive();
+                Object late = make.newInstance(early, 0, 1000L, null, null);
+                if (numAlive() == aliveBefore)  // the listener's job since jc-44, done as it does it
+                    ((AtomicInteger) field(null, "numAlive")).incrementAndGet();
+                Method run = tc.getDeclaredMethod("run");
+                run.setAccessible(true);
+                long attempts = count(early, "globalAttempts");
+                kill.set(null, true);                 // the Pause, pressed before this thread begins
+                Throwable thrown = null;
+                try {
+                    run.invoke(late);
+                } catch (InvocationTargetException e) {
+                    thrown = e.getCause();
+                }
+                Harness.check("a thread that begins after a Pause makes no attempt -- it does not clear the Pause"
+                              + (thrown != null ? " (it searched, and threw " + thrown.getClass().getSimpleName() + ")" : ""),
+                              thrown == null && count(early, "globalAttempts") == attempts);
+                Harness.eq("and gives back its alive count", numAlive(), aliveBefore);
+            } finally {
+                kill.set(null, false);                // leave the static flag clean
+            }
         }
     }
 }

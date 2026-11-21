@@ -37,10 +37,11 @@ public class SeedSearch {
     private final byte[] startingState;
     /* MOD (Jeremy, fix layer, UB-10): volatile. Both flags are shared between the event thread and
      * the search threads: Pause (or closing the window) sets killFlag, which every search thread's
-     * loop reads; the threads set running, which Pause and isRunning() read. Without volatile the
-     * Java memory model does not promise either side ever sees the other's write. It does not fix
-     * UB-8: each thread's run() still writes both as it starts, so one starting after a Pause clears
-     * it. SeedSearchTest §6 checks the modifier on the shipped class. jc-16's, re-applied alone. */
+     * loop reads; the last thread to finish clears running, which Pause and isRunning() read.
+     * Without volatile the Java memory model does not promise either side ever sees the other's
+     * write. (Since UB-8's fix, run() no longer writes either flag as it starts; the listener sets
+     * both once, before any thread runs.) SeedSearchTest §6 checks the modifier on the shipped
+     * class. jc-16's, re-applied alone. */
     private static volatile boolean killFlag = false;
     private static volatile boolean running = false;
     private static AtomicInteger numAlive = new AtomicInteger(0);
@@ -121,6 +122,18 @@ public class SeedSearch {
                 rulesetWarningLabel.setVisible(false);
                 startStopButton.setText("Pause");
 
+                /* MOD (Jeremy, fix layer, UB-8): every thread is BUILT, then all of them are counted
+                 * alive, the flags are set once, and only then are they started. Upstream started each
+                 * thread the moment it was built, and building the next (an emulator, the level set,
+                 * the level) takes longer than a short range takes to search -- so an early thread
+                 * finished, counted numAlive down to zero and ran the "last one cleans up" block
+                 * mid-search: `running` read false (the button then started a SECOND batch over the
+                 * same ranges, and the main window unlocked what a running search locks), and each
+                 * run() also cleared killFlag, undoing a Pause that landed before the last thread
+                 * began. Counted all at once, not in each constructor, so a later build that throws
+                 * cannot leave earlier counted threads that never run. SeedSearchTest §2 checks
+                 * `running` never drops mid-search. jc-16's, re-applied alone. */
+                SeedSearchThread[] workers = new SeedSearchThread[numThreads];
                 for (int i = 0; i < numThreads; i++) {
                     long end;
                     if (i != numThreads - 1) {
@@ -132,8 +145,12 @@ public class SeedSearch {
                     SuperCC threadEmulator = new SuperCC(false);
                     threadEmulator.openLevelset(new File(emulator.getLevelsetPath()));
                     threadEmulator.loadLevel(emulator.getLevel().getLevelNumber(), solution.rngSeed, solution.step, false, solution.ruleset, solution.initialSlide);
-                    new SeedSearchThread(i, end, threadEmulator, new Solution(solution)).start();
+                    workers[i] = new SeedSearchThread(i, end, threadEmulator, new Solution(solution));
                 }
+                running = true;
+                killFlag = false;
+                numAlive.addAndGet(workers.length);
+                for (SeedSearchThread w : workers) w.start();
             }
         });
         untilPositionRadioButton.addActionListener(e -> {
@@ -201,8 +218,8 @@ public class SeedSearch {
         SuperCC emulator;
         Solution solution;
         public void run(){
-            running = true;
-            killFlag = false;
+            /* MOD (Jeremy, fix layer, UB-8): `running = true; killFlag = false;` moved out of here to
+             * just before the threads start -- see the start/stop button's listener. */
             while (!killFlag && currentSeed <= endSeed) {
                 if (verifySeed(currentSeed, solution, emulator)) {
                     successesSinceUpdate++;
@@ -220,8 +237,11 @@ public class SeedSearch {
             threadCurrentSeed[threadNum] = currentSeed;
             if (numAlive.decrementAndGet() == 0) { //last one cleans up
                 updateText();
-                running = false;
+                /* MOD (Jeremy, fix layer, UB-8): killFlag cleared BEFORE running is published false.
+                 * The other order let a Resume start a new batch in between, so a Pause pressed at
+                 * once was then cleared by this, the old batch's cleanup. */
                 killFlag = false;
+                running = false;
             }
         }
 
@@ -232,8 +252,8 @@ public class SeedSearch {
             this.lastSuccess = NO_SUCCESS;
             this.emulator = emulator;
             this.solution = solution;
-
-            numAlive.incrementAndGet();
+            /* MOD (Jeremy, fix layer, UB-8): no longer counted alive here; the listener adds every
+             * worker at once, just before starting them. */
         }
     }
 }
