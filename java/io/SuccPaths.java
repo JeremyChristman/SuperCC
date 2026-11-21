@@ -141,10 +141,17 @@ public class SuccPaths {
         append(sb, map, "TWS", "Paths:TWS");
         append(sb, map, "succ", "Paths:succ");
         sb.append('\n').append("[Controls]").append(nl);
-        // Upstream 5f928e0 writes AutoDiagonals here, raw, between UpRight and Rewind (the upstream
-        // baseline, FORK.md; jc-18 to jc-22 wrote it through optedIn() at the end: UB-28).
         for (String c : new String[]{"Up", "Left", "Down", "Right", "HalfWait", "FullWait",
-                "UpLeft", "DownLeft", "DownRight", "UpRight", "AutoDiagonals", "Rewind", "Play"}) {
+                "UpLeft", "DownLeft", "DownRight", "UpRight"}) {
+            append(sb, map, c, "Controls:" + c);
+        }
+        /* MOD (Jeremy, fix layer, UB-28): a switch, so written through the predicate getControls()
+         * reads it with (CLAUDE.md section 5). Upstream 5f928e0 wrote it raw in the loop, so a value
+         * read as OFF -- "1", "yes" -- went back into the file as it was, and the file could say ON
+         * while the program read OFF. Still where upstream writes it, between UpRight and Rewind
+         * (jc-18 moved it to the end of the section; the place was never part of the fix). */
+        sb.append("AutoDiagonals = ").append(optedIn(map.get("Controls:AutoDiagonals"))).append('\n');
+        for (String c : new String[]{"Rewind", "Play"}) {
             append(sb, map, c, "Controls:" + c);
         }
         sb.append('\n').append("[Graphics]").append(nl);
@@ -378,7 +385,11 @@ public class SuccPaths {
                 error = true;
             }
         }
-        controls.autoDiagonals = Boolean.parseBoolean(settingsMap.get("Controls:AutoDiagonals"));
+        /* MOD (Jeremy, fix layer, UB-28): through optedIn(), like every other default-OFF switch in
+         * this file, so "1" is ON as well as "true" (jc-18 to jc-22's README said so). Upstream read
+         * it with Boolean.parseBoolean, where only "true" is ON, unlike every other switch here. The
+         * matching write is in render(). SettingsTest section 14. jc-18's predicate, re-applied alone. */
+        controls.autoDiagonals = optedIn(settingsMap.get("Controls:AutoDiagonals"));
 
         if (error)
             setControls(controls);

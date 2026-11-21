@@ -521,13 +521,13 @@ public class SettingsTest {
               + SuccPaths.load(settingsWith(freshDir("ct-four2"), "[Graphics]", "TilesheetNum = 4")).getMSTilesetNum(), "off 4");
 
         Harness.section("14. AutoDiagonals (upstream 5f928e0), in [Controls]");
-        /* Exactly as upstream wrote it (the upstream baseline, FORK.md): read with
-         * Boolean.parseBoolean, so only "true" in any casing is ON, and written back as it was read,
-         * between UpRight and Rewind -- except by setControls (Tools > Controls, or launch repairing
-         * a key code), which writes true or false. jc-18 to jc-22 read it through optedIn() -- "1" was ON too, as
-         * their README said -- and wrote the value it read, so the file and the program could not
-         * disagree: UB-28. Section 11's pattern otherwise: on, off, the wrong section, the no-space
-         * typo, and Tools > Controls writing keys and switch together. */
+        /* Read through optedIn() and written back as the value read, between UpRight and Rewind, so
+         * the file and the program cannot disagree. MOD (Jeremy, fix layer, UB-28): from jc-23 to
+         * jc-44 it was exactly as upstream wrote it -- read with Boolean.parseBoolean, so only "true"
+         * was ON, and written back raw, so "1" or "yes" stayed in the file while the switch was off
+         * -- and the two checks marked UB-28 below were pins. Back from jc-45 (jc-18's fix), they
+         * are exact checks again. Section 11's pattern otherwise: on, off, the wrong section, the
+         * no-space typo, and Tools > Controls writing keys and switch together. */
         Path d14 = freshDir("autodiag");
         File f14 = d14.resolve(SuccPaths.SETTINGS_FILE_NAME).toFile();
         SuccPaths p14 = SuccPaths.load(f14);
@@ -538,17 +538,26 @@ public class SettingsTest {
         eq("absent from the stock file's meaning: OFF", p14.getControls().autoDiagonals, false);
         eq("true is ON", autoDiagonals("ad-true", "AutoDiagonals = true"), true);
         eq("TRUE (any casing) is ON", autoDiagonals("ad-TRUE", "AutoDiagonals = TRUE"), true);
-        Harness.upstreamBug("1 is ON (as jc-18 to jc-22's README said)",
-              autoDiagonals("ad-1", "AutoDiagonals = 1") ? "ON" : "OFF", "OFF", "ON");
+        eq("1 is ON, as for every other switch here (UB-28)", autoDiagonals("ad-1", "AutoDiagonals = 1"), true);
         eq("yes is OFF (a typo cannot switch it on)", autoDiagonals("ad-yes", "AutoDiagonals = yes"), false);
         eq("under [Graphics] it is another key, and OFF", SuccPaths.load(settingsWith(freshDir("ad-wrong"), "[Graphics]", "AutoDiagonals = true")).getControls().autoDiagonals, false);
         eq("AutoDiagonals=true (no space) is OFF", autoDiagonals("ad-nospace", "AutoDiagonals=true"), false);
         File f14y = settingsWith(freshDir("ad-yes-rw"), "[Controls]", "AutoDiagonals = yes");
         SuccPaths p14y = SuccPaths.load(f14y);
         p14y.setMSTilesetNum(1);
-        Harness.upstreamBug("a value read as OFF is written back as false, so the file says what the program does",
-              lineOf(Files.readString(f14y.toPath(), StandardCharsets.UTF_8), "AutoDiagonals"),
-              "AutoDiagonals = yes", "AutoDiagonals = false");
+        eq("a value read as OFF is written back as false, so the file says what the program does (UB-28)",
+              lineOf(Files.readString(f14y.toPath(), StandardCharsets.UTF_8), "AutoDiagonals"), "AutoDiagonals = false");
+        /* ...and a value read as ON is written back as true: "1" becomes "true". A render that wrote
+         * every switch as false, or skipped the line, would pass the check above. */
+        File f14one = settingsWith(freshDir("ad-1-rw"), "[Controls]", "AutoDiagonals = 1");
+        SuccPaths.load(f14one).setMSTilesetNum(1);
+        String rw14one = Files.readString(f14one.toPath(), StandardCharsets.UTF_8);
+        eq("a value read as ON (1) is written back as true", lineOf(rw14one, "AutoDiagonals"), "AutoDiagonals = true");
+        check("still in upstream's place, between UpRight and Rewind, and only once",
+              rw14one.indexOf("UpRight = ") < rw14one.indexOf("AutoDiagonals = ")
+              && rw14one.indexOf("AutoDiagonals = ") < rw14one.indexOf("Rewind = ")
+              && rw14one.indexOf("AutoDiagonals") == rw14one.lastIndexOf("AutoDiagonals"));
+        eq("and reads back ON after a reload", SuccPaths.load(f14one).getControls().autoDiagonals, true);
         SuccPaths.Controls ctl = p14.getControls();
         eq("getControls() carries the switch", ctl.autoDiagonals, false);
         ctl.autoDiagonals = true;
