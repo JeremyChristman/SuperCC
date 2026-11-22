@@ -364,8 +364,14 @@ public class SuccPaths {
             return "";
         }
     }
+    /* Upstream 5f928e0: the twelve key codes and the auto-diagonals switch, read and written as one.
+     * The field names and their meaning are upstream's, so tools\ControlGUI.java uses them unchanged.
+     * MOD (Jeremy, fix layer, jc-46; jc-18): keyNames is final (upstream's was a mutable public static array
+     * that any caller could reassign for everyone), and the switch goes through optedIn() like every
+     * other default-OFF switch here (upstream used Boolean.parseBoolean, which the file's "1" would
+     * not satisfy and which disagrees with how this file is rendered). */
     public static class Controls {
-        public static String[] keyNames = new String[] {"Controls:Up", "Controls:Left", "Controls:Down", "Controls:Right",
+        public static final String[] keyNames = new String[] {"Controls:Up", "Controls:Left", "Controls:Down", "Controls:Right",
                 "Controls:UpLeft", "Controls:DownLeft", "Controls:DownRight", "Controls:UpRight",
                 "Controls:HalfWait", "Controls:FullWait", "Controls:Rewind", "Controls:Play"};
         public int[] keys = new int[] {KeyEvent.VK_UP, KeyEvent.VK_LEFT, KeyEvent.VK_DOWN, KeyEvent.VK_RIGHT,
@@ -377,23 +383,30 @@ public class SuccPaths {
         Controls controls = new Controls();
         boolean error = false;
 
-        for (int i=0; i < controls.keyNames.length; i++) {
+        for (int i=0; i < Controls.keyNames.length; i++) {
             try {
-                controls.keys[i] = Integer.parseInt(settingsMap.get(controls.keyNames[i]));
+                controls.keys[i] = Integer.parseInt(settingsMap.get(Controls.keyNames[i]));
             }
             catch (NumberFormatException e) {
-                error = true;
+                error = true;      // the default from Controls stays
             }
         }
         /* MOD (Jeremy, fix layer, UB-28): through optedIn(), like every other default-OFF switch in
          * this file, so "1" is ON as well as "true" (jc-18 to jc-22's README said so). Upstream read
          * it with Boolean.parseBoolean, where only "true" is ON, unlike every other switch here. The
-         * matching write is in render(). SettingsTest section 14. jc-18's predicate, re-applied alone. */
-        controls.autoDiagonals = optedIn(settingsMap.get("Controls:AutoDiagonals"));
-
+         * matching write is in render(). SettingsTest section 14. One definition since jc-46: the
+         * same getAutoDiagonals() the key listener asks. */
+        controls.autoDiagonals = getAutoDiagonals();
         if (error)
             setControls(controls);
         return controls;
+    }
+
+    /* MOD (Jeremy, fix layer, jc-46; jc-18): the switch alone, for the key listener, which asks on EVERY key
+     * press. Upstream asked getControls() there, which parses all twelve codes each time and REWRITES
+     * this file whenever one of them does not parse -- a settings write per key press. */
+    public boolean getAutoDiagonals() {
+        return optedIn(settingsMap.get("Controls:AutoDiagonals"));
     }
     public int getMSTilesetNum() {
         try {
@@ -614,9 +627,10 @@ public class SuccPaths {
         settingsMap.put("Paths:succ", succPath);
         updateSettingsFile();
     }
+    /** Upstream 5f928e0: the keys and the auto-diagonals switch in one write (Tools > Controls). */
     public void setControls(Controls controls) {
-        for(int i = 0;i < controls.keyNames.length;i++) {
-            settingsMap.put(controls.keyNames[i], String.valueOf(controls.keys[i]));
+        for (int i = 0; i < Controls.keyNames.length; i++) {
+            settingsMap.put(Controls.keyNames[i], String.valueOf(controls.keys[i]));
         }
         settingsMap.put("Controls:AutoDiagonals", String.valueOf(controls.autoDiagonals));
         updateSettingsFile();

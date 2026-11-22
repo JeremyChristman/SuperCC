@@ -578,6 +578,23 @@ public class SettingsTest {
         check("getControls() repairs a garbled key code by rewriting the file", !java.util.Arrays.equals(before14, repaired14));
         p14g.getControls();
         check("and once repaired, asking again does not write", java.util.Arrays.equals(repaired14, Files.readAllBytes(f14g.toPath())));
+        /* MOD (Jeremy, fix layer, auto-diagonals step): the switch ALONE, which jc-18's key listener and
+         * Tools > Controls ask (back from jc-46). It must read what getControls() reads, and never
+         * write, even with a garbled key code beside it. Reached by reflection, so this file still
+         * compiles against a jar without it (jc-23 to jc-45), where these fail as "no such method". */
+        File f14s = settingsWith(freshDir("ad-switch"), "[Controls]", "Up = x", "AutoDiagonals = 1");
+        SuccPaths p14s = SuccPaths.load(f14s);
+        byte[] before14s = Files.readAllBytes(f14s.toPath());
+        String alone14 = "no such method";
+        if (hasMethod("getAutoDiagonals")) {
+            alone14 = "";
+            for (int i = 0; i < 5; i++) alone14 = String.valueOf(SuccPaths.class.getMethod("getAutoDiagonals").invoke(p14s));
+        }
+        eq("getAutoDiagonals(), the switch alone, reads 1 as ON, as getControls() does", alone14, "true");
+        check("and never writes, even with a garbled key code beside it",
+              java.util.Arrays.equals(before14s, Files.readAllBytes(f14s.toPath())));
+        eq("and agrees with getControls() on every value section 14 tries",
+              switchAgreement(new String[] {"true", "TRUE", "1", "yes", "false", "0", ""}), "all agree");
 
     }
 
@@ -590,6 +607,18 @@ public class SettingsTest {
     private static String lineOf(String text, String key) {
         for (String l : text.split("\n")) if (l.startsWith(key)) return l.strip();
         return "(no such line)";
+    }
+
+    /** "all agree" when getAutoDiagonals() and getControls().autoDiagonals read every value alike,
+     *  else the first value they differ on (or "no such method" on a jar without the former). */
+    private static String switchAgreement(String[] values) throws Exception {
+        if (!hasMethod("getAutoDiagonals")) return "no such method";
+        for (String v : values) {
+            SuccPaths p = SuccPaths.load(settingsWith(freshDir("ad-agree-" + Math.abs(v.hashCode())), "[Controls]", "AutoDiagonals = " + v));
+            boolean alone = (Boolean) SuccPaths.class.getMethod("getAutoDiagonals").invoke(p);
+            if (alone != p.getControls().autoDiagonals) return "differ on \"" + v + "\"";
+        }
+        return "all agree";
     }
 
     private static boolean hasMethod(String name) {

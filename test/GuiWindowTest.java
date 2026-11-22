@@ -61,6 +61,8 @@ import java.util.zip.ZipFile;
  *      custom's (UB-18, checked in 2: the walk and after it): the close box, Cancel; and for the four UB-13
  *      concerns, a file chosen.
  *   5. A level that loads is not reported as failed when the repaint after it throws.
+ *   6. Auto-diagonals' key handling (jc-18's rewrite; UB-22 to UB-27, its 12 checks pins from
+ *      jc-23 to jc-45): what waits, what flushes, taps and repeats, through the real frame.
  *   Nothing reaches the error log before 3a, nothing after 3a until 5, whose trace is expected.
  *
  * ⚠ UPSTREAM BASELINE (from jc-21): jc-17's fixes behind 2, 3a, 4 and 5 were REVERTED at the
@@ -198,6 +200,23 @@ public class GuiWindowTest {
          */
         static void pin(String what, String actual, String upstream, String correct) {
             System.out.println("PIN " + what + "\t" + actual + "\t" + upstream + "\t" + correct);
+        }
+
+        /** A former pin whose fix is back: an ordinary check that passes only on the correct answer.
+         *  Upstream's measured answer stays beside it, and a failure that gives it says so, so a
+         *  regression reads as one (section 6, UB-22 to UB-27, from jc-46). Since jc-46 no check in
+         *  this file is a pin; pin() and the parent's PIN half stay, as skip() does, as part of the
+         *  protocol. */
+        static void fixed(String what, String actual, String upstream, String correct) {
+            fact(what, correct.equals(actual), actual + (actual.equals(upstream) ? "  <-- upstream's answer, the bug back" : ""));
+        }
+
+        /** jc-18's EmulatorKeyListener.inputInterrupted() -- focus leaving the program -- reached by
+         *  reflection, so this file still compiles against a jar without it (jc-23 to jc-45), where
+         *  it does nothing and the checks that need it fail. */
+        static void interrupted(SuperCC emu) {
+            try { emu.getControls().getClass().getMethod("inputInterrupted").invoke(emu.getControls()); }
+            catch (ReflectiveOperationException e) { System.out.println("      (no inputInterrupted() in this jar)"); }
         }
 
         /** A check deliberately not made, with the reason; the parent records it as a skip. Part
@@ -1600,16 +1619,19 @@ public class GuiWindowTest {
                  emu.getPaths().getLynxTilesetNum() + " " + customSwitch(emu, false) + "/" + customSwitch(emu, true) + " " + onScreen.get() + " "
                  + java.util.Arrays.toString(emu.getPaths().getCustomTilesetImages()));
 
-            // 6. Auto-diagonals (upstream 5f928e0, fb8fe25, da35e33, 8c95b3e), exactly as upstream
-            //    wrote them (the upstream baseline, FORK.md). Upstream's key listener sends EVERY game
-            //    key -- arrows, diagonal keys, waits, Backspace, Enter -- through a 50 ms window, and
-            //    when its java.util.Timer fires, on that timer's own thread, it makes ONE move from the
-            //    keys STILL HELD. jc-18 to jc-22 rewrote it; each of the rewrite's fixes is pinned here
-            //    at upstream's measured answer (BASELINE-ISSUES.md, UB-22 to UB-27). Real KeyEvents go
-            //    through the frame, and every sequence is compared with the same moves made the plain
-            //    way -- with the setting off, or with a diagonal key -- so nothing here depends on how a
-            //    ruleset spells a move. Re-applying the rewrite (git revert) brings back its own
-            //    checks, and AutoDiagonalTest with them.
+            // 6. Auto-diagonals (upstream 5f928e0, fb8fe25, da35e33, 8c95b3e; jc-18's rewrite): the
+            //    key listener's WIRING, against the real window. Which move a burst makes is
+            //    AutoDiagonalTest's. Only the four arrows wait, only where a diagonal can be made
+            //    (Lynx), on a javax.swing.Timer on the event thread; a waiting arrow is made at once
+            //    before any other key, mouse press or focus change; keys pressed, repeated or tapped
+            //    inside one window combine by Tile World's rule. Real KeyEvents go through the frame,
+            //    and every sequence is compared with the same moves made the plain way -- with the
+            //    setting off, or with a diagonal key -- so nothing here depends on how a ruleset spells
+            //    a move. MOD (Jeremy, fix layer, UB-22 to UB-27): from jc-23 to jc-45 the listener was
+            //    upstream's exactly (every game key waited, on a java.util.Timer's own thread, and ONE
+            //    move was made from the keys STILL HELD) and the checks marked UB-2x below were pins
+            //    at upstream's measured answer. The rewrite is back from jc-46; they are exact checks
+            //    again (fixed(), which still names upstream's answer), with jc-18's own after them.
             File msSet = new File(args[0]), lynxSet = new File(args[4]);
             Component moveList = (Component) field(w, "movePanel");
             // The plain way first, with the setting off: every key moves at once.
@@ -1638,25 +1660,26 @@ public class GuiWindowTest {
             fact("and held past it, they make the diagonal",
                  heldRun(emu, w, lynxSet, KeyEvent.VK_UP, KeyEvent.VK_RIGHT).equals(plainDiag));
 
-            // UB-22: a tap -- pressed and let go inside the window -- makes no move: the timer finds
-            // nothing held. Every game key waits, so this is true of all of them.
-            pin("setting ON: a tapped arrow still moves (after the window)",
+            // UB-22: a tap -- pressed and let go inside the window -- still makes its move (upstream's
+            // timer found nothing held and made none, for every game key, since every one waited).
+            fixed("setting ON: a tapped arrow still moves (after the window)",
                 tapped(tapRun(emu, w, lynxSet, KeyEvent.VK_RIGHT), plainRight), "never", "after the window");
-            pin("a tapped wait key moves at once -- only an arrow has a partner to wait for",
+            fixed("a tapped wait key moves at once -- only an arrow has a partner to wait for",
                 tapped(tapRun(emu, w, lynxSet, KeyEvent.VK_SPACE), plainWait), "never", "at once");
-            pin("so does a tapped diagonal key",
+            fixed("so does a tapped diagonal key",
                 tapped(tapRun(emu, w, lynxSet, KeyEvent.VK_I), plainDiag), "never", "at once");
 
-            // UB-23: keys inside one window make ONE move between them.
-            pin("Up repeating three times inside one window (Windows repeats a held key every ~33 ms): four moves, as with the setting off",
+            // UB-23: keys inside one window, a repeat included, are not merged into ONE move (upstream
+            // made one move from whatever was still held when its timer fired).
+            fixed("Up repeating three times inside one window (Windows repeats a held key every ~33 ms): four moves, as with the setting off",
                 which(heldRun(emu, w, lynxSet, KeyEvent.VK_UP, KeyEvent.VK_UP, KeyEvent.VK_UP, KeyEvent.VK_UP),
                       "four moves", upFour, "one move", plainUp),
                 "one move", "four moves");
-            pin("a wait pressed while Up and Right wait: their diagonal, then the wait",
+            fixed("a wait pressed while Up and Right wait: their diagonal, then the wait",
                 which(heldRun(emu, w, lynxSet, KeyEvent.VK_UP, KeyEvent.VK_RIGHT, KeyEvent.VK_SPACE),
                       "the diagonal, then the wait", diagWait, "the diagonal only: the wait is lost", plainDiag),
                 "the diagonal only: the wait is lost", "the diagonal, then the wait");
-            pin("Down, Up and Right held: the newer of Down and Up wins, so up-right",
+            fixed("Down, Up and Right held: the newer of Down and Up wins, so up-right",
                 which(heldRun(emu, w, lynxSet, KeyEvent.VK_DOWN, KeyEvent.VK_UP, KeyEvent.VK_RIGHT),
                       "up-right", plainDiag, "down-right, by the order of upstream's table", downRight),
                 "down-right, by the order of upstream's table", "up-right");
@@ -1666,21 +1689,23 @@ public class GuiWindowTest {
             Thread.sleep(WINDOW_CLOSED_MS);
             SwingUtilities.invokeAndWait(() -> { press(w, KeyEvent.VK_RIGHT, 0); release(w, KeyEvent.VK_RIGHT); });
             Thread.sleep(WINDOW_CLOSED_MS);
-            pin("Up held, Right tapped: up, then the diagonal",
+            fixed("Up held, Right tapped: up, then the diagonal",
                 which(movesThen(emu, () -> release(w, KeyEvent.VK_UP)),
                       "up, then the diagonal", upDiag, "up, then up: the tapped Right is lost", upUp),
                 "up, then up: the tapped Right is lost", "up, then the diagonal");
 
-            // UB-24: under MS the window is there too, though MS has no diagonal to make.
-            pin("setting ON under MS: an arrow moves at once -- MS cannot move diagonally, so nothing waits",
+            // UB-24: under MS nothing waits, since MS has no diagonal to make (upstream's window was
+            // there too).
+            fixed("setting ON under MS: an arrow moves at once -- MS cannot move diagonally, so nothing waits",
                 which(keyRun(emu, w, msSet, KeyEvent.VK_RIGHT), "at once", msRight, "waits", ""), "waits", "at once");
-            pin("under MS, Up held and Right pressed: up, then right, as with the setting off",
+            fixed("under MS, Up held and Right pressed: up, then right, as with the setting off",
                 which(heldRun(emu, w, msSet, KeyEvent.VK_UP, KeyEvent.VK_RIGHT),
                       "up, then right", msUpRight, "up only: the Right is lost", msUp),
                 "up only: the Right is lost", "up, then right");
 
-            // UB-25: other input does not wait, so it jumps ahead of a waiting move. Shift+1 saves a
-            // state; 1 loads it. Saved while Up waits, the state must hold Up's move.
+            // UB-25: other input makes a waiting move first, rather than jumping ahead of it (upstream's
+            // did not wait). Shift+1 saves a state; 1 loads it. Saved while Up waits, the state must hold
+            // Up's move.
             Thread.sleep(WINDOW_CLOSED_MS);
             SwingUtilities.invokeAndWait(() -> {
                 emu.openLevelset(lynxSet);
@@ -1695,12 +1720,13 @@ public class GuiWindowTest {
                 release(w, KeyEvent.VK_1);
             });
             fact("(Up made its move before the state was loaded: " + beforeLoad + ")", beforeLoad.equals(plainUp));
-            pin("a state saved (Shift+1) while Up waits is saved AFTER Up's move",
+            fixed("a state saved (Shift+1) while Up waits is saved AFTER Up's move",
                 which(movesThen(emu, null), "after Up's move", plainUp, "before it: loading it undoes Up", ""),
                 "before it: loading it undoes Up", "after Up's move");
 
-            // UB-26: the move is made on the timer's own thread, not on the event thread that all
-            // other input and all drawing use. Here the event thread is busy for the whole window.
+            // UB-26: the waiting move is made on the event thread, like all other input and all drawing
+            // (upstream made it on its timer's own thread). Here the event thread is busy for the whole
+            // window, so the move must wait for it.
             Thread.sleep(WINDOW_CLOSED_MS);
             String[] busy = { null };
             SwingUtilities.invokeAndWait(() -> {
@@ -1712,13 +1738,14 @@ public class GuiWindowTest {
                 release(w, KeyEvent.VK_UP);
                 release(w, KeyEvent.VK_RIGHT);
             });
-            pin("the waiting move is made on the event thread, so not while that thread is busy",
+            fixed("the waiting move is made on the event thread, so not while that thread is busy",
                 which(busy[0], "it waits for the event thread", "", "made anyway, beside the busy event thread", plainDiag),
                 "made anyway, beside the busy event thread", "it waits for the event thread");
 
             // UB-27: a release the main window never sees -- here it reaches the move list, as it does
-            // when anything else has the keyboard -- leaves the key held for every later window. Last,
-            // because under upstream the key stays held until pressed and let go in the main window.
+            // when anything else in the program has the keyboard -- is still seen (upstream left the key
+            // held for every later window). Last, because a regression leaves the key held until it is
+            // pressed and let go in the main window.
             Thread.sleep(WINDOW_CLOSED_MS);
             SwingUtilities.invokeAndWait(() -> { emu.openLevelset(lynxSet); press(w, KeyEvent.VK_UP, 0); });
             Thread.sleep(WINDOW_CLOSED_MS);
@@ -1728,10 +1755,55 @@ public class GuiWindowTest {
                 release(w, KeyEvent.VK_RIGHT);
             });
             Thread.sleep(WINDOW_CLOSED_MS);
-            pin("Up let go while the move list had the keyboard, then Right tapped: up, then right",
+            fixed("Up let go while the move list had the keyboard, then Right tapped: up, then right",
                 which(movesThen(emu, () -> { press(w, KeyEvent.VK_UP, 0); release(w, KeyEvent.VK_UP); }),
                       "up, then right", upRight, "up, then up: Up is still held", upUp),
                 "up, then up: Up is still held", "up, then right");
+
+            // jc-18's own checks, back with it (jc-46). The flush: a mouse press anywhere, and focus
+            // leaving the program, make a waiting move at once, as any other key does (UB-25 above).
+            Runnable click = () -> moveList.dispatchEvent(new java.awt.event.MouseEvent(moveList,
+                    java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(), 0, 5, 5, 1, false, java.awt.event.MouseEvent.BUTTON1));
+            String clicked = keyRun(emu, w, lynxSet, click, KeyEvent.VK_UP);
+            fact("a mouse press anywhere makes the waiting move first", clicked.equals(plainUp), clicked + " vs " + plainUp);
+            String lostFocus = keyRun(emu, w, lynxSet, () -> interrupted(emu), KeyEvent.VK_LEFT);
+            fact("focus leaving the program makes the waiting move at once, too", !lostFocus.isEmpty(), lostFocus);
+            // ...and forgets what is held, since the releases then go to another application (UB-27's
+            // Alt+Tab case). Up held (its own window closes: up), focus leaves, and back in SuperCC
+            // Right is tapped: up, then right. Kept held, Up would make the tap a diagonal. A planted
+            // defect, focus loss that only flushed, survived every other check here (jc-46).
+            Thread.sleep(WINDOW_CLOSED_MS);
+            SwingUtilities.invokeAndWait(() -> { emu.openLevelset(lynxSet); press(w, KeyEvent.VK_UP, 0); });
+            Thread.sleep(WINDOW_CLOSED_MS);
+            SwingUtilities.invokeAndWait(() -> { interrupted(emu); press(w, KeyEvent.VK_RIGHT, 0); release(w, KeyEvent.VK_RIGHT); });
+            Thread.sleep(WINDOW_CLOSED_MS);
+            String afterAway = movesThen(emu, null);   // no clean-up tap: it would open a window that
+                                                       // leaks into the next run (measured)
+            fact("focus leaving the program forgets what is held: Up held, focus away, Right tapped back here: up, then right",
+                 afterAway.equals(upRight), which(afterAway, "up, then right", upRight, "up, then the diagonal: Up still held", upDiag));
+            // AUTO-REPEAT: a second KEY_PRESSED of an arrow with no release between is Windows
+            // repeating a held key, and makes a move of its own at once. jc-18's review measured its
+            // first version making two moves of four repeats, and a run-then-turn coming out as a
+            // diagonal. Each run below must record exactly what the setting-off run records. The
+            // wait first: keyRun waits out an open window only while the switch is on, so one still
+            // pending here would land in the first setting-off run.
+            Thread.sleep(WINDOW_CLOSED_MS);
+            setAutoDiagonals(emu, false);
+            String offDiags = keyRun(emu, w, lynxSet, KeyEvent.VK_I, KeyEvent.VK_I, KeyEvent.VK_I);
+            Runnable turn = () -> {
+                release(w, KeyEvent.VK_UP);
+                press(w, KeyEvent.VK_RIGHT, 0);
+                interrupted(emu);                   // close Right's window now, without a timer
+                release(w, KeyEvent.VK_RIGHT);      // nothing left held for what follows
+            };
+            String offTurn = keyRun(emu, w, lynxSet, turn, KeyEvent.VK_UP, KeyEvent.VK_UP);
+            setAutoDiagonals(emu, true);
+            String onDiags = keyRun(emu, w, lynxSet, KeyEvent.VK_UP, KeyEvent.VK_RIGHT, KeyEvent.VK_RIGHT, KeyEvent.VK_RIGHT);
+            fact("Up held, Right pressed and repeating twice: three diagonals, like three presses of the diagonal key",
+                 onDiags.equals(offDiags), onDiags + " vs " + offDiags);
+            String onTurn = keyRun(emu, w, lynxSet, turn, KeyEvent.VK_UP, KeyEvent.VK_UP);
+            fact("Up held (one repeat), let go, then Right: up, up, right -- not a diagonal",
+                 onTurn.equals(offTurn), onTurn + " vs " + offTurn);
             Thread.sleep(WINDOW_CLOSED_MS);
             setAutoDiagonals(emu, false);
 
