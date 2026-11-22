@@ -12,6 +12,36 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## jc-46 — 2026-11-21 (the fix layer: auto-diagonals are jc-18's again)
+
+The rest of the auto-diagonals step goes back on the upstream baseline, as one rewrite. It closes
+UB-22 to UB-27 in [`BASELINE-ISSUES.md`](BASELINE-ISSUES.md), and with them every issue the
+baseline introduced (UB-29 stays accepted). Only with Tools › Controls › Auto diagonals on, which is
+off by default: no stored solution changes.
+
+### Fixed
+- **Auto diagonals work as in jc-18 to jc-22 (`275a07c`, UB-22 to UB-27).** jc-18's rewrite, back
+  unchanged: `DiagonalCombiner` (Tile World's rule: newest key per axis, a tap counts) and its key
+  listener, a `javax.swing.Timer` on the event thread, `SuccPaths.getAutoDiagonals()`, the `final`
+  on `Controls.keyNames`, and `ControlGUI` reading the switch alone. Since jc-23, with the switch on,
+  every game key waited 50 ms and a `java.util.Timer` made ONE move, on its own thread, from the
+  keys still held. Now only the arrows wait, only under Lynx; a tap counts (UB-22); a repeat moves at
+  once and a wait pressed with two arrows is not lost (UB-23); MS does not wait (UB-24); any other
+  key, a mouse press or a focus change makes the waiting move first (UB-25); the move is made on the
+  event thread (UB-26); and releases are seen anywhere in the program (UB-27). With the switch off,
+  keys act at once, as before. Corpus against jc-45: 24,252 of 24,252 identical.
+
+### Changed (tests only)
+- `GuiWindowTest` §6's 12 pins are exact checks again (`fixed()`, which still names upstream's
+  answer), plus jc-18's own four (the flush on a mouse press and on focus loss, and two repeat
+  runs) and a new one (focus leaving the program forgets what is held); `AutoDiagonalTest` (the combiner's rules) is back; `SettingsTest` §14 checks
+  `getAutoDiagonals()` reads what `getControls()` reads and never writes. On jc-45's jar every one
+  of those fails. 11 defects planted, one per behavior of the rewrite: all caught (focus loss that
+  only flushed, without forgetting what is held, survived until its check was written).
+  Suite 2,737 assertions, 0 pins, 3 skips. Coverage: `emulator\**` 34.2% → 37.3% (199/534:
+  `DiagonalCombiner` 36 of 38 branches; the listener itself runs only in `GuiWindowTest`'s child
+  JVM, where the profiler does not attach); the target unchanged.
+
 ## jc-45 — 2026-11-21 (the fix layer: `AutoDiagonals = 1` is ON again)
 
 The first of the auto-diagonals fixes goes back on the upstream baseline. It closes UB-28 in

@@ -215,8 +215,19 @@ public class GuiWindowTest {
          *  reflection, so this file still compiles against a jar without it (jc-23 to jc-45), where
          *  it does nothing and the checks that need it fail. */
         static void interrupted(SuperCC emu) {
-            try { emu.getControls().getClass().getMethod("inputInterrupted").invoke(emu.getControls()); }
-            catch (ReflectiveOperationException e) { System.out.println("      (no inputInterrupted() in this jar)"); }
+            java.lang.reflect.Method m;
+            try { m = emu.getControls().getClass().getMethod("inputInterrupted"); }
+            catch (NoSuchMethodException e) { System.out.println("      (no inputInterrupted() in this jar)"); return; }
+            try { m.invoke(emu.getControls()); }
+            catch (InvocationTargetException e) {
+                // What inputInterrupted() itself threw: rethrown as itself, so the check that called
+                // it fails on the real error, not as a missing method (jc-46 review).
+                Throwable cause = e.getCause();
+                if (cause instanceof RuntimeException) throw (RuntimeException) cause;
+                if (cause instanceof Error) throw (Error) cause;
+                throw new IllegalStateException(cause);
+            }
+            catch (IllegalAccessException e) { throw new IllegalStateException(e); }
         }
 
         /** A check deliberately not made, with the reason; the parent records it as a skip. Part
@@ -662,11 +673,14 @@ public class GuiWindowTest {
 
         /** In ONE event-thread step: opens `set` afresh, presses each key through the frame as a
          *  real KEY_PRESSED, runs `then`, and returns the recorded moves at that instant. Then
-         *  releases the keys, so none is left "held" for the next run. Upstream's timer fires on its
-         *  own thread, so the step does not hold a window open by itself: the keys are pressed and
-         *  let go microseconds apart, far inside the 50 ms window (every pin here was also measured
-         *  at 1 and 2 CPUs). With the switch on, it first waits out any window an earlier run opened,
-         *  since one still pending would decide from THIS run's keys; with it off, no window opens. */
+         *  releases the keys, so none is left "held" for the next run. Since jc-46 the window's timer
+         *  is a javax.swing.Timer, which fires ON the event thread, so it cannot close inside this
+         *  step: what the step returns is what the keys made before any window closed, and a window
+         *  it opens closes after it. (Under upstream's java.util.Timer, jc-23 to jc-45, the keys
+         *  were pressed and let go microseconds apart, far inside the 50 ms window, and that was
+         *  measured at 1 and 2 CPUs.) With the switch on, it first waits out any window an earlier
+         *  run opened, since one still pending would land in THIS run; with it off it does not wait,
+         *  so a check that turns the switch off waits first itself. */
         static String keyRun(SuperCC emu, graphics.Gui w, File set, Runnable then, int... keys) throws Exception {
             if (emu.getPaths().getControls().autoDiagonals) Thread.sleep(WINDOW_CLOSED_MS);
             String[] moves = { null };
@@ -683,8 +697,9 @@ public class GuiWindowTest {
             return keyRun(emu, w, set, null, keys);
         }
 
-        /** Like keyRun, but the keys stay DOWN until the window has closed (upstream decides from the
-         *  keys still held when its timer fires), and the moves are read after that. */
+        /** Like keyRun, but the keys stay DOWN until the window has closed, and the moves are read
+         *  after that: a burst of keys held through its window (upstream decided from the keys still
+         *  held when its timer fired, so this is where its answers differed). */
         static String heldRun(SuperCC emu, graphics.Gui w, File set, int... keys) throws Exception {
             Thread.sleep(WINDOW_CLOSED_MS);
             SwingUtilities.invokeAndWait(() -> {

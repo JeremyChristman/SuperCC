@@ -366,10 +366,10 @@ public class SuccPaths {
     }
     /* Upstream 5f928e0: the twelve key codes and the auto-diagonals switch, read and written as one.
      * The field names and their meaning are upstream's, so tools\ControlGUI.java uses them unchanged.
-     * MOD (Jeremy, fix layer, jc-46; jc-18): keyNames is final (upstream's was a mutable public static array
-     * that any caller could reassign for everyone), and the switch goes through optedIn() like every
-     * other default-OFF switch here (upstream used Boolean.parseBoolean, which the file's "1" would
-     * not satisfy and which disagrees with how this file is rendered). */
+     * MOD (Jeremy, fix layer, auto-diagonals step; no UB of its own): keyNames is final, so no caller
+     * can reassign the array for everyone (its ELEMENTS can still be changed, as upstream's could). The
+     * switch goes through optedIn() like every other default-OFF switch here (UB-28; upstream used
+     * Boolean.parseBoolean, which the file's "1" would not satisfy). */
     public static class Controls {
         public static final String[] keyNames = new String[] {"Controls:Up", "Controls:Left", "Controls:Down", "Controls:Right",
                 "Controls:UpLeft", "Controls:DownLeft", "Controls:DownRight", "Controls:UpRight",
@@ -402,7 +402,7 @@ public class SuccPaths {
         return controls;
     }
 
-    /* MOD (Jeremy, fix layer, jc-46; jc-18): the switch alone, for the key listener, which asks on EVERY key
+    /* MOD (Jeremy, fix layer, UB-26): the switch alone, for the key listener, which asks on EVERY key
      * press. Upstream asked getControls() there, which parses all twelve codes each time and REWRITES
      * this file whenever one of them does not parse -- a settings write per key press. */
     public boolean getAutoDiagonals() {

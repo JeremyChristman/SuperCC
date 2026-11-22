@@ -248,7 +248,8 @@ test/LinkTest.java           every call between the fork's classes resolves IN T
 test/InputDiscardTest.java   which keys Level.tick reports as DISCARDED, and the WAIT the move list records
 test/SeedSearchTest.java     Seed Search through its REAL constructor, headless: stops at the top seed, threads, Pause
 test/FormClassTest.java      every form window's REAL constructor builds its components (14 of 15; Gui is the JFrame)
-test/GuiWindowTest.java      the MAIN window (Gui) built for real in a NON-headless child JVM; every menu control with no level open (PIN lines: UB-22..27)
+test/GuiWindowTest.java      the MAIN window (Gui) built for real in a NON-headless child JVM; every menu control with no level open; section 6, auto-diagonals' wiring (UB-22..27)
+test/AutoDiagonalTest.java   which move a burst of arrows makes with Auto diagonals on (DiagonalCombiner): Tile World's rule, newest key per axis, a tap counts
 test/StartupTilesetTest.java SuperCC STARTED as main does, in child JVMs with settings of their own: a saved tileset that cannot be drawn (UB-20, UB-21)
 ```
 
@@ -345,7 +346,7 @@ taken. JaCoCo is a test-time tool cached under `%LOCALAPPDATA%\jacoco\<version>\
 dependency**, never committed, never shipped. Output goes to `coverage-report\` (gitignored);
 `coverage.csv` is the evidence behind every percentage below.
 
-As of jc-45, with all 2,679 assertions passing (12 of them `upstreamBug` pins, §6) and 3 skipped —
+As of jc-46, with all 2,737 assertions passing (none of them `upstreamBug` pins any more: the fix layer is complete, §6) and 3 skipped —
 counts for a machine with 4 or more CPUs. `SeedSearchTest` §3 makes one check per search thread, so a
 3-CPU run has one pass fewer and a 2-CPU run two; at 1 CPU §3 and §2's three 8-seed thread checks are skipped
 (measured at jc-41, when §3's checks were pins: 7 passes and 6 pins fewer, 2 skips more; since
@@ -360,10 +361,10 @@ same figures):
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\Lynx\**` | 63.5% | 71.3% | 466/734 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 54.2% | 73.0% | 186/343 |
 | &nbsp;&nbsp;`io\**` (file formats) | 75.6% | 82.6% | 347/459 |
-| `emulator\**` | 34.2% | 36.2% | 163/476 |
+| `emulator\**` | 37.3% | 38.1% | 199/534 |
 | `tools\**` + `graphics\**` — *not a target* | 5.2% | 10.2% | 106/2041 |
 
-**Read this correctly.** Whole-project branch coverage is 31.3% (1938/6189), and that number is
+**Read this correctly.** Whole-project branch coverage is 31.6% (1974/6247), and that number is
 meaningless: 15 form-based classes can be rebuilt here only by copying IntelliJ's output (ADR 0010), `tools\**`
 is 35 files of upstream code this fork does not modify, `graphics\**` is Swing with no headless test
 story, and the rest is vendored `org.json` / `com.intellij`. What this fork can break is the engine
@@ -404,8 +405,9 @@ pointed at it for the one command. `build-config.ps1` lets `JAVA_HOME` win.
   solutions exported the wrong cell. What is left there is mostly `TWSReader.twsInputStream`
   (28.9%, 13/45), the byte-level reader.
 - Still at a flat **0%**: `game.Cheats` (30 branches), `game.Ruleset`, `game.Savestate`,
-  `game.Lynx.LynxSavestate`, and in `emulator\**` the `EmulatorKeyListener` (73, its timer task included; `GuiWindowTest`
-  drives it, but in a child JVM the profiler does not attach to), `ArgumentParser`
+  `game.Lynx.LynxSavestate`, and in `emulator\**` the `EmulatorKeyListener` (93 since jc-46, when jc-18's came back; `GuiWindowTest`
+  drives it, but in a child JVM the profiler does not attach to; `DiagonalCombiner`, its rules,
+  is 94.7%, 36/38, from `AutoDiagonalTest`), `ArgumentParser`
   (26) and `SavestateCompressor` (12). `ArgumentParser` is the one a user can reach without a GUI.
 - The suite is strongest exactly where the desyncs were: MS movement, `canEnter`, slide and leave.
   That is not an accident, and it was the right order to do it in.
@@ -754,7 +756,10 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
   *The upstream baseline*, which lists every step). Reverted: the trap code (`79b0032`; all four of
   its fixes are back, one per release, jc-24 to jc-27 — **the baseline was declared done on 2026-11-09 and fixes now go back one at a
   time, FORK.md *The fix layer*; follow that procedure: a baseline commit that bundled several
-  fixes comes back fix by fix, by hand, never as one whole `git revert`**),
+  fixes comes back fix by fix, by hand, never as one whole `git revert`** -- one exception, the
+  maintainer's decision (2026-11-21): auto-diagonals' UB-22 to UB-27 are one rewrite sharing one
+  key listener, so they came back together in jc-46, by `git revert --no-commit d08e6ef` with its
+  conflicts merged by hand, and each was still flip-checked and given planted defects of its own),
   `SuperCC.tick`'s recorder (`923d07c`: upstream writes a wait on ANY discarded tick, even one that
   also ran automatic ticks; no real level returns both bits; back since jc-40, UB-6, so such a tick
   keeps its key, and `InputDiscardTest` §5 checks it through a wrapped level), Seed Search (`397c7bb`; its `volatile` flags, UB-10, are back since jc-41, and the `(long)` that shares a negative start's work, UB-7, since jc-42, and the "no success yet" sentinel, UB-9, since jc-43, and the thread start that keeps `running` true until the whole search ends, UB-8, since jc-44: the whole step is back), the no-level-loaded guards (`c57f217`; the
@@ -768,8 +773,8 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
   the switch ON, the maintainer's decision, not jc-18's; relative picture paths, UB-17, with a full
   path inside the folder converted at load, beyond jc-18; and the choosers' start folders, UB-31,
   which the revert took out without an entry) and auto-diagonals
-  (`d08e6ef`: with the switch on, EVERY game key waits 50 ms and a `java.util.Timer` makes ONE move, on its own
-  thread, from the keys still held, so taps are lost and other input jumps ahead; UB-22 to UB-27; UB-28, how the switch is read and written, is back since jc-45). **Every problem a revert brings back goes
+  (`d08e6ef`: with the switch on, EVERY game key waited 50 ms and a `java.util.Timer` made ONE move, on its own
+  thread, from the keys still held, so taps were lost and other input jumped ahead; UB-22 to UB-28: UB-28, how the switch is read and written, is back since jc-45, and the rest of jc-18's rewrite, UB-22 to UB-27, since jc-46 -- so every baseline step is back). **Every problem a revert brings back goes
   into `BASELINE-ISSUES.md` in the same push** (Jeremy's standing request, 2026-11-08) — and a fix
   closes its entry there rather than deleting it. From jc-20 to jc-39 "no tick returns both bits"
   was load-bearing with nothing guarding it: `LynxLevel.tick` CAN return `MASK_TICK_MULTI | discard`,
@@ -788,7 +793,9 @@ Each of these looks like a bug or an oversight and is not. The ADRs carry the fu
   each trap's savestate bit by its first wire's record (`LevelFactory.getTrapIndexMap`), so a `.ser`
   from jc-19 to jc-25 can load a trap wrong in jc-26 -- UB-29, accepted and documented, not a bug
   to chase; jc-27's Fix 3 (UB-4) makes Lynx `isTrapOpen` answer shut on an unwired position
-  instead of throwing. No trap bug is kept now. The bugs still kept elsewhere are pinned by tests
+  instead of throwing. No trap bug is kept now, and since jc-46 no upstream bug is kept at all: the
+  fix layer is complete (UB-29 accepted). The pin mechanism stays for any future baseline step. Bugs
+  kept in a baseline are pinned by tests
   using `Harness.upstreamBug`; do not fix one in passing: it comes back as its own fix-layer step,
   and then this bullet, FORK.md's table and the coverage baseline (§4: `-UpdateBaseline`, the
   table, the pin count) are updated to match. Each pin passes only on upstream's own measured

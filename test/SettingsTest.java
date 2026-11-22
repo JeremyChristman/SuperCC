@@ -578,7 +578,7 @@ public class SettingsTest {
         check("getControls() repairs a garbled key code by rewriting the file", !java.util.Arrays.equals(before14, repaired14));
         p14g.getControls();
         check("and once repaired, asking again does not write", java.util.Arrays.equals(repaired14, Files.readAllBytes(f14g.toPath())));
-        /* MOD (Jeremy, fix layer, auto-diagonals step): the switch ALONE, which jc-18's key listener and
+        /* MOD (Jeremy, fix layer, UB-26): the switch ALONE, which jc-18's key listener and
          * Tools > Controls ask (back from jc-46). It must read what getControls() reads, and never
          * write, even with a garbled key code beside it. Reached by reflection, so this file still
          * compiles against a jar without it (jc-23 to jc-45), where these fail as "no such method". */

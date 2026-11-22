@@ -1,5 +1,5 @@
 ==============================================================================
-  SuperCC  --  Jeremy Christman's fork                      build jc-45
+  SuperCC  --  Jeremy Christman's fork                      build jc-46
 ==============================================================================
 
   1. What this is
@@ -384,27 +384,22 @@ AutoDiagonals   Whether two arrow keys pressed together make a diagonal move,
                 Default: false
                 Set it in the program with Tools > Controls > Auto diagonals,
                 which writes this line when the Controls window is closed
-                (the diagonal keys' boxes are grayed out while it is on; to
-                change one, turn this off, change it, and turn this back on).
-                How it works -- upstream's own design, kept exactly since
-                jc-23: EVERY game key (arrows, diagonal keys, both waits,
-                rewind and play) waits a twentieth of a second. Then ONE move
-                is made from the keys still held: the diagonal if two arrows
-                of a pair are held, otherwise one held key. In play:
-                  - a quick tap, let go within that twentieth, makes NO move;
-                  - a held key moves at about half speed;
-                  - keys pressed together make one move between them, so a
-                    wait pressed with two arrows is lost;
-                  - other keys (saving and loading states, macros) and the
-                    mouse act at once, AHEAD of a move still waiting;
-                  - MS waits too: holding Up and pressing Right moves only
-                    Up, since MS has no diagonal moves;
-                  - a key let go while another window has the keyboard still
-                    counts as held, until you press and let go of it again
-                    in the main window.
-                These are UB-22 to UB-28 in BASELINE-ISSUES.md in the
-                repository, to be fixed again later. With this off, every key
-                acts at once, as it always has.
+                (the diagonal keys' boxes are grayed out while it is on;
+                the diagonal keys still work, so to change one, turn this
+                off, change it, and turn this back on).
+                How it works: an arrow waits a twentieth of a second for a
+                partner. Two arrows on different axes make the diagonal;
+                holding one arrow and pressing another makes it too; a quick
+                tap counts; with both of one axis down, the newer wins. A
+                held arrow repeats at full speed. Any other key, a mouse
+                click, or switching away makes a waiting arrow's move at
+                once, so nothing you do is recorded out of order.
+                LYNX ONLY in effect. MS has no diagonal moves, so under MS the
+                arrows move at once, exactly as with this off.
+                With this off, every key acts at once, as it always has.
+                (jc-23 to jc-45 used upstream's own design instead, where
+                every game key waited and taps, waits and keys pressed
+                together could be lost; jc-46 put this one back.)
                 A build older than jc-18 does not know this line and erases
                 it the next time it saves a setting.
 
@@ -615,6 +610,45 @@ AlwaysOpenInMS  Whether every level set opens under the MS ruleset, no matter
 Releases from jc-2 on carry a jc-N tag in the repository. The title bar, when
 ShowBuildTag is on, shows the build tag compiled into the jar, which matches
 the tag for that release. Newest first.
+
+
+jc-46  --  Auto diagonals work as in jc-18 to jc-22 again
+---------------------------------------------------------
+
+  * TOOLS > CONTROLS > AUTO DIAGONALS IS BACK TO jc-18's DESIGN. This
+    only matters with that setting on; it is off by default, and with
+    it off every key acts at once, exactly as before. With it on, from
+    jc-23 to jc-45, every game key waited a twentieth of a second and
+    then ONE move was made from the keys still held. Now:
+
+      - Only the four arrows wait, and only under Lynx. A wait, a
+        diagonal key, rewind and play act at once, and under MS (which
+        has no diagonal moves) nothing waits at all, so holding Up and
+        pressing Right moves Up, then Right.
+      - A quick tap of an arrow makes its move. From jc-23 to jc-45 a
+        tap let go within that twentieth made no move at all.
+      - A held arrow repeats at full speed (it ran at about half), and
+        keys pressed close together are no longer merged into one move:
+        a wait pressed with two arrows comes after their diagonal
+        instead of being lost.
+      - With both arrows of one axis down, the newer one wins (it went
+        by the order of an internal table).
+      - Any other key, a mouse click or switching away makes a waiting
+        arrow's move FIRST. From jc-23 to jc-45 they jumped ahead of it:
+        a state saved with Shift+digit while an arrow waited was saved
+        without that move.
+      - A key let go while another part of SuperCC has the keyboard is
+        seen as let go. It used to stay "held" for every later move
+        until pressed and let go again in the main window.
+      - The waiting move is made on the same thread as everything else
+        the program does. It was made on a timer's own thread, beside
+        the one drawing the screen.
+
+  * Nothing you play changes: every one of the 24,252 stored solutions
+    replays exactly as on jc-45. This closes UB-22 to UB-27 in
+    BASELINE-ISSUES.md in the repository, the last of the auto-diagonals
+    fixes, and with them every issue the upstream baseline brought back
+    (UB-29, an old savestate format, stays accepted).
 
 
 jc-45  --  AutoDiagonals = 1 turns auto-diagonals on again
