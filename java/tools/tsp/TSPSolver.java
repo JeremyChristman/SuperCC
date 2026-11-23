@@ -39,6 +39,9 @@ public class TSPSolver {
 
     private int chosenExit;
 
+    /* MOD (Jeremy, jc-47): see normalizeState() and withoutRefusedExits(). */
+    private final java.util.HashSet<Integer> refusedExits = new java.util.HashSet<>();
+
     private JTextPane output;
 
     private Creature[] monsterList;
@@ -59,6 +62,7 @@ public class TSPSolver {
         setupState();
         this.actingWallParameters = actingWallParameters;
         this.initialState = normalizeState();
+        exitNodes = withoutRefusedExits(exitNodes);
         setupNodes(inputNodes, exitNodes);
         this.boostNodes = new boolean[nodes.size()][nodes.size()];
         this.boostNodesBoost = new boolean[nodes.size()][nodes.size()];
@@ -84,6 +88,19 @@ public class TSPSolver {
         this.startState = level.save();
         emulator.tick(SuperCC.WAIT, TickFlags.LIGHT); // Full wait
         emulator.tick(SuperCC.WAIT, TickFlags.LIGHT);
+    }
+
+    /* MOD (Jeremy, jc-47): the exits Chip can actually take. normalizeState() fills refusedExits
+     * with every exit on a clone machine; the rest keep their order. With none left, validate()
+     * reports "No exit accessible!" as it does for exits that are all walled in. */
+    private ArrayList<TSPGUI.ListNode> withoutRefusedExits(ArrayList<TSPGUI.ListNode> exitNodes) {
+        ArrayList<TSPGUI.ListNode> kept = new ArrayList<>();
+        for(TSPGUI.ListNode node : exitNodes) {
+            if(!refusedExits.contains(node.index)) {
+                kept.add(node);
+            }
+        }
+        return kept;
     }
 
     private void setupNodes(ArrayList<TSPGUI.ListNode> inputNodes, ArrayList<TSPGUI.ListNode> exitNodes) {
@@ -330,6 +347,19 @@ public class TSPSolver {
                 if(isActingWall(bgT)) {
                     level.getLayerFG().set(i, Tile.WALL);
                 }
+            }
+            /* MOD (Jeremy, jc-47): an exit on a clone machine refuses Chip (MSCreature.tryMove), so
+             * the solver plans around it as a wall, and the constructor drops it from the exits
+             * (withoutRefusedExits). Without this the bottom layer is wiped just below, the square
+             * reads as an ordinary exit, and the solver routed Chip to it: the route it then played on
+             * the real level stopped one square short and still reported "Finished!". Walling it alone
+             * is not enough: with one chip, SimulatedAnnealing.start() never compares exits and takes
+             * the first one, so a refused first exit ended the run in a NullPointerException from
+             * createSolution (no path to it), shown in the TSP window as an error. The TSP
+             * tool runs under MS only (MenuBar refuses it under Lynx, which has no bottom layer). */
+            if(t == Tile.EXIT && level.getLayerBG().get(i) == Tile.CLONE_MACHINE) {
+                level.getLayerFG().set(i, Tile.WALL);
+                refusedExits.add(i);
             }
             level.getLayerBG().set(i, Tile.FLOOR);
         }

@@ -760,7 +760,21 @@ public class MSCreature extends Creature {
                 || (isBlock && (newTileFG.isBoot() || newTileFG.isChip() || newTileFG.isSwimmingChip()))
                 || newTileBG == CLONE_MACHINE) {
 
-            if (newTileBG == CLONE_MACHINE && (!isChip || newTileFG.isCreature())) newTileFG = newTileBG;
+            /* MOD (Jeremy, jc-47): an EXIT sitting on a clone machine refuses Chip, as it does in
+             * MSCC. Upstream judged Chip against the top tile whenever it was not a creature, so he
+             * walked onto the exit and won. Refused by being judged against the clone machine below,
+             * the same path that already turns away a monster here, a block, and Chip at an occupied
+             * cloner: tryEnter(CLONE_MACHINE) clears `sliding` and returns false, exactly as a wall
+             * does, so a slide into one bounces or stops as it would against a wall. Official Tile
+             * World 2.3.1 refuses this square the same way (canmakemove: a clone machine on the
+             * bottom layer returns FALSE).
+             * EXIT ONLY, by the maintainer's decision: Tile World refuses Chip every square with a
+             * buried clone machine, but whether MSCC does for chips, keys, boots, doors or floor is
+             * not settled, so those are left as upstream has them. Every move Chip makes into a square
+             * (a key, a click, a slide, the step out of a teleport) reaches this line unless canLeave
+             * refused it first; choosing a teleport's exit already skipped every buried clone machine
+             * (teleport()), and the TSP solver plans around the square too (TSPSolver.normalizeState). */
+            if (newTileBG == CLONE_MACHINE && (!isChip || newTileFG.isCreature() || newTileFG == EXIT)) newTileFG = newTileBG;
 
             if (tryEnter(direction, newPosition, newTileFG, pressedButtons)) {
                 if (newTileFG != TELEPORT) level.popTile(position);
