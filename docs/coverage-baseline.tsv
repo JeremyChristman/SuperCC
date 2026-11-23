@@ -8,12 +8,12 @@
 # file records the JDK it was measured on.
 #
 # key	branch_covered	branch_total	branch_pct
-#jdk	16.0.2+7-67
-target	1557	2706	57.5%
-game	1210	2247	53.8%
-game.MS	558	1170	47.7%
+#jdk	16.0.2+7
+target	1654	2708	61.1%
+game	1307	2249	58.1%
+game.MS	648	1172	55.3%
 game.Lynx	466	734	63.5%
-game.shared	186	343	54.2%
+game.shared	193	343	56.3%
 io	347	459	75.6%
 emulator	199	534	37.3%
-nontarget	106	2041	5.2%
+nontarget	242	2049	11.8%

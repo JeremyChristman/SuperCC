@@ -17,8 +17,11 @@ collection replayed under the previous release and the new build, byte-identical
 the claim on purpose:** it carries upstream's own trap code exactly, bugs included (*The upstream
 baseline*), and 13 of the 24,212 stored solutions end differently. The fork's own changes are still
 held to the claim; upstream's code is now held to upstream. From jc-24 fixes go back on top (*The
-fix layer*), each moving exactly the routes it is for: jc-24's trap fix moves back those 13. What the
-fork *does* change, by release:
+fix layer*), each moving exactly the routes it is for: jc-24's trap fix moves back those 13. **jc-47
+is the first of the fork's OWN changes to move stored routes on purpose:** under MS an exit on a
+clone machine refuses Chip, the maintainer's ruling on MSCC's rule, and the 4 stored routes that
+won by stepping onto one lose the exit (*An exit on a clone machine (jc-47)*). What the fork *does*
+change, by release:
 
 | | Scope |
 |---|---|
@@ -61,6 +64,7 @@ fork *does* change, by release:
 | jc-41 | **The fix layer — Seed Search's shared flags are `volatile` again.** jc-16's modifier on `killFlag` and `running`, re-applied alone (`b2c383c`): both are shared between the event thread and the search threads (Pause sets `killFlag`, read in every search loop; the threads set `running`, read by the window), and without `volatile` Java does not promise either side sees the other's write. It does not fix UB-8. UB-10 is fixed, the first of the four Seed Search fixes back. Nothing observed changes (HotSpot made Pause work either way), and every stored route replays exactly as on jc-40. See *The fix layer*. |
 | jc-42 | **The fix layer — a Seed Search from a negative start shares the work again.** jc-16's `(long)` on `Integer.MAX_VALUE - start`, re-applied alone (`06ebf90`): upstream's subtraction ran in `int`, so a negative start wrapped it, every thread but the last got an empty range, and the last searched billions of seeds alone. UB-7 is fixed, the second of the four Seed Search fixes back. Every stored route replays exactly as on jc-41. See *The fix layer*. |
 | jc-46 | **The fix layer — auto-diagonals are jc-18's again.** jc-18's rewrite of the key handling, back unchanged as one release (`275a07c`): `DiagonalCombiner`, its key listener on a `javax.swing.Timer`, `getAutoDiagonals()` and `ControlGUI`'s one line. With Tools › Controls › Auto diagonals on, only the arrows wait, only under Lynx, a tap counts, a repeat moves at once, other input makes a waiting move first, and releases are seen anywhere in the program. UB-22 to UB-27 are fixed: **the auto-diagonals step is back, and with it the whole fix layer: no issue the baseline introduced is open** (UB-29 accepted). Every stored route replays exactly as on jc-45. See *The fix layer*. |
+| jc-47 | **Engine, the fork's own: under MS an exit on a clone machine refuses Chip, as a wall does.** The maintainer's ruling (2026-11-23) that this is MSCC's rule; official Tile World 2.3.1 refuses the square too. Upstream judged Chip against the exit on top, so he walked on and won. **Exit only, by the maintainer's decision** -- a chip, key, boots, door or floor on a clone machine is still entered, though Tile World refuses those as well. Tools › TSP Solver plans around the square and no longer offers it as an exit. Corpus against jc-46: 4 of 24,252 stored routes lose the exit (d-bomb #64, JimmyV1 #29, TomP3 #58 and its TomP3Lynx copy), all four already invalid in official Tile World; every other route replays exactly. See *An exit on a clone machine (jc-47)*. |
 | jc-45 | **The fix layer — `AutoDiagonals = 1` is ON again.** jc-18's predicate, re-applied alone (`f4638be`): upstream read the switch with `Boolean.parseBoolean`, so only `true` was ON, and wrote a value read as OFF back raw, so the file could say `1` while the switch was off. Now it is read and written through `optedIn()`, like every other default-OFF switch, in upstream's place in the file. UB-28 is fixed, the first of the auto-diagonals fixes. A file already saying `1` turns the switch on (README section 7 warns). Every stored route replays exactly as on jc-44. See *The fix layer*. |
 | jc-44 | **The fix layer — Seed Search's threads start together again.** jc-16's thread start, re-applied alone with both of its review fixes (`1414d6b`): upstream started each search thread as it was built, so on a short search an early thread finished first and marked the search stopped mid-search (the button acted as Begin, the main window unlocked), and each thread cleared the Pause as it started. UB-8 is fixed, the last of the four Seed Search fixes: **the Seed Search step is back.** Every stored route replays exactly as on jc-43. See *The fix layer*. |
 | jc-43 | **The fix layer — Seed Search shows a success at a negative seed again.** jc-16's "no success yet" sentinel, re-applied alone (`86e23d1`): upstream marked "no success" as -1 and showed an example only at `>= 0`, so a success at a negative seed was counted but never shown. UB-9 is fixed, the third of the four Seed Search fixes back. Every stored route replays exactly as on jc-42. See *The fix layer*. |
@@ -79,6 +83,88 @@ fork *does* change, by release:
 3. **Clone/Trap connections on by default** (`java/graphics/MenuBar.java`, `java/graphics/GamePanel.java`).
    The Clone- and Trap-connection overlays render by default (matching Monster/Slip list), and the
    "Show Clone Connections" menu label casing is fixed.
+
+## An exit on a clone machine (jc-47)
+
+**The ruling.** The maintainer, 2026-11-23: in MSCC Chip cannot walk onto a square with an exit on
+the top layer and a clone machine on the bottom layer. SuperCC (upstream, and every jc-N before
+this one) let him, and he won. Official Tile World 2.3.1 refuses it: `canmakemove` ends with
+`if (cellat(to)->bot.id == CloneMachine) return FALSE;`, the same `FALSE` a wall gets. Level
+designers use the square as an exit Chip cannot take: a scan of every `.dat` in the collection
+found 7,468 such cells in 247 levels of 40 sets (TomP3 and TomP3Lynx over 1,100 each, Jacques 684,
+CHIPS9 654, JoshL 572).
+
+**The scope is the exit ONLY, by the maintainer's decision.** Tile World refuses Chip EVERY square
+with a buried clone machine; SuperCC refuses him none. Shown both, the maintainer chose not to
+assume MSCC refuses a computer chip, key, boots, door, hint or floor on a clone machine ("I believe
+I have seen valid solutions in MSCC where other tiles are acceptable"), so those are entered as
+before. Of the nine levels whose desyncs made the Tile World fork admit Chip onto a clone machine
+(`FIX_CHIP_ONTO_CLONER`), five carry an exit on one, but none of their stored routes steps on it, so
+none moved here. MS only; Lynx has no bottom layer and is untouched.
+
+**The code** (`2cf1e28`) is one condition in `MSCreature.tryMove`:
+
+```java
+if (newTileBG == CLONE_MACHINE && (!isChip || newTileFG.isCreature() || newTileFG == EXIT)) newTileFG = newTileBG;
+```
+
+The `|| newTileFG == EXIT` is new. It sends the move down the path that already turned away a
+monster, a block, and Chip at an occupied cloner: `tryEnter(CLONE_MACHINE)` sets `sliding = false`
+and returns `false`, exactly what `tryEnter(WALL)` does, so everything after the refusal (the slide
+flag, the facing, a random force floor's draw, the end-of-tick restore in `tick()`) is a wall's.
+Every move Chip makes into a square reaches the line unless `canLeave` refused it first: keys,
+both kinds of click, slides, and the step out of a teleport. Choosing a teleport's exit already
+skipped every buried clone machine (`teleport()`), and the win flag is set only in
+`tryEnter(EXIT)`, so there is no second way in. `canMakeMove` still answers the old way, but nothing
+under MS calls it.
+
+**Tools › TSP Solver** had to follow. `normalizeState` wipes the bottom layer before planning, so the
+solver saw an ordinary exit, routed Chip to it, played a route that now stops one square short, and
+reported "Finished!". It now turns the square into a wall (so no route passes through it) and drops
+it from the exit list (`withoutRefusedExits`). Walling it alone was not enough: with one chip
+upstream's annealer returns at once and takes the FIRST exit without comparing distances, so a
+refused first exit had no path, and `createSolution` threw a `NullPointerException` that the
+solver's own thread shows in the TSP window as an error. That shortcut is upstream's, measured on jc-46 with no
+clone machine at all, and is recorded in `BASELINE-ISSUES.md` (NOT introduced) rather than fixed.
+`TSPSolver` joined `$SPLICE_MODIFIED`; it has no `.form`.
+
+**Measured.**
+- Corpus against jc-46, all 24,252 stored solutions: 24,248 identical; 4 LOST THE EXIT, nothing
+  else -- d-bomb #64 TOUGH GUY, JimmyV1 #29, TomP3 #58 TIME WARP and its copy in TomP3Lynx (a
+  4-move route that won on tick 3). Each won by stepping onto an exit on a clone machine; each is
+  now refused one square short. All four were already on the official-baseline list of routes
+  official Tile World 2.3.1 rejects and the Tile World fork accepts, so the official engine and
+  this change agree on every route that moved.
+- `ExitOnClonerTest`, 85 checks. Its oracle is a WALL in the same place, tick for tick, with the RNG
+  in every line, plus a plain-exit control in every case that must be won. On jc-46's jar 47
+  checks fail (every refusal check, and the two TSP checks that differ there); on the engine change
+  without the TSP fix, exactly the 3 TSP checks.
+- 13 defects planted, 12 caught: the condition removed; the wrong tile (`EXITED_CHIP`); widened to
+  every non-floor top and to every buried clone machine (Tile World's rule; section 4 catches
+  both); refused only off ice, or only moving right; refused down the slide's path instead of a
+  wall's; the `!isChip` arm dropped; and the TSP change four ways (walled but still offered,
+  offered-and-dropped but not walled, every exit walled, the filter not applied). The 13th
+  survives and is EQUIVALENT: a refusal that copies the wall's failure path line for line without
+  going through `tryEnter`. It differs only in leaving `sliding` set, which `tick()` restores at the
+  end of every fully refused tick (and for Chip the slide state is his creature type, not the slip
+  list); where a second direction is tried (ice, a teleport), `getSlideDirection` gives the same
+  answer applied twice, so Chip is re-aimed the same way.
+
+**From review.** Two agents, one on the line and its test, one hunting bypasses and side effects.
+Neither found a way back in or a change to any route that never tries the square. Taken: the TSP
+solver (above); a key pressed from a random force floor into the square, which told apart a
+refusal written as "return false, re-aim the slide" from the real one (that version turned Chip and
+drew a random number where a wall does neither; my first equivalence argument for it was wrong);
+the RNG in the trace; a tank aimed at a KEY on a clone machine (aimed at the exit it tested
+nothing: the exit refuses monsters by itself); a two-direction click, ten random-force-floor seeds
+and a click overriding a force floor; and the comment's "every way Chip moves" narrowed to what
+`canLeave` lets through.
+
+**What disagrees now.** Official SuperCC 2.0.3 still lets Chip in, so the four routes above are
+new fork-versus-official SuperCC differences (the official-baseline record is refreshed with this
+release). The Tile World fork still admits Chip (`FIX_CHIP_ONTO_CLONER` returns `TRUE` for any top
+tile that is not a creature, the exit included) until its own change follows, so until then the
+two forks disagree on those four routes; the trace harness would flag them.
 
 ## Upstream merge
 

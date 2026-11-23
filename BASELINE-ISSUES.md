@@ -1396,3 +1396,22 @@ are not lost.
   comma throws `ArrayIndexOutOfBoundsException`, on the event thread: Begin does nothing visible
   (the trace goes to the error log). Upstream's code in every build. Raised by the jc-42 review, not
   reproduced in the window.
+- **Tools › TSP Solver takes the FIRST exit when there is one chip (or none), whatever the
+  distance.** `SimulatedAnnealing.start()` returns at once for zero or one chip, leaving `bestExit`
+  at 0 without ever comparing exits, and `createSolution` uses `paths[0][1]` for zero chips. So the
+  route goes to the first exit in board order even when another is nearer, and when that first exit
+  cannot be reached `createSolution` throws a `NullPointerException` (no path was found to it),
+  which the solver's own thread catches and shows in the TSP window as "An error occured:" with its
+  message. Measured on jc-46's jar with no clone machine involved (one chip, first exit
+  far: a 24-move route where the other exit is 4 moves away; first exit walled in: the exception);
+  with two or more chips the annealer compares exits and picks the reachable, nearer one.
+  Upstream's code in every build. Found while making jc-47's TSP change, which keeps a refused exit
+  (an exit on a clone machine) out of the exit list partly for this reason; fixing the shortcut
+  itself would be a new change, the maintainer's call.
+- **Tools › TSP Solver plans through a clone machine with a monster on it.** The solver empties the
+  monster list before planning (`setupState`) and `normalizeState` turns every tile it does not keep
+  into floor, a monster's included, then wipes the bottom layer; so a clone machine holding a
+  monster reads as floor. The engine refuses Chip there (`MSCreature.tryMove` judges a creature on a
+  clone machine against the machine), so a route through one stops short and the solver still
+  reports "Finished!". Read in the code by the jc-47 review, not measured; upstream's code in every
+  build. jc-47 fixed only the exit on a clone machine, the square its engine change refuses.

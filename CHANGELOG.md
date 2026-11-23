@@ -12,6 +12,46 @@ This file is a summary. `README.txt` section 7 is the user-facing history that s
 and `FORK.md` is the engineering record: why each change exists, what broke first, and what was
 measured. All three are updated together — see [`.github/RELEASING.md`](.github/RELEASING.md).
 
+## jc-47 — 2026-11-23 (an exit on a clone machine refuses Chip, under MS)
+
+The fork's own engine change, at the maintainer's ruling that this is MSCC's rule, and the first of
+the fork's OWN changes to take stored solutions away on purpose: 4 of 24,252 lose the exit.
+
+### Changed
+- **Under MS, an exit on a clone machine refuses Chip, exactly as a wall does (`2cf1e28`).** One
+  condition in `MSCreature.tryMove`: a move by Chip onto a square with `EXIT` on top and
+  `CLONE_MACHINE` below is judged against the clone machine, the path that already turned away a
+  monster, a block, and Chip at an occupied cloner, so `tryEnter` refuses it as it refuses a wall.
+  Upstream (and every earlier jc-N) judged Chip against the top tile, so he walked onto the exit and
+  won. Official Tile World 2.3.1 refuses the square the same way (`canmakemove`: a clone machine on
+  the bottom layer returns `FALSE`). **Exit only, by the maintainer's decision:** Tile World refuses
+  Chip every square with a buried clone machine, but whether MSCC does for a chip, key, boots, door
+  or floor is not settled, so those are still entered as before. Lynx unchanged. Corpus against
+  jc-46: 24,248 of 24,252 identical; the 4 others are LOST THE EXIT, each a route that won by
+  stepping onto such an exit (d-bomb #64, JimmyV1 #29, TomP3 #58 and its copy in TomP3Lynx), all
+  four already invalid in official Tile World 2.3.1.
+
+### Fixed
+- **Tools › TSP Solver plans around an exit on a clone machine (`2cf1e28`).** `TSPSolver` wipes the
+  bottom layer before planning, so it saw an ordinary exit there, routed Chip to it, played a route
+  that now stops a square short, and still reported "Finished!". `normalizeState` now makes the
+  square a wall and the constructor drops it from the exits (`withoutRefusedExits`). Walling it
+  alone was not enough: with one chip upstream's annealer never compares exits and takes the first,
+  so a refused first exit ended the run in a `NullPointerException` from `createSolution`, shown in
+  the TSP window as an error. That shortcut is upstream's and is recorded in
+  `BASELINE-ISSUES.md` (NOT introduced), not fixed here. `TSPSolver` joins `$SPLICE_MODIFIED`.
+
+### Changed (tests only)
+- New `ExitOnClonerTest` (85 checks): the square must behave tick for tick like a wall in the same
+  place (position, facing, sliding flag, RNG, win) on foot from four sides, on ice, a force floor
+  and a random force floor (ten seeds, and a key pressed into it from one), out of a teleport, and
+  toward three kinds of mouse click, each with a plain-exit control that must be won; other tiles
+  on a clone machine are still entered; a tank and a pushed block are still refused; the TSP solver
+  routes to the plain exit, or says no exit can be reached. On jc-46's jar 47 checks fail, every
+  one a refusal or a TSP check; on the engine change without the TSP fix, exactly the 3 TSP checks.
+  13 defects planted, 12 caught; the 13th (the wall's failure path copied exactly, without
+  `tryEnter`) is equivalent, and `FORK.md` says why.
+
 ## jc-46 — 2026-11-21 (the fix layer: auto-diagonals are jc-18's again)
 
 The rest of the auto-diagonals step goes back on the upstream baseline, as one rewrite. It closes

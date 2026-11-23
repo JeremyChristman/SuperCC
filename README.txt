@@ -1,5 +1,5 @@
 ==============================================================================
-  SuperCC  --  Jeremy Christman's fork                      build jc-46
+  SuperCC  --  Jeremy Christman's fork                      build jc-47
 ==============================================================================
 
   1. What this is
@@ -610,6 +610,37 @@ AlwaysOpenInMS  Whether every level set opens under the MS ruleset, no matter
 Releases from jc-2 on carry a jc-N tag in the repository. The title bar, when
 ShowBuildTag is on, shows the build tag compiled into the jar, which matches
 the tag for that release. Newest first.
+
+
+jc-47  --  An exit on a clone machine no longer lets Chip in
+------------------------------------------------------------
+
+  * UNDER MS, CHIP CAN NO LONGER STEP ONTO AN EXIT THAT SITS ON A CLONE
+    MACHINE. In the original Microsoft game that square stops him the
+    way a wall does, and level designers use it that way: 247 levels in
+    40 sets in the maintainer's collection have one. Every earlier
+    SuperCC, the official releases included, let Chip walk onto it and
+    win. Now he is refused exactly as a wall there would refuse him --
+    walking, sliding on ice or a force floor, stepping out of a
+    teleport, or following a mouse click -- with the same facing and
+    the same random numbers afterwards.
+
+  * ONLY THE EXIT. Official Tile World refuses Chip every square with a
+    clone machine underneath, but whether the original game does for a
+    computer chip, a key, boots, a door or plain floor on one is not
+    settled, so those are still entered exactly as before. Lynx is
+    unchanged.
+
+  * THIS CHANGES STORED SOLUTIONS, ON PURPOSE. 4 of the 24,252 in the
+    maintainer's collection won by stepping onto such an exit, and now
+    end without winning: d-bomb #64, JimmyV1 #29, and TomP3 #58 (with
+    its copy in TomP3Lynx). Official Tile World already rejected all
+    four. Every other stored solution replays exactly as on jc-46.
+
+  * TOOLS > TSP SOLVER PLANS AROUND SUCH AN EXIT. It routed Chip to one,
+    played a route that now stops a square short, and still said
+    "Finished!". It no longer counts that square as an exit, so a level
+    whose only exits sit on clone machines gets "No exit accessible!".
 
 
 jc-46  --  Auto diagonals work as in jc-18 to jc-22 again

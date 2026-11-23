@@ -243,6 +243,7 @@ test/TwsClickTest.java       exporting a CLICK to .tws -- the jc-2 fix, via the 
 test/MsTryEnterTest.java     MS ARRIVAL effects -- what a tile does to whoever steps on it
 test/MsCreatureListTest.java MS list per TICK -- FORWARD order, the teeth clock, what MS refuses
 test/MsCloneTrapTest.java    MS clone machines and beartraps -- the dispatch, and traps that START occupied
+test/ExitOnClonerTest.java   MS: an EXIT on a clone machine refuses Chip exactly as a wall does (jc-47); other tiles on one still let him in
 test/WindowTitleTest.java    the window title -- all 8 combinations of the three jc-14 switches
 test/LinkTest.java           every call between the fork's classes resolves IN THE BUILT JAR (§1's splice hazard)
 test/InputDiscardTest.java   which keys Level.tick reports as DISCARDED, and the WAIT the move list records
@@ -346,7 +347,7 @@ taken. JaCoCo is a test-time tool cached under `%LOCALAPPDATA%\jacoco\<version>\
 dependency**, never committed, never shipped. Output goes to `coverage-report\` (gitignored);
 `coverage.csv` is the evidence behind every percentage below.
 
-As of jc-46, with all 2,737 assertions passing (none of them `upstreamBug` pins any more: the fix layer is complete, §6) and 3 skipped —
+As of jc-47, with all 2,822 assertions passing (none of them `upstreamBug` pins any more: the fix layer is complete, §6) and 3 skipped —
 counts for a machine with 4 or more CPUs. `SeedSearchTest` §3 makes one check per search thread, so a
 3-CPU run has one pass fewer and a 2-CPU run two; at 1 CPU §3 and §2's three 8-seed thread checks are skipped
 (measured at jc-41, when §3's checks were pins: 7 passes and 6 pins fewer, 2 skips more; since
@@ -355,16 +356,16 @@ same figures):
 
 | scope | branch | line | branches |
 |---|---|---|---|
-| **`game\**` + `io\**` — THE TARGET** | **57.5%** | 71.9% | 1557/2706 |
-| &nbsp;&nbsp;`game\**` (the emulator) | 53.8% | 68.0% | 1210/2247 |
-| &nbsp;&nbsp;&nbsp;&nbsp;`game\MS\**` | 47.7% | 62.6% | 558/1170 |
+| **`game\**` + `io\**` — THE TARGET** | **61.1%** | 73.8% | 1654/2708 |
+| &nbsp;&nbsp;`game\**` (the emulator) | 58.1% | 70.6% | 1307/2249 |
+| &nbsp;&nbsp;&nbsp;&nbsp;`game\MS\**` | 55.3% | 67.6% | 648/1172 |
 | &nbsp;&nbsp;&nbsp;&nbsp;`game\Lynx\**` | 63.5% | 71.3% | 466/734 |
-| &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 54.2% | 73.0% | 186/343 |
+| &nbsp;&nbsp;&nbsp;&nbsp;`game\*` + `button\**` (shared) | 56.3% | 74.5% | 193/343 |
 | &nbsp;&nbsp;`io\**` (file formats) | 75.6% | 82.6% | 347/459 |
 | `emulator\**` | 37.3% | 38.1% | 199/534 |
-| `tools\**` + `graphics\**` — *not a target* | 5.2% | 10.2% | 106/2041 |
+| `tools\**` + `graphics\**` — *not a target* | 11.8% | 16.6% | 242/2049 |
 
-**Read this correctly.** Whole-project branch coverage is 31.6% (1974/6247), and that number is
+**Read this correctly.** Whole-project branch coverage is 35.3% (2207/6257), and that number is
 meaningless: 15 form-based classes can be rebuilt here only by copying IntelliJ's output (ADR 0010), `tools\**`
 is 35 files of upstream code this fork does not modify, `graphics\**` is Swing with no headless test
 story, and the rest is vendored `org.json` / `com.intellij`. What this fork can break is the engine
@@ -375,7 +376,7 @@ spliced class is compiled by your `javac`, and `build-config.ps1` already notes 
 not emit identical bytecode to javac 16. That was once only the five `io\**` classes (`ErrorLog`,
 `LevelFactory`, `SuccPaths`, `TWSReader`, `TWSWriter`, 382 branches at jc-15, 422 now). Since the upstream
 trap merge (2026-11-02) it is also `MSCreature`, `MSLevel` and `LynxLevel` (plus `Level` and
-`BrownButton`, which have none): another 1,162 branches — 1,584 of the target's 2,706 in all. Only the rest comes from the committed
+`BrownButton`, which have none): another 1,164 branches — 1,586 of the target's 2,708 in all. Only the rest comes from the committed
 baseline and is byte-identical on every machine. A figure that differs slightly on another JDK is not
 a bug, but it is not the baseline either: `docs/coverage-baseline.tsv` and the table above are
 measured on 16.0.2, what CI and the release workflow pin. A machine without it does not need an
@@ -383,16 +384,18 @@ install: jc-15's baseline was taken on the laptop (JDK 18) from Temurin 16.0.2+7
 uses, checked against Adoptium's published SHA-256 — unpacked to a scratch folder, with `JAVA_HOME`
 pointed at it for the one command. `build-config.ps1` lets `JAVA_HOME` win.
 
-**57.5% is a floor to build on, not a passing grade**, and the split says where the work is:
+**61.1% is a floor to build on, not a passing grade**, and the split says where the work is:
 
-- **Lynx is ahead now — MS 47.7%, Lynx 63.5% — and both took deliberate work.**
+- **Lynx is ahead now — MS 55.3%, Lynx 63.5% — and both took deliberate work.**
   Four Lynx files built that side (the move-preference table `LynxCreatureMoveTest`, the entry rules
   `LynxCanEnterTest`, the creature list `LynxCreatureListTest`, the movement engine `LynxTickTest`,
   all against `lxlogic.c`); three MS files closed the gap (`MsTryEnterTest`, `MsCreatureListTest`,
-  `MsCloneTrapTest`). **`MSCreature` (44.8%, 355/793) is now the single largest pool of uncovered
+  `MsCloneTrapTest`), and jc-47's `ExitOnClonerTest` took MS from 47.7% to 55.3% on its own: it
+  drives Chip through ice, force floors, random force floors, teleports and clicks to reach one
+  square. **`MSCreature` (53.1%, 422/795) is still the single largest pool of uncovered
   engine branches in the repo** — over a third of `game\**` lives in that one class — and MS is
   the ruleset the maintainer's own solutions replay against, so it is the obvious next target.
-  `game.MS.MSLevel` (49.8%, 124/249) is the next engine class down. (Both fell a little at jc-19 —
+  `game.MS.MSLevel` (59.0%, 147/249) is the next engine class down. (Both fell a little at jc-19 —
   upstream's trap code has fewer branches, and a trap that did not open at the start took the tests'
   Chip and blocks down fewer paths — and rose partway back at jc-24, when trap Fix 1 opened it again.
   At jc-26 two of `MSLevel`'s branches moved to `LevelFactory` with the trap numbering, so its
@@ -751,6 +754,15 @@ covering on, off, the wrong section, and the no-space typo.
 Each of these looks like a bug or an oversight and is not. The ADRs carry the full reasoning.
 
 - **The committed `.class` baseline.** It is not build output that escaped `.gitignore`. See §1.
+- **Under MS, an EXIT on a clone machine refuses Chip, and ONLY an exit (jc-47).**
+  `MSCreature.tryMove` judges that move against the clone machine underneath, the way it already
+  judged a monster's, so Chip is refused exactly as a wall refuses him: the maintainer's ruling
+  (2026-11-23) that this is MSCC's rule. It looks half-done beside official Tile World, which
+  refuses Chip EVERY square with a clone machine underneath (a chip, a key, boots, a door, floor),
+  and beside upstream SuperCC, which refuses him none of them. **Do not widen it to those tiles, and
+  do not take it back out:** the maintainer was not sure MSCC refuses the others and chose not to
+  assume it. `ExitOnClonerTest` §4 fails if the rule widens. A change either way is his decision,
+  and it moves stored solutions.
 - **Upstream's code is kept exactly — bugs included — on purpose (2026-11-08 on).** Jeremy is
   returning the fork to upstream one deviation at a time before layering fixes back on top (FORK.md,
   *The upstream baseline*, which lists every step). Reverted: the trap code (`79b0032`; all four of
